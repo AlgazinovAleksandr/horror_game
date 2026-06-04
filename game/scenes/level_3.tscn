@@ -1,0 +1,438 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_3.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/player.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/note.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/door.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/creature_static.gd" id="5"]
+
+[sub_resource type="Environment" id="1"]
+background_mode = 1
+background_color = Color(0.01, 0.0, 0.02, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.03, 0.02, 0.06, 1)
+ambient_light_energy = 0.15
+
+[sub_resource type="CapsuleShape3D" id="2"]
+radius = 0.4
+height = 1.8
+
+[sub_resource type="BoxMesh" id="3"]
+size = Vector3(0.21, 0.005, 0.297)
+
+[sub_resource type="BoxShape3D" id="4"]
+size = Vector3(0.21, 0.005, 0.297)
+
+[sub_resource type="BoxMesh" id="5"]
+size = Vector3(1.0, 2.2, 0.15)
+
+[sub_resource type="BoxShape3D" id="6"]
+size = Vector3(1.0, 2.2, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="7"]
+albedo_color = Color(0.15, 0.45, 1.0, 1)
+emission_enabled = true
+emission = Color(0.15, 0.45, 1.0, 1)
+emission_energy_multiplier = 5.0
+
+[sub_resource type="CapsuleMesh" id="8"]
+radius = 0.3
+height = 1.7
+
+; ── Scene root ────────────────────────────────────────────────────────────────
+
+[node name="Level3" type="Node3D"]
+script = ExtResource("1")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("1")
+
+[node name="AmbientPlayer" type="AudioStreamPlayer" parent="."]
+autoplay = false
+
+; ── Room A (player start) ─────────────────────────────────────────────────────
+
+[node name="RoomAFloor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomACeiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.15, 0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomAWallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.15, 1.5, 0)
+size = Vector3(0.3, 3.3, 6.0)
+use_collision = true
+
+[node name="RoomAWallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.15, 1.5, 0)
+size = Vector3(0.3, 3.3, 6.0)
+use_collision = true
+
+[node name="RoomAWallBack" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -3.15)
+size = Vector3(6.0, 3.3, 0.3)
+use_collision = true
+
+[node name="LightA" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 0)
+light_color = Color(0.6, 0.7, 1.0, 1)
+light_energy = 0.4
+omni_range = 5.0
+
+; ── Room B ────────────────────────────────────────────────────────────────────
+
+[node name="RoomBFloor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, -0.15, 0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomBCeiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 3.15, 0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomBWallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.15, 1.5, 0)
+size = Vector3(0.3, 3.3, 6.0)
+use_collision = true
+
+[node name="RoomBWallBack" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 1.5, -3.15)
+size = Vector3(6.0, 3.3, 0.3)
+use_collision = true
+
+[node name="RoomBWallFront" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 1.5, 3.15)
+size = Vector3(6.0, 3.3, 0.3)
+use_collision = true
+
+[node name="CorridorAB_Floor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, -0.15, 0)
+size = Vector3(2.3, 0.3, 2.0)
+use_collision = true
+
+[node name="CorridorAB_Ceiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 3.15, 0)
+size = Vector3(2.3, 0.3, 2.0)
+use_collision = true
+
+[node name="CorridorAB_WallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 1.5, -1.15)
+size = Vector3(2.3, 3.3, 0.3)
+use_collision = true
+
+[node name="CorridorAB_WallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 1.5, 1.15)
+size = Vector3(2.3, 3.3, 0.3)
+use_collision = true
+
+[node name="LightB" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 2.8, 0)
+light_color = Color(0.8, 0.6, 1.0, 1)
+light_energy = 0.35
+omni_range = 5.0
+
+; ── Room C ────────────────────────────────────────────────────────────────────
+
+[node name="RoomCFloor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, -0.15, 8.0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomCCeiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 3.15, 8.0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomCWallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.15, 1.5, 8.0)
+size = Vector3(0.3, 3.3, 6.0)
+use_collision = true
+
+[node name="RoomCWallBack" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 1.5, 11.15)
+size = Vector3(6.0, 3.3, 0.3)
+use_collision = true
+
+[node name="CorridorBC_Floor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, -0.15, 4.0)
+size = Vector3(2.0, 0.3, 2.3)
+use_collision = true
+
+[node name="CorridorBC_Ceiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 3.15, 4.0)
+size = Vector3(2.0, 0.3, 2.3)
+use_collision = true
+
+[node name="CorridorBC_WallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.0, 1.5, 4.0)
+size = Vector3(0.3, 3.3, 2.3)
+use_collision = true
+
+[node name="CorridorBC_WallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.0, 1.5, 4.0)
+size = Vector3(0.3, 3.3, 2.3)
+use_collision = true
+
+[node name="LightC" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8.0, 2.8, 8.0)
+light_color = Color(0.6, 1.0, 0.7, 1)
+light_energy = 0.3
+omni_range = 5.0
+
+; ── Room D (exit room) ────────────────────────────────────────────────────────
+
+[node name="RoomDFloor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 8.0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomDCeiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.15, 8.0)
+size = Vector3(6.0, 0.3, 6.0)
+use_collision = true
+
+[node name="RoomDWallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.15, 1.5, 8.0)
+size = Vector3(0.3, 3.3, 6.0)
+use_collision = true
+
+[node name="RoomDWallBack" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 11.15)
+size = Vector3(6.0, 3.3, 0.3)
+use_collision = true
+
+[node name="CorridorDA_Floor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 4.0)
+size = Vector3(2.0, 0.3, 2.3)
+use_collision = true
+
+[node name="CorridorDA_Ceiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.15, 4.0)
+size = Vector3(2.0, 0.3, 2.3)
+use_collision = true
+
+[node name="CorridorDA_WallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.15, 1.5, 4.0)
+size = Vector3(0.3, 3.3, 2.3)
+use_collision = true
+
+[node name="CorridorDA_WallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.15, 1.5, 4.0)
+size = Vector3(0.3, 3.3, 2.3)
+use_collision = true
+
+[node name="CorridorCD_Floor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, -0.15, 8.0)
+size = Vector3(2.3, 0.3, 2.0)
+use_collision = true
+
+[node name="CorridorCD_Ceiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 3.15, 8.0)
+size = Vector3(2.3, 0.3, 2.0)
+use_collision = true
+
+[node name="CorridorCD_WallL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 1.5, 7.0)
+size = Vector3(2.3, 3.3, 0.3)
+use_collision = true
+
+[node name="CorridorCD_WallR" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 1.5, 9.0)
+size = Vector3(2.3, 3.3, 0.3)
+use_collision = true
+
+[node name="LightD" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.8, 8.0)
+light_color = Color(1.0, 0.6, 0.6, 1)
+light_energy = 0.25
+omni_range = 4.5
+
+; ── Creature instances (one per room, static) ─────────────────────────────────
+
+[node name="CreatureA" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.0, 0, -2.0)
+script = ExtResource("5")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CreatureA"]
+mesh = SubResource("8")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+
+[node name="CreatureB" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.0, 0, -2.0)
+script = ExtResource("5")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CreatureB"]
+mesh = SubResource("8")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+
+[node name="CreatureC" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.0, 0, 10.0)
+script = ExtResource("5")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CreatureC"]
+mesh = SubResource("8")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+
+[node name="CreatureD" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.0, 0, 10.0)
+script = ExtResource("5")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="CreatureD"]
+mesh = SubResource("8")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+
+; ── Notes ─────────────────────────────────────────────────────────────────────
+
+[node name="NoteVoid1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 1.0, 1.2, -2.0)
+script = ExtResource("3")
+note_text = "You have been here before.\n\nYou don't remember it, but the walls do."
+is_trap = false
+
+[node name="NoteVoid1Mesh" type="MeshInstance3D" parent="NoteVoid1"]
+mesh = SubResource("3")
+
+[node name="NoteVoid1Col" type="CollisionShape3D" parent="NoteVoid1"]
+shape = SubResource("4")
+
+[node name="NoteVoid2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 9.0, 1.2, -1.0)
+script = ExtResource("3")
+note_text = "We expected failure on trial 1.\n\nWe did not expect you to reach trial 17."
+is_trap = false
+
+[node name="NoteVoid2Mesh" type="MeshInstance3D" parent="NoteVoid2"]
+mesh = SubResource("3")
+
+[node name="NoteVoid2Col" type="CollisionShape3D" parent="NoteVoid2"]
+shape = SubResource("4")
+
+[node name="NoteVoid3" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 9.0, 1.2, 9.0)
+script = ExtResource("3")
+note_text = "The handwriting on the wall is yours.\n\nYou wrote it on trial 8. You wrote it again on trial 12.\n\nYou don't remember."
+is_trap = false
+
+[node name="NoteVoid3Mesh" type="MeshInstance3D" parent="NoteVoid3"]
+mesh = SubResource("3")
+
+[node name="NoteVoid3Col" type="CollisionShape3D" parent="NoteVoid3"]
+shape = SubResource("4")
+
+[node name="NoteVoid4" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -1.0, 1.2, 9.0)
+script = ExtResource("3")
+note_text = "The door opens for those who understand.\n\nYou will understand soon."
+is_trap = false
+
+[node name="NoteVoid4Mesh" type="MeshInstance3D" parent="NoteVoid4"]
+mesh = SubResource("3")
+
+[node name="NoteVoid4Col" type="CollisionShape3D" parent="NoteVoid4"]
+shape = SubResource("4")
+
+[node name="TwistNote" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -1.5, 1.2, 6.5)
+script = ExtResource("3")
+note_text = "There is no end condition.\n\nThere never was. Subjects loop indefinitely. The experiment requires fear, not resolution.\n\nYou will walk through that door.\n\nYou always do."
+is_trap = false
+is_twist_note = true
+
+[node name="TwistNoteMesh" type="MeshInstance3D" parent="TwistNote"]
+mesh = SubResource("3")
+
+[node name="TwistNoteCol" type="CollisionShape3D" parent="TwistNote"]
+shape = SubResource("4")
+
+[node name="TrapVoid1" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 8.5, 1.2, 0.5)
+script = ExtResource("3")
+note_text = "help me help me help me help me\n\ni can see it behind you right now\n\nDONT TURN AROUND"
+is_trap = true
+
+[node name="TrapVoid1Mesh" type="MeshInstance3D" parent="TrapVoid1"]
+mesh = SubResource("3")
+
+[node name="TrapVoid1Col" type="CollisionShape3D" parent="TrapVoid1"]
+shape = SubResource("4")
+
+[node name="TrapVoid2" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 5.5, 1.2, 8.5)
+script = ExtResource("3")
+note_text = "47 47 47 47 47 47 47 47 47 47\n\nwe see you 47\n\n47 47 47 47 47 47 47 47 47 47"
+is_trap = true
+
+[node name="TrapVoid2Mesh" type="MeshInstance3D" parent="TrapVoid2"]
+mesh = SubResource("3")
+
+[node name="TrapVoid2Col" type="CollisionShape3D" parent="TrapVoid2"]
+shape = SubResource("4")
+
+[node name="TrapVoid3" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 1.0, 1.2, 5.0)
+script = ExtResource("3")
+note_text = "The exit is not an exit."
+is_trap = true
+
+[node name="TrapVoid3Mesh" type="MeshInstance3D" parent="TrapVoid3"]
+mesh = SubResource("3")
+
+[node name="TrapVoid3Col" type="CollisionShape3D" parent="TrapVoid3"]
+shape = SubResource("4")
+
+; ── Exit door (twist-locked) ──────────────────────────────────────────────────
+
+[node name="ExitDoor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 11.05)
+script = ExtResource("4")
+unlock_condition = 3
+advances_level = true
+
+[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor"]
+mesh = SubResource("5")
+surface_material_override/0 = SubResource("7")
+
+[node name="DoorCol" type="CollisionShape3D" parent="ExitDoor"]
+shape = SubResource("6")
+
+; ── Player ────────────────────────────────────────────────────────────────────
+
+[node name="Player" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -2.0)
+script = ExtResource("2")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("2")
+
+[node name="Camera3D" type="Camera3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+
+[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D"]
+light_energy = 1.2
+spot_range = 15.0
+spot_angle = 25.0
+spot_angle_attenuation = 0.3
+shadow_enabled = true
+
+[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player"]
+
+[node name="InteractUI" type="CanvasLayer" parent="Player"]
+
+[node name="Label" type="Label" parent="Player/InteractUI"]
+anchor_left = 0.5
+anchor_top = 0.6
+anchor_right = 0.5
+anchor_bottom = 0.6
+offset_left = -60.0
+offset_top = -15.0
+offset_right = 60.0
+offset_bottom = 15.0
+text = "Press E"
+horizontal_alignment = 1
+visible = false
