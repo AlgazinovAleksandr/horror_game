@@ -34,22 +34,34 @@ func _apply_textures() -> void:
 		if ResourceLoader.exists("res://assets/textures/wall_house.png") else null
 	var floor_tex: Texture2D = load("res://assets/textures/floor_house.png") \
 		if ResourceLoader.exists("res://assets/textures/floor_house.png") else null
-	if not wall_tex and not floor_tex:
-		return
+	var ceiling_tex: Texture2D = load("res://assets/textures/ceiling_house.png") \
+		if ResourceLoader.exists("res://assets/textures/ceiling_house.png") else null
+	var painting_tex: Texture2D = load("res://assets/textures/painting_house.png") \
+		if ResourceLoader.exists("res://assets/textures/painting_house.png") else null
 	for child in get_children():
-		if not child is CSGBox3D:
-			continue
 		var n: String = child.name.to_lower()
-		var mat := StandardMaterial3D.new()
-		mat.uv1_scale = Vector3(2.0, 2.0, 2.0)
-		if n.contains("floor"):
-			if floor_tex:
-				mat.albedo_texture = floor_tex
-				child.material = mat
-		elif n.contains("wall") or n.contains("ceiling"):
-			if wall_tex:
-				mat.albedo_texture = wall_tex
-				child.material = mat
+		if child is CSGBox3D:
+			var mat := StandardMaterial3D.new()
+			mat.uv1_scale = Vector3(2.0, 2.0, 2.0)
+			if n.contains("floor"):
+				if floor_tex:
+					mat.albedo_texture = floor_tex
+					child.material = mat
+			elif n.contains("ceiling"):
+				if ceiling_tex:
+					mat.albedo_texture = ceiling_tex
+					child.material = mat
+			elif n.contains("wall"):
+				if wall_tex:
+					mat.albedo_texture = wall_tex
+					child.material = mat
+		elif child is MeshInstance3D:
+			var mat := StandardMaterial3D.new()
+			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
+			if n.contains("painting"):
+				if painting_tex:
+					mat.albedo_texture = painting_tex
+					child.set_surface_override_material(0, mat)
 
 
 func _process(delta: float) -> void:

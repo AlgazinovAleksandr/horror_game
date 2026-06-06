@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://scripts/level_1.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="2"]
@@ -56,6 +56,12 @@ emission_energy_multiplier = 1.5
 
 [sub_resource type="BoxShape3D" id="13"]
 size = Vector3(0.3, 0.3, 0.6)
+
+[sub_resource type="BoxMesh" id="14"]
+size = Vector3(0.6, 0.8, 0.01)
+
+[sub_resource type="BoxMesh" id="15"]
+size = Vector3(0.5, 0.01, 0.4)
 
 ; ── Scene root ────────────────────────────────────────────────────────────────
 
@@ -293,6 +299,16 @@ surface_material_override/0 = SubResource("9")
 
 [node name="DoorCol" type="CollisionShape3D" parent="ExitDoor"]
 shape = SubResource("8")
+
+; ── Decals ────────────────────────────────────────────────────────────────────
+
+[node name="PosterLab" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -5.07)
+mesh = SubResource("14")
+
+[node name="BloodLab" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 0.01, 1.3)
+mesh = SubResource("15")
 
 ; ── Player ────────────────────────────────────────────────────────────────────
 

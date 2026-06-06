@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/level_2.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="2"]
@@ -40,6 +40,9 @@ size = Vector3(0.08, 0.12, 0.04)
 
 [sub_resource type="BoxShape3D" id="9"]
 size = Vector3(0.08, 0.12, 0.04)
+
+[sub_resource type="BoxMesh" id="10"]
+size = Vector3(0.8, 1.0, 0.01)
 
 ; ── Scene root ────────────────────────────────────────────────────────────────
 
@@ -246,6 +249,12 @@ surface_material_override/0 = SubResource("7")
 
 [node name="DoorCol" type="CollisionShape3D" parent="ExitDoor"]
 shape = SubResource("6")
+
+; ── Decals ────────────────────────────────────────────────────────────────────
+
+[node name="PaintingHouse" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0, 1.5, 8.07)
+mesh = SubResource("10")
 
 ; ── Player ────────────────────────────────────────────────────────────────────
 

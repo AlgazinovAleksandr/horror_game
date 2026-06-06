@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/intro_room.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="2"]
@@ -33,6 +33,12 @@ albedo_color = Color(0.15, 0.45, 1.0, 1)
 emission_enabled = true
 emission = Color(0.15, 0.45, 1.0, 1)
 emission_energy_multiplier = 5.0
+
+[sub_resource type="BoxMesh" id="8"]
+size = Vector3(1.0, 0.8, 0.01)
+
+[sub_resource type="BoxMesh" id="9"]
+size = Vector3(0.55, 0.55, 0.01)
 
 ; ── Scene root ────────────────────────────────────────────────────────────────
 
@@ -118,6 +124,20 @@ surface_material_override/0 = SubResource("7")
 
 [node name="DoorCollision" type="CollisionShape3D" parent="ExitDoor"]
 shape = SubResource("6")
+
+; ── Decals ────────────────────────────────────────────────────────────────────
+
+[node name="PaintingIntro" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, -2.57)
+mesh = SubResource("8")
+
+[node name="CobwebL" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707, -2.3, 2.65, -2.3)
+mesh = SubResource("9")
+
+[node name="CobwebR" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707, 0, -0.707, 0, 1, 0, 0.707, 0, 0.707, 2.3, 2.65, -2.3)
+mesh = SubResource("9")
 
 ; ── Player ────────────────────────────────────────────────────────────────────
 

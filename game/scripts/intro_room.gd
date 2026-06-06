@@ -14,12 +14,55 @@ const BASE_ENERGY := 1.8
 func _ready() -> void:
 	GameState.current_level = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_apply_textures()
 
 	if GameState.is_ending:
 		note.note_text = ENDING_NOTE
 		NoteUI.closed.connect(_on_ending_note_closed, CONNECT_ONE_SHOT)
 	else:
 		note.note_text = OPENING_NOTE
+
+
+func _apply_textures() -> void:
+	var wall_tex: Texture2D = load("res://assets/textures/wall_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/wall_intro.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/floor_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/floor_intro.png") else null
+	var ceiling_tex: Texture2D = load("res://assets/textures/ceiling_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/ceiling_intro.png") else null
+	var painting_tex: Texture2D = load("res://assets/textures/painting_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/painting_intro.png") else null
+	var cobweb_tex: Texture2D = load("res://assets/textures/cobweb_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/cobweb_intro.png") else null
+	for child in get_children():
+		var n: String = child.name.to_lower()
+		if child is CSGBox3D:
+			var mat := StandardMaterial3D.new()
+			mat.uv1_scale = Vector3(2.0, 2.0, 2.0)
+			if n.contains("ceiling"):
+				if ceiling_tex:
+					mat.albedo_texture = ceiling_tex
+					child.material = mat
+			elif n.contains("floor"):
+				if floor_tex:
+					mat.albedo_texture = floor_tex
+					child.material = mat
+			elif n.contains("wall"):
+				if wall_tex:
+					mat.albedo_texture = wall_tex
+					child.material = mat
+		elif child is MeshInstance3D:
+			var mat := StandardMaterial3D.new()
+			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
+			if n.contains("painting"):
+				if painting_tex:
+					mat.albedo_texture = painting_tex
+					child.set_surface_override_material(0, mat)
+			elif n.contains("cobweb"):
+				if cobweb_tex:
+					mat.albedo_texture = cobweb_tex
+					mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+					child.set_surface_override_material(0, mat)
 
 
 func _process(delta: float) -> void:

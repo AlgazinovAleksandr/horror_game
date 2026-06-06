@@ -15,18 +15,18 @@ Columns:
 | `wall_house.png` | Peeling domestic wallpaper — muted brown/beige, floral pattern, torn edges | Level 2 (The House) — all wall + ceiling CSGBox3D nodes | done |
 | `floor_house.png` | Worn wooden floorboards — dark oak, visible grain, gapped planks | Level 2 (The House) — all floor CSGBox3D nodes | done |
 | `screamer.png` | Distorted human face — high contrast, wide mouth, horror screamer | Screamer overlay (all levels, on fail) | done |
-| `wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed; small dark room feel | Intro Room — all 4 wall CSGBox3D nodes | to_be_added |
-| `floor_intro.png` | Dark stone slab — faint cracks, slightly uneven; candlelit cellar feel | Intro Room — floor CSGBox3D node | to_be_added |
-| `ceiling_intro.png` | Rough concrete ceiling — darker than walls, slight water stain | Intro Room — ceiling CSGBox3D node | to_be_added |
-| `painting_intro.png` | Abstract unsettling painting — dark blurred figures, gold frame suggestion; hung on intro back wall | Intro Room — MeshInstance3D quad on back wall | to_be_added |
-| `cobweb_intro.png` | Spider web — semi-transparent PNG, detailed silk strands with spider silhouette | Intro Room — MeshInstance3D quads in top corners | to_be_added |
-| `ceiling_lab.png` | Fluorescent drop-ceiling tiles — rectangular grid, yellowed, one tile displaced | Level 1 (The Lab) — ceiling CSGBox3D nodes (currently shares wall_lab) | to_be_added |
-| `poster_lab.png` | Medical anatomy diagram — torso cross-section with handwritten annotations in red; unnerving scrawl | Level 1 (The Lab) — MeshInstance3D quad on exam room wall | to_be_added |
-| `blood_lab.png` | Dried blood smear — dark brownish-red, irregular shape, worn at edges | Level 1 (The Lab) — MeshInstance3D quad near exam table / floor | to_be_added |
-| `ceiling_house.png` | Yellowed domestic ceiling — faint water damage ring stain, flaking paint patches | Level 2 (The House) — ceiling CSGBox3D nodes (currently shares wall_house) | to_be_added |
-| `painting_house.png` | Unnerving portrait — formal Victorian-style figure, eyes slightly wrong, dark background | Level 2 (The House) — MeshInstance3D quad on living room wall | to_be_added |
-| `wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 3 (The Void) — all wall CSGBox3D nodes | to_be_added |
-| `floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 3 (The Void) — all floor CSGBox3D nodes | to_be_added |
+| `wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed; small dark room feel | Intro Room — all 4 wall CSGBox3D nodes | done |
+| `floor_intro.png` | Dark stone slab — faint cracks, slightly uneven; candlelit cellar feel | Intro Room — floor CSGBox3D node | done |
+| `ceiling_intro.png` | Rough concrete ceiling — darker than walls, slight water stain | Intro Room — ceiling CSGBox3D node | done |
+| `painting_intro.png` | Abstract unsettling painting — dark blurred figures, gold frame suggestion; hung on intro back wall | Intro Room — MeshInstance3D quad on back wall | done |
+| `cobweb_intro.png` | Spider web — semi-transparent PNG, detailed silk strands with spider silhouette | Intro Room — MeshInstance3D quads in top corners | done |
+| `ceiling_lab.png` | Fluorescent drop-ceiling tiles — rectangular grid, yellowed, one tile displaced | Level 1 (The Lab) — ceiling CSGBox3D nodes (currently shares wall_lab) | done |
+| `poster_lab.png` | Medical anatomy diagram — torso cross-section with handwritten annotations in red; unnerving scrawl | Level 1 (The Lab) — MeshInstance3D quad on exam room wall | done |
+| `blood_lab.png` | Dried blood smear — dark brownish-red, irregular shape, worn at edges | Level 1 (The Lab) — MeshInstance3D quad near exam table / floor | done |
+| `ceiling_house.png` | Yellowed domestic ceiling — faint water damage ring stain, flaking paint patches | Level 2 (The House) — ceiling CSGBox3D nodes (currently shares wall_house) | done |
+| `painting_house.png` | Unnerving portrait — formal Victorian-style figure, eyes slightly wrong, dark background | Level 2 (The House) — MeshInstance3D quad on living room wall | done |
+| `wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 3 (The Void) — all wall CSGBox3D nodes | done |
+| `floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 3 (The Void) — all floor CSGBox3D nodes | done |
 
 ## Notes
 

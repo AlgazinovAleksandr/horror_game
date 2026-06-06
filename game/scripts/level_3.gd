@@ -22,8 +22,30 @@ func _ready() -> void:
 			ambient.play()
 
 	_reset_shake_timer()
+	_apply_textures()
 	# Strong blue-purple tint, heavy vignette
 	Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
+
+
+func _apply_textures() -> void:
+	var wall_tex: Texture2D = load("res://assets/textures/wall_void.png") \
+		if ResourceLoader.exists("res://assets/textures/wall_void.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/floor_void.png") \
+		if ResourceLoader.exists("res://assets/textures/floor_void.png") else null
+	for child in get_children():
+		if not child is CSGBox3D:
+			continue
+		var n: String = child.name.to_lower()
+		var mat := StandardMaterial3D.new()
+		mat.uv1_scale = Vector3(2.0, 2.0, 2.0)
+		if n.contains("floor"):
+			if floor_tex:
+				mat.albedo_texture = floor_tex
+				child.material = mat
+		elif n.contains("wall"):
+			if wall_tex:
+				mat.albedo_texture = wall_tex
+				child.material = mat
 
 
 func _process(delta: float) -> void:
