@@ -40,6 +40,14 @@ static func load_audio(base_name: String) -> AudioStream:
 	return null
 
 
+func go_back() -> void:
+	current_level -= 1
+	match current_level:
+		0: get_tree().change_scene_to_file(SCENE_INTRO)
+		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
+		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
+
+
 func restart_current_level() -> void:
 	reset_level_state()
 	match current_level:

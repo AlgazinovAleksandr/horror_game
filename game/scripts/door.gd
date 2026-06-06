@@ -4,6 +4,7 @@ enum UnlockCondition { NONE, KEYCARD, CODE_ENTERED, TWIST_READ }
 
 @export var unlock_condition: UnlockCondition = UnlockCondition.NONE
 @export var advances_level: bool = true
+@export var goes_back: bool = false
 
 
 func interact() -> void:
@@ -30,7 +31,10 @@ func _open_door() -> void:
 	var open_audio: AudioStreamPlayer3D = get_node_or_null("OpenAudio")
 	if open_audio and open_audio.stream:
 		open_audio.play()
-	if advances_level:
+	if goes_back:
+		await get_tree().create_timer(0.5).timeout
+		GameState.go_back()
+	elif advances_level:
 		await get_tree().create_timer(0.5).timeout
 		GameState.advance_level()
 

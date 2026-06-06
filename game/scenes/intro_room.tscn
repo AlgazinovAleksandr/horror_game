@@ -1,4 +1,4 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/intro_room.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="2"]
@@ -10,7 +10,7 @@ background_mode = 1
 background_color = Color(0, 0, 0, 1)
 ambient_light_source = 2
 ambient_light_color = Color(0.05, 0.03, 0.01, 1)
-ambient_light_energy = 0.35
+ambient_light_energy = 0.15
 
 [sub_resource type="CapsuleShape3D" id="2"]
 radius = 0.4
@@ -29,16 +29,13 @@ size = Vector3(1.0, 2.2, 0.15)
 size = Vector3(1.0, 2.2, 0.15)
 
 [sub_resource type="StandardMaterial3D" id="7"]
-albedo_color = Color(0.15, 0.45, 1.0, 1)
+albedo_color = Color(0.9, 0.6, 0.2, 1)
 emission_enabled = true
-emission = Color(0.15, 0.45, 1.0, 1)
-emission_energy_multiplier = 5.0
+emission = Color(0.9, 0.6, 0.2, 1)
+emission_energy_multiplier = 3.0
 
 [sub_resource type="BoxMesh" id="8"]
 size = Vector3(1.0, 0.8, 0.01)
-
-[sub_resource type="BoxMesh" id="9"]
-size = Vector3(0.55, 0.55, 0.01)
 
 ; ── Scene root ────────────────────────────────────────────────────────────────
 
@@ -62,35 +59,35 @@ use_collision = true
 
 [node name="WallBack" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -2.65)
-size = Vector3(5.6, 3.3, 0.3)
+size = Vector3(5.6, 3.0, 0.3)
 use_collision = true
 
 [node name="WallFront" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 2.65)
-size = Vector3(5.6, 3.3, 0.3)
+size = Vector3(5.6, 3.0, 0.3)
 use_collision = true
 
 [node name="WallLeft" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.65, 1.5, 0)
-size = Vector3(0.3, 3.3, 5.0)
+size = Vector3(0.3, 3.0, 5.0)
 use_collision = true
 
 [node name="WallRight" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.65, 1.5, 0)
-size = Vector3(0.3, 3.3, 5.0)
+size = Vector3(0.3, 3.0, 5.0)
 use_collision = true
 
 ; ── Table ─────────────────────────────────────────────────────────────────────
 
 [node name="Table" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, -0.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0.0)
 size = Vector3(1.2, 0.8, 0.6)
 use_collision = true
 
 ; ── Candle light (flickered in intro_room.gd) ─────────────────────────────────
 
 [node name="CandleLight" type="OmniLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 1.0, -0.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 1.0, 0.0)
 light_color = Color(1.0, 0.58, 0.18, 1)
 light_energy = 1.8
 omni_range = 5.5
@@ -99,7 +96,7 @@ shadow_enabled = true
 ; ── Note on the table ─────────────────────────────────────────────────────────
 
 [node name="Note" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.4, 1.2, -0.5)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.4, 1.2, 0.0)
 script = ExtResource("3")
 note_text = ""
 is_trap = false
@@ -130,14 +127,6 @@ shape = SubResource("6")
 [node name="PaintingIntro" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, -2.57)
 mesh = SubResource("8")
-
-[node name="CobwebL" type="MeshInstance3D" parent="."]
-transform = Transform3D(0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707, -2.3, 2.65, -2.3)
-mesh = SubResource("9")
-
-[node name="CobwebR" type="MeshInstance3D" parent="."]
-transform = Transform3D(0.707, 0, -0.707, 0, 1, 0, 0.707, 0, 0.707, 2.3, 2.65, -2.3)
-mesh = SubResource("9")
 
 ; ── Player ────────────────────────────────────────────────────────────────────
 

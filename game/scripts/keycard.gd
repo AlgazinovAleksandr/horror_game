@@ -1,6 +1,11 @@
 extends StaticBody3D
 
 
+func _ready() -> void:
+	if GameState.has_keycard:
+		queue_free()
+
+
 func interact() -> void:
 	GameState.has_keycard = true
 	_show_feedback()
@@ -23,5 +28,4 @@ func _show_feedback() -> void:
 	lbl.add_theme_font_size_override("font_size", 36)
 	canvas.add_child(lbl)
 
-	await get_tree().create_timer(2.0).timeout
-	canvas.queue_free()
+	get_tree().create_timer(2.0).timeout.connect(canvas.queue_free)

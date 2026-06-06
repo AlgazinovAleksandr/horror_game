@@ -30,10 +30,10 @@ size = Vector3(1.0, 2.2, 0.15)
 size = Vector3(1.0, 2.2, 0.15)
 
 [sub_resource type="StandardMaterial3D" id="7"]
-albedo_color = Color(0.15, 0.45, 1.0, 1)
+albedo_color = Color(0.9, 0.6, 0.2, 1)
 emission_enabled = true
-emission = Color(0.15, 0.45, 1.0, 1)
-emission_energy_multiplier = 5.0
+emission = Color(0.9, 0.6, 0.2, 1)
+emission_energy_multiplier = 3.0
 
 [sub_resource type="BoxMesh" id="8"]
 size = Vector3(0.08, 0.12, 0.04)
@@ -107,9 +107,14 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.65, 1.35, 5.5)
 size = Vector3(0.3, 3.0, 5.0)
 use_collision = true
 
-[node name="LivWallR" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65, 1.35, 5.5)
-size = Vector3(0.3, 3.0, 5.0)
+[node name="LivWallR_A" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65, 1.35, 3.95)
+size = Vector3(0.3, 3.0, 1.9)
+use_collision = true
+
+[node name="LivWallR_B" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65, 1.35, 7.05)
+size = Vector3(0.3, 3.0, 1.9)
 use_collision = true
 
 ; ── Bedroom: right side of living room ────────────────────────────────────────
@@ -137,6 +142,11 @@ use_collision = true
 [node name="BedWallFront" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 1.35, 2.85)
 size = Vector3(4.0, 3.0, 0.3)
+use_collision = true
+
+[node name="DoorwayFloor" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.0, -0.15, 5.5)
+size = Vector3(1.0, 0.3, 5.0)
 use_collision = true
 
 ; ── Lights ────────────────────────────────────────────────────────────────────
@@ -248,6 +258,22 @@ mesh = SubResource("5")
 surface_material_override/0 = SubResource("7")
 
 [node name="DoorCol" type="CollisionShape3D" parent="ExitDoor"]
+shape = SubResource("6")
+
+; ── Back door (returns to Level 1) ────────────────────────────────────────────
+
+[node name="BackDoor" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, -3.05)
+script = ExtResource("5")
+unlock_condition = 0
+advances_level = false
+goes_back = true
+
+[node name="BackDoorMesh" type="MeshInstance3D" parent="BackDoor"]
+mesh = SubResource("5")
+surface_material_override/0 = SubResource("7")
+
+[node name="BackDoorCol" type="CollisionShape3D" parent="BackDoor"]
 shape = SubResource("6")
 
 ; ── Decals ────────────────────────────────────────────────────────────────────
