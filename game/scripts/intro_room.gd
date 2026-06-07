@@ -2,7 +2,7 @@ extends Node3D
 
 const OPENING_NOTE := "You are Subject 47.\n\nThis is a psychological experiment. Your fear response is being monitored.\n\nThe entity you may encounter is a product of your own mind — it cannot harm you unless you believe it can.\n\nStay calm. Do not touch what you are not meant to touch.\n\nThe door ahead is your first test.\n\nWe are watching."
 
-const ENDING_NOTE := "Very good, Subject 47.\n\nBeginning trial 2."
+const ENDING_NOTE := "This is not an experiment.\n\nThere is no exit.\n\nThey already know where you are."
 
 @onready var candle_light: OmniLight3D = $CandleLight
 @onready var note: Node = $Note
@@ -21,6 +21,8 @@ func _ready() -> void:
 		NoteUI.closed.connect(_on_ending_note_closed, CONNECT_ONE_SHOT)
 	else:
 		note.note_text = OPENING_NOTE
+
+	_spawn_cobwebs()
 
 
 func _apply_textures() -> void:
@@ -56,13 +58,40 @@ func _apply_textures() -> void:
 			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
 			if n.contains("painting"):
 				if painting_tex:
+					var plane := PlaneMesh.new()
+					plane.size = Vector2(1.0, 0.8)
+					child.mesh = plane
+					child.rotation_degrees.x = -90.0
 					mat.albedo_texture = painting_tex
+					mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 					child.set_surface_override_material(0, mat)
 			elif n.contains("cobweb"):
 				if cobweb_tex:
 					mat.albedo_texture = cobweb_tex
 					mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 					child.set_surface_override_material(0, mat)
+
+
+func _spawn_cobwebs() -> void:
+	var cobweb_tex: Texture2D = load("res://assets/textures/cobweb_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/cobweb_intro.png") else null
+	if not cobweb_tex:
+		return
+	var positions := [Vector3(-2.5, 2.6, -2.4), Vector3(2.5, 2.6, -2.4)]
+	for pos in positions:
+		var mesh_inst := MeshInstance3D.new()
+		mesh_inst.name = "CobwebIntro"
+		var plane := PlaneMesh.new()
+		plane.size = Vector2(1.0, 1.0)
+		mesh_inst.mesh = plane
+		mesh_inst.position = pos
+		mesh_inst.rotation_degrees.x = -45.0
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = cobweb_tex
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mesh_inst.set_surface_override_material(0, mat)
+		add_child(mesh_inst)
 
 
 func _process(delta: float) -> void:
@@ -74,17 +103,5 @@ func _process(delta: float) -> void:
 
 
 func _on_ending_note_closed() -> void:
-	# Fade to black then quit (credits could be added here later)
-	var canvas := CanvasLayer.new()
-	canvas.layer = 200
-	add_child(canvas)
-
-	var overlay := ColorRect.new()
-	overlay.color = Color(0, 0, 0, 0)
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	canvas.add_child(overlay)
-
-	var tween := create_tween()
-	tween.tween_property(overlay, "color", Color.BLACK, 2.5)
-	await tween.finished
-	get_tree().quit()
+	await get_tree().create_timer(2.0).timeout
+	Screamer.trigger_to_menu()

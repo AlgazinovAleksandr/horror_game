@@ -72,7 +72,12 @@ func _apply_textures() -> void:
 			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
 			if n.contains("painting"):
 				if painting_tex:
+					var plane := PlaneMesh.new()
+					plane.size = Vector2(1.0, 0.8)
+					child.mesh = plane
+					child.rotation_degrees.x = -90.0
 					mat.albedo_texture = painting_tex
+					mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 					child.set_surface_override_material(0, mat)
 
 

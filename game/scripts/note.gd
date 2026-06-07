@@ -11,19 +11,25 @@ func _ready() -> void:
 
 
 func _style_mesh() -> void:
+	var paper_tex: Texture2D = load("res://assets/textures/note_paper.png") \
+		if ResourceLoader.exists("res://assets/textures/note_paper.png") else null
 	for child in get_children():
 		if not child is MeshInstance3D:
 			continue
 		var mat := StandardMaterial3D.new()
 		if is_trap:
-			# Trap notes: faint red tint
-			mat.albedo_color = Color(0.55, 0.15, 0.15, 1.0)
+			# Trap notes: red tint over paper
+			if paper_tex:
+				mat.albedo_texture = paper_tex
+			mat.albedo_color = Color(0.9, 0.55, 0.55, 1.0)
 			mat.emission_enabled = true
 			mat.emission = Color(0.4, 0.05, 0.05)
 			mat.emission_energy_multiplier = 0.5
 		else:
-			# Safe notes: near-black with warm paper glow so they're visible in dark
-			mat.albedo_color = Color(0.05, 0.05, 0.04, 1.0)
+			# Safe notes: warm paper tint with glow so they're visible in dark
+			if paper_tex:
+				mat.albedo_texture = paper_tex
+			mat.albedo_color = Color(0.92, 0.88, 0.80, 1.0)
 			mat.emission_enabled = true
 			mat.emission = Color(0.55, 0.50, 0.35)
 			mat.emission_energy_multiplier = 0.6

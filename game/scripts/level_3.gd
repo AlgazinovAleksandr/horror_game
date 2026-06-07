@@ -23,8 +23,20 @@ func _ready() -> void:
 
 	_reset_shake_timer()
 	_apply_textures()
+	_spawn_note_tables()
 	# Strong blue-purple tint, heavy vignette
 	Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
+
+
+func _spawn_note_tables() -> void:
+	for child in get_children():
+		if not ("note_text" in child):
+			continue
+		var table := CSGBox3D.new()
+		table.size = Vector3(0.5, 1.2, 0.4)
+		table.use_collision = true
+		table.position = Vector3(child.position.x, 0.6, child.position.z)
+		add_child(table)
 
 
 func _apply_textures() -> void:

@@ -17,6 +17,7 @@ var _gazed_object: Node = null
 var _is_moving: bool = false
 var _footstep_timer: float = 0.0
 var _interact_target: Node = null
+var _heartbeat_player: AudioStreamPlayer = null
 const FOOTSTEP_INTERVAL := 0.5
 
 
@@ -26,6 +27,14 @@ func _ready() -> void:
 	var fs := GameState.load_audio("footstep")
 	if fs:
 		footstep_player.stream = fs
+
+	var hb_stream := GameState.load_audio("heartbeat")
+	if hb_stream:
+		_heartbeat_player = AudioStreamPlayer.new()
+		_heartbeat_player.stream = hb_stream
+		_heartbeat_player.volume_db = -20.0
+		add_child(_heartbeat_player)
+
 	_add_crosshair()
 
 
@@ -132,6 +141,20 @@ func _handle_gaze(delta: float) -> void:
 	else:
 		_gazed_object = null
 		_gaze_timer = 0.0
+	_update_heartbeat()
+
+
+func _update_heartbeat() -> void:
+	if not _heartbeat_player:
+		return
+	var ratio: float = clamp(_gaze_timer / GAZE_TRIGGER_TIME, 0.0, 1.0)
+	if ratio > 0.05:
+		if not _heartbeat_player.playing:
+			_heartbeat_player.play()
+		_heartbeat_player.volume_db = lerp(-20.0, 0.0, ratio)
+		_heartbeat_player.pitch_scale = lerp(0.8, 1.6, ratio)
+	else:
+		_heartbeat_player.stop()
 
 
 func _update_interact_prompt() -> void:

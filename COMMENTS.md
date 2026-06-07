@@ -150,3 +150,29 @@ The tradeoff: dynamically spawned nodes don't appear in the Godot editor scene t
 The intro room is tiny. The table was 0.5m off-centre. The ambient light was bright enough that the candle felt unnecessary — the room was already legible without it. Two solid-colour quad cobwebs in the corners looked like flat black squares rather than cobwebs. Wall heights poked 0.15m into the ceiling, creating a shadow seam from the two overlapping surfaces.
 
 None of these bugs would be noticed in a large open environment. In a 5.6m × 5.6m room with one object (a table) and one interaction (one note), they were impossible to miss. Small spaces require higher fidelity — there's nowhere for imprecision to hide.
+
+---
+
+## Phase 3: Double Screamer, Asset Organisation, Level 3 Tables
+
+### The double-screamer race condition
+
+`Screamer.trigger()` is a coroutine — it uses `await` to sequence the flash, face display, and audio burst before reloading the scene. If the player presses E a second time before the first `await` resolves (or if input repeats), a second coroutine starts on the same node. Two screamer sequences run concurrently, and both eventually call `GameState.restart_current_level()`. The scene reloads twice in quick succession, which can cause the wrong scene to load or crash the scene tree mid-transition.
+
+The fix is a single boolean flag `_is_triggering` at the top of the function. Both `trigger()` and `trigger_to_menu()` return immediately if it's already `true`. The flag resets to `false` just before the scene change call so a fresh trigger would be valid after the reload.
+
+The broader pattern: any `await`-based sequence in an autoload that must not re-enter needs a guard bool at the function level, not at the call site. Guarding at the call site (e.g. disabling the interact key in `player.gd`) creates coupling and is easy to miss — callers outside `player.gd` would also need the guard. Owning the re-entry protection inside the function itself is robust regardless of how many call sites exist.
+
+### Screamer subfolder as a drop-in asset system
+
+Originally the screamer textures were referenced by hardcoded filenames: `screamer.png`, then `screamer_2.png` as a second variant. Every new variant required editing `screamer.gd` to add it to the probe list. Moving to a `DirAccess` scan of `res://assets/textures/screamers/` at startup changes the contract: any `.png` dropped in is automatically picked up with no code changes.
+
+The trade-off is that discovery order is filesystem-dependent and non-deterministic. For random selection of horror faces this is completely fine — the whole point is unpredictability. If order of play ever mattered (e.g., a specific screamer reserved for the ending) the scan approach would need to be supplemented with a naming convention or manifest file.
+
+This is a small example of a broader principle: prefer convention over configuration for asset pipelines. Making the folder itself the registry removes an entire class of "I added the file but forgot to register it" bugs.
+
+### Level 3 note tables: parity fix
+
+Levels 1 and 2 both call `_spawn_note_tables()` in `_ready()`, which dynamically spawns a CSGBox3D pedestal under each note child. Level 3 never got this — an oversight from when Level 3 was built after the function already existed in the other level scripts.
+
+The practical effect was noticeable in the Void's environment specifically. The dark, nearly featureless corridors meant floating note cards had no visual context — nothing nearby for the eye to anchor them to. The tables give players a target to orient toward when scanning a room, and make the notes look like intentionally placed objects rather than floating UI artefacts. In a brighter level you might not notice; in the Void, the absence was jarring once seen.

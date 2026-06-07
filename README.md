@@ -11,13 +11,16 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 - **First-person exploration** — walk through 3 escalating environments
 - **Trigger objects** — specific objects in each level are traps. Interact with them (or stare too long) and the creature comes
 - **Notes** — find and read notes to collect clues, codes, and keycards needed to unlock each exit door
-- **Back doors** — each level has a back door (warm amber glow) that returns you to the previous level, preserving collected items
+- **Back doors** — each level has a back door (blood-red glow) that returns you to the previous level, preserving collected items
 - **No combat** — horror through atmosphere, sound, lighting, and restraint
 
 ## Levels
 
+The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the Intro Room.
+
 | Level | Environment | Win Condition | Fail Condition |
 |-------|-------------|---------------|----------------|
+| Main Menu | Atmospheric background, title screen | Press START | — |
 | Intro | Dark room with candle | Walk through the glowing door | — |
 | 1 — The Lab | Sterile corridor + examination rooms | Find keycard, use on exit door | Touch a trigger object |
 | 2 — The House | Abandoned domestic interior | Read 3 safe notes, enter code on lock | Read a trap note |
@@ -49,7 +52,7 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 |------|-------------|
 | [`COMMENTS.md`](COMMENTS.md) | Developer retrospective — design decisions, technical choices, and observations made throughout the build. Covers horror philosophy, level architecture, Godot patterns used, and what worked unexpectedly well. Starting point for a technical report. |
 | [`ISSUES_SOLUTIONS.md`](ISSUES_SOLUTIONS.md) | Hard-to-diagnose bugs with full root cause analysis. Each entry: symptom → root cause → fix → files changed. Covers the Godot input event double-fire, UI anchor footguns, raycasting geometry edge cases, and the Gemini API JPEG-as-PNG issue. |
-| [`TEXTURES.md`](TEXTURES.md) | Registry of all 17 planned textures — filename, visual description, which level/nodes it applies to, and generation status (`done` / `to_be_added`). Reference before any texture generation session. |
+| [`TEXTURES.md`](TEXTURES.md) | Registry of all 20 textures — filename, visual description, which level/nodes it applies to, and generation status (`done` / `to_be_added`). Reference before any texture generation session. |
 
 ## Known Gotchas
 
@@ -57,3 +60,5 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 ```bash
 sips -s format png path/to/image.png --out path/to/image.png
 ```
+
+**Screamer images are loaded from `game/assets/textures/screamers/` at startup.** Any `.png` file dropped into that folder is picked up automatically via `DirAccess` scan in `screamer.gd` — no code change needed to add new screamer variants.

@@ -85,11 +85,20 @@ func _apply_textures() -> void:
 			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
 			if n.contains("poster"):
 				if poster_tex:
+					var plane := PlaneMesh.new()
+					plane.size = Vector2(0.7, 1.0)
+					child.mesh = plane
+					child.rotation_degrees.x = -90.0
 					mat.albedo_texture = poster_tex
+					mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 					child.set_surface_override_material(0, mat)
 			elif n.contains("blood"):
 				if blood_tex:
+					var plane := PlaneMesh.new()
+					plane.size = Vector2(0.8, 0.6)
+					child.mesh = plane
 					mat.albedo_texture = blood_tex
+					mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 					child.set_surface_override_material(0, mat)
 
 

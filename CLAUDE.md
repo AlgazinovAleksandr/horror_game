@@ -59,7 +59,7 @@ Interact with back door (goes_back=true) → GameState.go_back() → load previo
 ```
 
 ### Door Conventions
-- **Exit doors** and **back doors** both glow **warm amber** (`Color(0.9, 0.6, 0.2)`, emission ×3.0)
+- **Exit doors** and **back doors** both glow **blood-red** (`Color(0.35, 0.02, 0.02)`, emission ×1.5)
 - Back doors have `goes_back = true`, `advances_level = false`, `unlock_condition = NONE`
 - `go_back()` does NOT call `reset_level_state()` — keycard/code flags persist across back-navigation
 
@@ -77,7 +77,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | Autoload | File | What it owns |
 |----------|------|-------------|
 | `GameState` | `scripts/game_state.gd` | Level state, `has_keycard`, `code_entered`, `twist_read`; `advance_level()`; `go_back()` (no state reset); `load_audio(base_name)` |
-| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause) |
+| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` bool guards both `trigger()` and `trigger_to_menu()` against re-entry. Textures loaded via `DirAccess` scan of `res://assets/textures/screamers/` at startup — drop any `.png` there to add it to the rotation. |
 | `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic |
 
 ### Key scripts
@@ -90,14 +90,16 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `creature_static.gd` | Level 3 static creature; `rush_camera()` fires on trigger |
 | `vignette.gd` | `class_name Vignette` — `Vignette.spawn(parent, color, strength)` adds per-level overlay |
 | `keycard.gd` | Pickup → sets `GameState.has_keycard`; auto-hides on reload if already collected |
+| `main_menu.gd` | Main menu: background image (`main_menu_bg.png`), "SUBJECT 47" title, blood-red START/QUIT buttons; START loads `intro_room.tscn`; QUIT calls `get_tree().quit()` |
 
 ### Level scenes
 | Scene | Unlock condition | Notes |
 |-------|-----------------|-------|
+| `main_menu.tscn` | — | Game entry point; background image (`main_menu_bg.png`), START loads `intro_room.tscn` |
 | `intro_room.tscn` | NONE | Player spawn z=+1.5; table centered; ambient 0.15; walls size.y=3.0 |
 | `level_1.tscn` | KEYCARD | Player spawn z=−5.5; `_apply_textures()` + `_spawn_note_tables()` in `level_1.gd`; BackDoor at z=−6.05 |
 | `level_2.tscn` | CODE_ENTERED | Player spawn z=−2.5; LivWallR split for bedroom doorway; DoorwayFloor bridges floor gap; BackDoor at z=−3.05 |
-| `level_3.tscn` | TWIST_READ | Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05 |
+| `level_3.tscn` | TWIST_READ | Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes) |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 
 ## Folder Layout
@@ -156,7 +158,7 @@ nano-banana-pro/.venv/bin/python3 nano-banana-pro/generate_image.py "prompt" -o 
 See `ISSUES_SOLUTIONS.md` — Issue 1 for diagnosis steps and the `sips` fix.
 
 ## Debugging
-Before diagnosing any bug, read `ISSUES_SOLUTIONS.md`. It documents the four hardest bugs encountered so far — Godot input event double-fire, UI anchor off-screen rendering, raycast geometry misses on flat objects, and the Gemini JPEG-as-PNG import failure. Re-solving a known issue wastes time.
+Before diagnosing any bug, read `ISSUES_SOLUTIONS.md`. It documents the hardest bugs encountered so far — Godot input event double-fire, UI anchor off-screen rendering, raycast geometry misses on flat objects, the Gemini JPEG-as-PNG import failure, and double-screamer re-entry on rapid keypresses. Re-solving a known issue wastes time.
 
 ## Code Conventions
 - GDScript snake_case for variables and functions, PascalCase for class names

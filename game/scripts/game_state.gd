@@ -14,6 +14,7 @@ const SCENE_LEVEL_1 := "res://scenes/level_1.tscn"
 const SCENE_LEVEL_2 := "res://scenes/level_2.tscn"
 const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"
 const SCENE_ENDING  := "res://scenes/ending.tscn"
+const SCENE_MAIN_MENU := "res://scenes/main_menu.tscn"
 
 
 func reset_level_state() -> void:
@@ -46,6 +47,15 @@ func go_back() -> void:
 		0: get_tree().change_scene_to_file(SCENE_INTRO)
 		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
 		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
+
+
+func go_to_main_menu() -> void:
+	is_ending = false
+	twist_read = false
+	current_level = 0
+	has_keycard = false
+	level2_code_correct = false
+	get_tree().change_scene_to_file(SCENE_MAIN_MENU)
 
 
 func restart_current_level() -> void:

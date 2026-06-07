@@ -147,6 +147,30 @@ get_tree().create_timer(2.0).timeout.connect(canvas.queue_free)
 
 ---
 
+## Issue 7 — Double screamer on rapid E press
+
+**Symptom:** Triggering a trap note and immediately pressing E again (or if input auto-repeats) causes the screamer to play twice. After the second screamer finishes, the scene reloads twice in quick succession — sometimes loading the wrong scene or crashing the scene tree.
+
+**Root cause:** `Screamer.trigger()` is a coroutine (`await get_tree().create_timer(...)`). Calling it twice before the first `await` resolves creates two concurrent coroutine instances on the same autoload node. Both complete independently and both call `GameState.restart_current_level()`.
+
+**Fix:** Add `_is_triggering: bool = false` to `screamer.gd`. Both `trigger()` and `trigger_to_menu()` return immediately if `_is_triggering` is `true`. Set it `true` on entry; reset to `false` just before the scene change call.
+
+```gdscript
+var _is_triggering: bool = false
+
+func trigger() -> void:
+    if _is_triggering:
+        return
+    _is_triggering = true
+    # ... flash, screamer image, audio await ...
+    _is_triggering = false
+    GameState.restart_current_level()
+```
+
+**Files changed:** `game/scripts/screamer.gd`.
+
+---
+
 ## Issue 4 — Note overlay invisible despite interaction working (NoteUI layout off-screen)
 
 **Symptom:** Pressing E near a note freezes the player (game tree pauses) and releases the mouse cursor, but no dark overlay or text is visible. The note IS opening — but the UI panel renders off-screen.

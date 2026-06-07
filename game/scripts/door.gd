@@ -6,6 +6,35 @@ enum UnlockCondition { NONE, KEYCARD, CODE_ENTERED, TWIST_READ }
 @export var advances_level: bool = true
 @export var goes_back: bool = false
 
+var _twist_activated: bool = false
+
+
+func _process(_delta: float) -> void:
+	if unlock_condition == UnlockCondition.TWIST_READ and not _twist_activated and GameState.twist_read:
+		_twist_activated = true
+		_flash_unlock()
+
+
+func _flash_unlock() -> void:
+	var door_mesh: MeshInstance3D = get_node_or_null("DoorMesh")
+	if not door_mesh:
+		return
+	var mat := door_mesh.get_surface_override_material(0)
+	if not mat:
+		mat = door_mesh.mesh.surface_get_material(0) if door_mesh.mesh else null
+	if not mat or not mat is StandardMaterial3D:
+		return
+	var std_mat := mat as StandardMaterial3D
+	var tween := create_tween()
+	tween.tween_method(
+		func(e: float): std_mat.emission_energy_multiplier = e,
+		std_mat.emission_energy_multiplier, 10.0, 0.3
+	)
+	tween.tween_method(
+		func(e: float): std_mat.emission_energy_multiplier = e,
+		10.0, 3.0, 0.6
+	)
+
 
 func interact() -> void:
 	if _is_unlocked():

@@ -6,6 +6,8 @@ extends CanvasLayer
 var _black_panel: ColorRect
 var _screamer_image: TextureRect
 var _audio: AudioStreamPlayer
+var _screamer_textures: Array[Texture2D] = []
+var _is_triggering: bool = false
 
 const RESTART_DELAY := 2.5
 
@@ -29,14 +31,27 @@ func _ready() -> void:
 
 	_black_panel.visible = false
 
-	# Auto-load screamer texture and audio if they exist
-	var tex: Texture2D = load("res://assets/textures/screamer.png") if ResourceLoader.exists("res://assets/textures/screamer.png") else null
-	if tex:
-		_screamer_image.texture = tex
+	# Scan screamers/ subfolder for any .png
+	var dir := DirAccess.open("res://assets/textures/screamers")
+	if dir:
+		dir.list_dir_begin()
+		var fname := dir.get_next()
+		while fname != "":
+			if not dir.current_is_dir() and fname.ends_with(".png"):
+				var tex: Texture2D = load("res://assets/textures/screamers/" + fname)
+				if tex:
+					_screamer_textures.append(tex)
+			fname = dir.get_next()
+		dir.list_dir_end()
 
 	var audio := GameState.load_audio("jumpscare")
 	if audio:
 		_audio.stream = audio
+
+
+func _pick_random_screamer() -> void:
+	if _screamer_textures.size() > 0:
+		_screamer_image.texture = _screamer_textures[randi() % _screamer_textures.size()]
 
 
 func set_screamer_texture(texture: Texture2D) -> void:
@@ -48,11 +63,32 @@ func set_screamer_audio(stream: AudioStream) -> void:
 
 
 func trigger() -> void:
+	if _is_triggering:
+		return
+	_is_triggering = true
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_pick_random_screamer()
 	_black_panel.visible = true
 	if _audio.stream:
 		_audio.play()
 	await get_tree().create_timer(RESTART_DELAY).timeout
 	_black_panel.visible = false
+	_is_triggering = false
 	GameState.restart_current_level()
+
+
+func trigger_to_menu() -> void:
+	if _is_triggering:
+		return
+	_is_triggering = true
+	get_tree().paused = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_pick_random_screamer()
+	_black_panel.visible = true
+	if _audio.stream:
+		_audio.play()
+	await get_tree().create_timer(RESTART_DELAY).timeout
+	_black_panel.visible = false
+	_is_triggering = false
+	GameState.go_to_main_menu()

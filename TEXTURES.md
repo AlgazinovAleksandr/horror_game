@@ -14,7 +14,8 @@ Columns:
 | `floor_lab.png` | Clinical linoleum — grey with faint grid seams, scuff marks | Level 1 (The Lab) — all floor CSGBox3D nodes | done |
 | `wall_house.png` | Peeling domestic wallpaper — muted brown/beige, floral pattern, torn edges | Level 2 (The House) — all wall + ceiling CSGBox3D nodes | done |
 | `floor_house.png` | Worn wooden floorboards — dark oak, visible grain, gapped planks | Level 2 (The House) — all floor CSGBox3D nodes | done |
-| `screamer.png` | Distorted human face — high contrast, wide mouth, horror screamer | Screamer overlay (all levels, on fail) | done |
+| `screamers/screamer.png` | Distorted human face — high contrast, wide mouth, horror screamer | Screamer overlay (random selection, all levels) | done |
+| `screamers/screamer_2.png` | Second distorted face variant — alternate horror expression | Screamer overlay (random selection, all levels) | done |
 | `wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed; small dark room feel | Intro Room — all 4 wall CSGBox3D nodes | done |
 | `floor_intro.png` | Dark stone slab — faint cracks, slightly uneven; candlelit cellar feel | Intro Room — floor CSGBox3D node | done |
 | `ceiling_intro.png` | Rough concrete ceiling — darker than walls, slight water stain | Intro Room — ceiling CSGBox3D node | done |
@@ -27,6 +28,8 @@ Columns:
 | `painting_house.png` | Unnerving portrait — formal Victorian-style figure, eyes slightly wrong, dark background | Level 2 (The House) — MeshInstance3D quad on living room wall | done |
 | `wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 3 (The Void) — all wall CSGBox3D nodes | done |
 | `floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 3 (The Void) — all floor CSGBox3D nodes | done |
+| `note_paper.png` | Aged cream paper — faint ruled lines, slight yellowing at edges | All notes (`note.gd` base material for both safe and trap notes) | done |
+| `main_menu_bg.png` | Dark atmospheric corridor silhouette — deep shadows, minimal detail | Main menu scene (`main_menu.gd` background image) | done |
 
 ## Notes
 
@@ -43,5 +46,8 @@ if "ceiling" in name.to_lower():
 ### Level 3 ceiling
 Intentionally omitted — the Void's extreme vignette (strength 2.0, blue-purple) makes ceilings nearly invisible. Add if visibility is confirmed in testing.
 
+### Screamer subfolder
+Screamer images live in `game/assets/textures/screamers/`. Any `.png` dropped in is auto-loaded at startup via `DirAccess` in `screamer.gd` — no code change needed to add new variants.
+
 ### Note paper textures
-Excluded — `note.gd` applies colour tints procedurally. A paper texture would require updating `note.gd`'s `_style_mesh()` and is a separate task.
+`note_paper.png` is applied in `note.gd`'s `_style_mesh()` as the base material for all note mesh instances. Trap notes then receive a `Color(0.9, 0.55, 0.55)` red tint on top.
