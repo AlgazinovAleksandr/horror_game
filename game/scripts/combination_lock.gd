@@ -22,10 +22,13 @@ func _build_ui() -> void:
 	_canvas.layer = 60
 	add_child(_canvas)
 
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_canvas.add_child(center)
+
 	_panel = PanelContainer.new()
-	_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_panel.custom_minimum_size = Vector2(320, 180)
-	_canvas.add_child(_panel)
+	center.add_child(_panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 12)
@@ -67,7 +70,7 @@ func interact() -> void:
 	_refresh_display()
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if not _ui_open:
 		return
 
@@ -81,12 +84,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		_digits[_selected] = (_digits[_selected] - 1 + 10) % 10
 	elif event.is_action_pressed("interact"):
 		_submit()
+		get_viewport().set_input_as_handled()
 		return
 	elif event.is_action_pressed("ui_cancel"):
 		_close_ui()
+		get_viewport().set_input_as_handled()
 		return
 
 	_refresh_display()
+	get_viewport().set_input_as_handled()
 
 
 func _submit() -> void:

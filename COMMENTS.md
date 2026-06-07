@@ -110,3 +110,43 @@ The current budget is ~20 images. Used so far: wall_lab, floor_lab, wall_house, 
 - **The combination lock built in GDScript:** The Level 2 combination lock (three digit spinners) was built entirely in code with no scene file. Players interact with it the same way they interact with notes — press E, UI appears, arrow keys to change digits. The satisfaction of clicking the correct code after collecting all three note fragments works as a natural pacing beat.
 
 - **Level 3's ambient audio design (by implication):** The void ambient audio combined with a near-black environment creates a strong dissociation from the earlier levels. No explicit gameplay tutorial for Level 3 — players figure out the "read the twist note" win condition by elimination, which feels more like discovery than instruction.
+
++ What people say on YouTube - like they vibecoded a good game from scratch in one hour - this does not make a lot of sense and does not seem real. They are either very experienced and know the basic mechanics, how to make 3d models, where to find textures, how to setup Godot, etc, or probably they are taking a well-known template like Slender or Minecraft that was studied long long time ago
+
+---
+
+## Phase 2: Bug Fixes and Polish
+
+### Level 2 geometry: how a missing doorway breaks a whole level
+
+After the first full playtest, Level 2 was completely unbeatable. The reason wasn't obscure — one wall (`LivWallR`) had no opening cut into it. But the geometry bug was paired with a floor gap, making the fix non-obvious: splitting the wall correctly placed a doorway, but players still fell into the void because the floor plans of the living room and bedroom didn't overlap at the boundary.
+
+This is a category of error that's hard to catch without playtest or top-down spatial visualisation. The level *looked* complete from above in the editor — the rooms existed, the notes were placed, the combination lock was wired up. The unplayable state only revealed itself when a human tried to walk through it.
+
+Lesson: blockout testing (walk every path from spawn to exit before placing any objects) should be step one of level construction, not something done after notes and enemies are placed.
+
+### Coroutines and node lifetimes: a subtle GDScript footgun
+
+The "Keycard collected" label staying on screen permanently (Issue 6) is a good example of how GDScript coroutines interact with node lifetimes in non-obvious ways. The label was created and attached to the scene tree root — independent of the keycard node. But the timer driving its removal was an `await` inside the keycard's own coroutine stack. When the keycard node was freed, the coroutine was cancelled. The label survived; its cleanup didn't.
+
+The fix (`.timeout.connect(canvas.queue_free)`) decouples the cleanup trigger from the node's lifetime entirely. Signal connections from a dead source are harmless; the callback fires when the timer expires regardless. This pattern — connect a one-shot callback to a timer signal rather than awaiting it inside a potentially short-lived node — is worth using any time cleanup logic runs in a node that might be destroyed before the timer fires.
+
+### Back door navigation: preserving state across backward traversal
+
+Adding back doors (Levels 1, 2, 3 each get a door that loads the previous scene) required a deliberate design choice about state: should going back reset level flags?
+
+The answer was no. `go_back()` in `GameState` does not call `reset_level_state()`. The reason: if you've already collected the keycard and walk back to the intro room, the keycard should still be collected when you return to Level 1. The keycard object handles this gracefully via `_ready()` — it checks `GameState.has_keycard` and calls `queue_free()` immediately if already collected, so the scene reloads cleanly without the item re-appearing.
+
+This "re-entry grace" pattern (objects self-removing if their collected state is already set in GameState) is worth generalising if the game grows: any pickup that shouldn't respawn on scene reload should check its flag in `_ready()`.
+
+### Note tables: spawn dynamically vs. place manually
+
+Notes previously floated in mid-air — a visual incongruity that breaks immersion. The fix spawns a CSGBox3D table under each note at scene load. The `_spawn_note_tables()` function iterates all children and checks for the `note_text` property to identify notes — a form of duck-typing that avoids a hard node type check.
+
+The tradeoff: dynamically spawned nodes don't appear in the Godot editor scene tree. Debugging a spawned table requires adding a breakpoint or print in `_ready()`. For a prototype this is acceptable — the tables are uniform and predictable. In a production context, you'd either make them explicit scene children or add a debug visualisation tool.
+
+### Intro room: small details matter more in constrained spaces
+
+The intro room is tiny. The table was 0.5m off-centre. The ambient light was bright enough that the candle felt unnecessary — the room was already legible without it. Two solid-colour quad cobwebs in the corners looked like flat black squares rather than cobwebs. Wall heights poked 0.15m into the ceiling, creating a shadow seam from the two overlapping surfaces.
+
+None of these bugs would be noticed in a large open environment. In a 5.6m × 5.6m room with one object (a table) and one interaction (one note), they were impossible to miss. Small spaces require higher fidelity — there's nowhere for imprecision to hide.

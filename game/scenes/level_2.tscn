@@ -1,10 +1,11 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scripts/level_2.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="2"]
 [ext_resource type="Script" path="res://scripts/note.gd" id="3"]
 [ext_resource type="Script" path="res://scripts/combination_lock.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/door.gd" id="5"]
+[ext_resource type="Texture2D" path="res://assets/textures/lock_face.png" id="6"]
 
 [sub_resource type="Environment" id="1"]
 background_mode = 1
@@ -30,19 +31,24 @@ size = Vector3(1.0, 2.2, 0.15)
 size = Vector3(1.0, 2.2, 0.15)
 
 [sub_resource type="StandardMaterial3D" id="7"]
-albedo_color = Color(0.9, 0.6, 0.2, 1)
+albedo_color = Color(0.15, 0.01, 0.01, 1)
 emission_enabled = true
-emission = Color(0.9, 0.6, 0.2, 1)
-emission_energy_multiplier = 3.0
+emission = Color(0.15, 0.01, 0.01, 1)
+emission_energy_multiplier = 0.6
 
 [sub_resource type="BoxMesh" id="8"]
-size = Vector3(0.08, 0.12, 0.04)
+size = Vector3(0.6, 0.8, 0.15)
 
 [sub_resource type="BoxShape3D" id="9"]
-size = Vector3(0.08, 0.12, 0.04)
+size = Vector3(0.6, 0.8, 0.15)
 
 [sub_resource type="BoxMesh" id="10"]
 size = Vector3(0.8, 1.0, 0.01)
+
+[sub_resource type="StandardMaterial3D" id="11"]
+albedo_texture = ExtResource("6")
+roughness = 0.9
+metallic = 0.3
 
 ; ── Scene root ────────────────────────────────────────────────────────────────
 
@@ -83,6 +89,19 @@ use_collision = true
 [node name="HallWallBack" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, -3.15)
 size = Vector3(2.4, 3.0, 0.3)
+use_collision = true
+
+; ── Living room entrance walls (close the 3.3m gap at z=3 to the right of hallway opening)
+; HallWallR inner face = x=1.2; LivWallR inner face = x=4.5; step on left = x=-1.2 to -0.8
+
+[node name="LivWallFront" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.85, 1.35, 3.15)
+size = Vector3(3.3, 3.0, 0.3)
+use_collision = true
+
+[node name="LivCornerL" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.0, 1.35, 3.15)
+size = Vector3(0.4, 3.0, 0.3)
 use_collision = true
 
 ; ── Living room: connects at z=+3, 5m wide, 5m long ──────────────────────────
@@ -146,6 +165,16 @@ use_collision = true
 
 [node name="DoorwayFloor" type="CSGBox3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.0, -0.15, 5.5)
+size = Vector3(1.0, 0.3, 5.0)
+use_collision = true
+
+[node name="DoorwayBackWall" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.0, 1.35, 8.15)
+size = Vector3(1.0, 3.0, 0.3)
+use_collision = true
+
+[node name="DoorwayCeiling" type="CSGBox3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.0, 2.85, 5.5)
 size = Vector3(1.0, 0.3, 5.0)
 use_collision = true
 
@@ -241,9 +270,16 @@ script = ExtResource("4")
 
 [node name="LockMesh" type="MeshInstance3D" parent="CombinationLock"]
 mesh = SubResource("8")
+surface_material_override/0 = SubResource("11")
 
 [node name="LockCol" type="CollisionShape3D" parent="CombinationLock"]
 shape = SubResource("9")
+
+[node name="LockLight" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0, 1.8, 7.8)
+light_color = Color(0.8, 0.6, 0.4, 1)
+light_energy = 0.5
+omni_range = 1.5
 
 ; ── Exit door ─────────────────────────────────────────────────────────────────
 

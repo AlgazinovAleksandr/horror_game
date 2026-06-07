@@ -100,6 +100,53 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ---
 
+## Issue 5 — Level 2 bedroom inaccessible; player falls into void at room boundary
+
+**Symptom:** Walking rightward through the living room the player hits an invisible wall and cannot reach the bedroom. `NoteC` (containing the third lock digit) is unreachable — the level is unbeatable. At the boundary between living room and bedroom, falling through the floor into the void is also possible.
+
+**Root cause (two separate geometry errors):**
+
+1. `LivWallR` was a single CSGBox3D spanning the full z-extent of the living room (z: 3.0 – 8.0, size.z=5.0). There was no doorway cut into it — no opening to the bedroom existed at all.
+
+2. `LivFloor` ends at x=4.5 (centre 2.0, size.x=5.0 → right edge at 4.5). `BedFloor` starts at x=5.5 (centre 7.5, size.x=4.0 → left edge at 5.5). The 1.0m strip between x=4.5 and x=5.5 had no floor geometry — players walking through the new doorway immediately fell through.
+
+**Fix:**
+
+Split `LivWallR` into two segments with a 1.3m gap:
+```
+LivWallR_A: pos=(4.65, 1.35, 3.95), size=(0.3, 3.0, 1.9)  # spans z=3.0–4.85
+LivWallR_B: pos=(4.65, 1.35, 7.05), size=(0.3, 3.0, 1.9)  # spans z=6.15–8.0
+```
+
+Add `DoorwayFloor` to bridge the floor gap:
+```
+DoorwayFloor: pos=(5.0, -0.15, 5.5), size=(1.0, 0.3, 5.0)
+```
+
+**Files changed:** `game/scenes/level_2.tscn`.
+
+---
+
+## Issue 6 — "Keycard collected" label never disappears
+
+**Symptom:** After picking up the keycard in Level 1, the green "Keycard collected" label stays on screen permanently, overlaying all subsequent gameplay.
+
+**Root cause:** `keycard.gd.interact()` calls `_show_feedback()` (not awaited), then awaits the pickup audio. When audio finishes, `queue_free()` is called on the Keycard node. This destroys the node and cancels all pending coroutines on it — including the `await get_tree().create_timer(2.0).timeout` inside `_show_feedback()`. Since that await is cancelled, `canvas.queue_free()` never runs. The `CanvasLayer` (and its Label child) was added to `get_tree().root`, not to the keycard node, so it survives the node's destruction — orphaned and permanent.
+
+**Fix:** Replace the `await`-based timer with a signal connection. Signal connections are not cancelled when the source node is freed:
+```gdscript
+# Before (broken — await is cancelled when node is freed):
+await get_tree().create_timer(2.0).timeout
+canvas.queue_free()
+
+# After (correct — signal fires regardless of source node state):
+get_tree().create_timer(2.0).timeout.connect(canvas.queue_free)
+```
+
+**Files changed:** `game/scripts/keycard.gd`.
+
+---
+
 ## Issue 4 — Note overlay invisible despite interaction working (NoteUI layout off-screen)
 
 **Symptom:** Pressing E near a note freezes the player (game tree pauses) and releases the mouse cursor, but no dark overlay or text is visible. The note IS opening — but the UI panel renders off-screen.

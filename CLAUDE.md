@@ -55,7 +55,13 @@ Final door loads back to the intro room. New note on the table: *"Very good, Sub
 ```
 Interact with trap → Screamer.trigger() → reload current scene
 Reach exit with condition met → GameState.advance_level() → load next scene
+Interact with back door (goes_back=true) → GameState.go_back() → load previous scene (state preserved)
 ```
+
+### Door Conventions
+- **Exit doors** and **back doors** both glow **warm amber** (`Color(0.9, 0.6, 0.2)`, emission ×3.0)
+- Back doors have `goes_back = true`, `advances_level = false`, `unlock_condition = NONE`
+- `go_back()` does NOT call `reset_level_state()` — keycard/code flags persist across back-navigation
 
 ## Stack
 - **Engine:** Godot 4 (Forward+ renderer)
@@ -70,7 +76,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 
 | Autoload | File | What it owns |
 |----------|------|-------------|
-| `GameState` | `scripts/game_state.gd` | Level state, `has_keycard`, `code_entered`, `twist_read`; `advance_level()`; `load_audio(base_name)` |
+| `GameState` | `scripts/game_state.gd` | Level state, `has_keycard`, `code_entered`, `twist_read`; `advance_level()`; `go_back()` (no state reset); `load_audio(base_name)` |
 | `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause) |
 | `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic |
 
@@ -78,19 +84,20 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | Script | Responsibility |
 |--------|---------------|
 | `player.gd` | `CharacterBody3D` movement, raycast interaction, gaze timer (3s stare → fail) |
-| `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ` |
+| `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors |
 | `note.gd` | Note interact, `is_trap` / `is_twist_note` flags, red tint on trap notes |
 | `combination_lock.gd` | 3-digit spinner UI for Level 2 exit (code: **472**) |
 | `creature_static.gd` | Level 3 static creature; `rush_camera()` fires on trigger |
 | `vignette.gd` | `class_name Vignette` — `Vignette.spawn(parent, color, strength)` adds per-level overlay |
+| `keycard.gd` | Pickup → sets `GameState.has_keycard`; auto-hides on reload if already collected |
 
 ### Level scenes
 | Scene | Unlock condition | Notes |
 |-------|-----------------|-------|
-| `intro_room.tscn` | NONE | Player spawn z=+1.5 |
-| `level_1.tscn` | KEYCARD | Player spawn z=−5.5; `_apply_textures()` in `level_1.gd` |
-| `level_2.tscn` | CODE_ENTERED | Player spawn z=−2.5; `_apply_textures()` in `level_2.gd` |
-| `level_3.tscn` | TWIST_READ | Player spawn z=−2.0; vignette strength 2.0 |
+| `intro_room.tscn` | NONE | Player spawn z=+1.5; table centered; ambient 0.15; walls size.y=3.0 |
+| `level_1.tscn` | KEYCARD | Player spawn z=−5.5; `_apply_textures()` + `_spawn_note_tables()` in `level_1.gd`; BackDoor at z=−6.05 |
+| `level_2.tscn` | CODE_ENTERED | Player spawn z=−2.5; LivWallR split for bedroom doorway; DoorwayFloor bridges floor gap; BackDoor at z=−3.05 |
+| `level_3.tscn` | TWIST_READ | Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05 |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 
 ## Folder Layout
@@ -118,6 +125,7 @@ horror_game/
 | `3d-modeling` | Blender topology, UV unwrapping, export settings for Godot |
 | `nano-banana-pro` | Generate concept art, texture references, UI mockups |
 | `grill-me` | Stress-test a design or plan decision |
+| `fix-void` | Diagnose and fix black void / open-space holes in CSGBox3D levels. Use whenever a user reports a black rectangle, missing wall, floor gap, or visible void. The skill contains the full diagnostic protocol: localise → map coverage → identify void type → compute fix node → verify → write. Also contains a table of all voids already fixed in this project. |
 
 ## Asset Pipeline
 - **3D models:** Blender → File > Export > glTF 2.0 (.glb) → `game/assets/models/`

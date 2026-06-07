@@ -11,6 +11,7 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 - **First-person exploration** — walk through 3 escalating environments
 - **Trigger objects** — specific objects in each level are traps. Interact with them (or stare too long) and the creature comes
 - **Notes** — find and read notes to collect clues, codes, and keycards needed to unlock each exit door
+- **Back doors** — each level has a back door (warm amber glow) that returns you to the previous level, preserving collected items
 - **No combat** — horror through atmosphere, sound, lighting, and restraint
 
 ## Levels
