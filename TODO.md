@@ -1,20 +1,28 @@
-1) Fix the fix-void skill so that the YAML part shows correctly - Sasha
+1) Fix the fix-void skill so that the YAML part shows correctly
 
-2) Think about the plot improvements to make the game better
+**Responsible: Sasha**
 
-3) Implement the panic scale. The panic increases x (~5) times faster than decreases
+2) Implement the panic scale. The panic increases x (~5) times faster than decreases
 
-4) Think about the ways to remove the panic besides just waiting until it gets back to the normal condition
+**Responsible: Andrey**. TODO: implement the panic scale. Increases when looking at the trigger object (implement some of the trigger object for unit testing), and make it decrease in a calm environment. Implement the logic when the player finds some particular objects (like the candy) that decrease the panic
 
-5) Think about random noises / half-screamers at the random moments in the game to keep the tension. Examples: floor crack, painting falls. TODO: create sounds, textures, falling logic in case of paintings
+3) Think about the ways to remove the panic besides just waiting until it gets back to the normal condition
 
-6) Think about the audio text that the player will hear and make it through TTS. Leave notes but add some audio features
+4) Think about random noises / half-screamers at the random moments in the game to keep the tension. Examples: floor crack, painting falls. TODO: create sounds, textures, falling logic in case of paintings
+
+**Responsible: Spartak**
+
+5) Think about the audio text that the player will hear and make it through TTS. Leave notes but add some audio features
+
+**Responsible: Spartak**
 
 7) Think about another level: long corridor (absolute dark but the player has the torch) with traps: bear traps, screamers, visual effects, weird noises, good vibe sound track (like in the corridor game). The level idea: pass the long corridor without panicking and without the creature kill you. At least 2-minute walk
 
-8) Think about the checkpoints - the game starts from the beginning / or at the beginning of the level
+Responsible: Sasha. TODO: generate the sound for the level (might use it somewhere else also), implement the logic with traps / screamers / dark level with the torch, etc. For now the level starts after the house level (level 2)
 
-9) Somewhere at the end of the game we can create a maze on the wall - the player needs to use the mouse to pass the maze somehow (think about the logic)
+7) Think about the checkpoints - the game starts from the beginning / or at the beginning of the level
+
+8) Somewhere at the end of the game we can create a maze on the wall - the player needs to use the mouse to pass the maze somehow (think about the logic)
 
 ### How we identify that the player is triggered / panicking / it is the time to fail the game
 
@@ -22,6 +30,10 @@
 
 2) There is a 3D model of a monster. At the random moment it starts running towards the player. If the player runs away / stops watching at the creature - it means the player is panicking and fails the game. If the player stares at the creature for say 5 seconds without running away / stopping staring at it - it means the player passed the test and the creature disappears. No panic scale included, the player dies immediately after failing
 
-3) There are some trigger objects (weird paintings / knife / blood on the floor). The difference between the creature from 2) is that the player MUST NOT stare at these objects. The panic scale increases - the longer the players stares at them.
+Reference: asylum patient, leather mask on (like the leatherface), straitjacket on. Take Outlast as the reference 
 
-4) You hear a sound telling to not turn back / you hear the somebody is breathing just behind you - and the goal is not to turn back
+**Responsible: Danil**. TODO: generate 3D model of the monster from the reference. Make the monster appear at the random moment of the entire game. If stare for 5 seconds, the monster disappers. If runs away / stares somewhere else - the player fails and the screamer appears
+
+4) There are some trigger objects (weird paintings / knife / blood on the floor). The difference between the creature from 2) is that the player MUST NOT stare at these objects. The panic scale increases - the longer the players stares at them.
+
+5) You hear a sound telling to not turn back / you hear the somebody is breathing just behind you - and the goal is not to turn back
