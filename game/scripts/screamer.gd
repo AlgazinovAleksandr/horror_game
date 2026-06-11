@@ -7,7 +7,11 @@ var _black_panel: ColorRect
 var _screamer_image: TextureRect
 var _audio: AudioStreamPlayer
 var _screamer_textures: Array[Texture2D] = []
+var _corridor_texture: Texture2D = null  # level-exclusive screamer for the Corridor
 var _is_triggering: bool = false
+
+const CORRIDOR_LEVEL := 3
+const CORRIDOR_TEXTURE_PATH := "res://assets/textures/screamer_hotel.png"
 
 const RESTART_DELAY := 2.5
 
@@ -44,12 +48,18 @@ func _ready() -> void:
 			fname = dir.get_next()
 		dir.list_dir_end()
 
+	if ResourceLoader.exists(CORRIDOR_TEXTURE_PATH):
+		_corridor_texture = load(CORRIDOR_TEXTURE_PATH)
+
 	var audio := GameState.load_audio("jumpscare")
 	if audio:
 		_audio.stream = audio
 
 
 func _pick_random_screamer() -> void:
+	if GameState.current_level == CORRIDOR_LEVEL and _corridor_texture:
+		_screamer_image.texture = _corridor_texture
+		return
 	if _screamer_textures.size() > 0:
 		_screamer_image.texture = _screamer_textures[randi() % _screamer_textures.size()]
 

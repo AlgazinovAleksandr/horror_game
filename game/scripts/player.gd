@@ -8,6 +8,9 @@ const GAZE_TRIGGER_TIME := 3.0  # seconds of staring to trigger a trigger_object
 const PANIC_MAX := 50.0
 const PANIC_BASE_RATE := 20.0  # panic per second at scare_intensity 1.0
 const PANIC_DECAY_RATE := 15.0
+const CALM_DECAY_MULT := 2.5   # decay multiplier inside a calm zone (torchlight)
+const DARK_PANIC_RATE := 3.0   # panic per second in a dark zone with flashlight off
+const SLOW_MULTIPLIER := 0.45  # movement factor while slowed (beartrap limp)
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -23,6 +26,9 @@ var _footstep_timer: float = 0.0
 var _interact_target: Node = null
 var _heartbeat_player: AudioStreamPlayer = null
 var _panic_hud: Node = null
+var _calm_zones: int = 0
+var _dark_zones: int = 0
+var _slow_timer: float = 0.0
 const FOOTSTEP_INTERVAL := 0.5
 const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
 const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
@@ -77,6 +83,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_slow_timer = maxf(0.0, _slow_timer - delta)
 	_apply_gravity(delta)
 	_apply_movement()
 	move_and_slide()
@@ -97,11 +104,12 @@ func _apply_gravity(delta: float) -> void:
 
 
 func _apply_movement() -> void:
+	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	if direction:
-		velocity.x = direction.x * SPEED
-		velocity.z = direction.z * SPEED
+		velocity.x = direction.x * speed
+		velocity.z = direction.z * speed
 		_is_moving = true
 	else:
 		velocity.x = move_toward(velocity.x, 0, SPEED)
@@ -170,14 +178,54 @@ func _update_panic(delta: float, target: Node) -> void:
 	if scary:
 		var intensity: float = scary.scare_intensity
 		_panic += delta * intensity * PANIC_BASE_RATE
-		if _panic >= PANIC_MAX:
-			_panic = 0.0
-			Screamer.trigger()
+	elif _dark_zones > 0 and not flashlight.visible:
+		_panic += delta * DARK_PANIC_RATE
 	else:
-		_panic = maxf(0.0, _panic - delta * PANIC_DECAY_RATE)
+		var decay := PANIC_DECAY_RATE * (CALM_DECAY_MULT if _calm_zones > 0 else 1.0)
+		_panic = maxf(0.0, _panic - delta * decay)
+
+	if _panic >= PANIC_MAX:
+		_panic = 0.0
+		Screamer.trigger()
 
 	if _panic_hud:
 		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
+
+
+func add_panic(amount: float) -> void:
+	_panic += amount
+	if _panic >= PANIC_MAX:
+		_panic = 0.0
+		Screamer.trigger()
+	if _panic_hud:
+		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
+
+
+func apply_slow(duration: float) -> void:
+	_slow_timer = maxf(_slow_timer, duration)
+
+
+func jolt_camera(strength: float = 0.05, duration: float = 0.35) -> void:
+	var tween := create_tween()
+	tween.tween_property(camera, "rotation:z", strength, duration * 0.15)
+	tween.tween_property(camera, "rotation:z", 0.0, duration * 0.85) \
+		.set_trans(Tween.TRANS_ELASTIC).set_ease(Tween.EASE_OUT)
+
+
+func enter_calm_zone() -> void:
+	_calm_zones += 1
+
+
+func exit_calm_zone() -> void:
+	_calm_zones = maxi(0, _calm_zones - 1)
+
+
+func enter_dark_zone() -> void:
+	_dark_zones += 1
+
+
+func exit_dark_zone() -> void:
+	_dark_zones = maxi(0, _dark_zones - 1)
 
 
 func _update_heartbeat() -> void:

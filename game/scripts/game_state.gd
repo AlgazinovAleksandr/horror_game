@@ -2,7 +2,7 @@ extends Node
 
 # Persists across scene changes as an Autoload singleton (GameState)
 
-var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=void
+var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=void
 var has_keycard: bool = false     # Level 1 unlock item
 var level2_code: String = "472"  # Combination lock answer for Level 2
 var level2_code_correct: bool = false  # Set to true by combination_lock.gd on correct entry
@@ -12,6 +12,7 @@ var is_ending: bool = false       # True when loading intro room as the twist en
 const SCENE_INTRO   := "res://scenes/intro_room.tscn"
 const SCENE_LEVEL_1 := "res://scenes/level_1.tscn"
 const SCENE_LEVEL_2 := "res://scenes/level_2_1.tscn"
+const SCENE_CORRIDOR := "res://scenes/corridor.tscn"
 const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"
 const SCENE_ENDING  := "res://scenes/ending.tscn"
 const SCENE_MAIN_MENU := "res://scenes/main_menu.tscn"
@@ -27,8 +28,9 @@ func start_current_level() -> void:
 		0: get_tree().change_scene_to_file(SCENE_INTRO)
 		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
 		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
-		3: get_tree().change_scene_to_file(SCENE_LEVEL_3)
-		4: get_tree().change_scene_to_file(SCENE_ENDING)
+		3: get_tree().change_scene_to_file(SCENE_CORRIDOR)
+		4: get_tree().change_scene_to_file(SCENE_LEVEL_3)
+		5: get_tree().change_scene_to_file(SCENE_ENDING)
 		_: get_tree().change_scene_to_file(SCENE_INTRO)
 
 func advance_level() -> void:
