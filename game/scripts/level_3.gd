@@ -1,6 +1,6 @@
 extends Node3D
 
-@onready var world_env: WorldEnvironment = $WorldEnvironment
+@onready var world_env: WorldEnvironment = $Environment.get_child(0)
 
 var _shake_timer: float = 0.0
 var _shake_duration: float = 0.0

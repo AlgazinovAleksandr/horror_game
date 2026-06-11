@@ -13,6 +13,8 @@
 [ext_resource type="Material" uid="uid://nsp5325i6uf8" path="res://assets/materials/objects/table.tres" id="6_go7sj"]
 [ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="8_7gny6"]
 [ext_resource type="Script" uid="uid://c3lbhft83q7ts" path="res://scripts/scary_object.gd" id="12_7gny6"]
+[ext_resource type="Texture2D" uid="uid://de7ceqrda5ey" path="res://assets/textures/poster_lab.png" id="13_7nomh"]
+[ext_resource type="Texture2D" uid="uid://ddfe1viol4v4q" path="res://assets/textures/blood_lab.png" id="14_1s4pk"]
 [ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="14_2aecg"]
 
 [sub_resource type="BoxMesh" id="3"]
@@ -21,7 +23,10 @@ size = Vector3(0.21, 0.005, 0.297)
 [sub_resource type="BoxShape3D" id="4"]
 size = Vector3(0.21, 0.005, 0.297)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x2xxo"]
+
 [sub_resource type="BoxMesh" id="5"]
+material = SubResource("StandardMaterial3D_x2xxo")
 size = Vector3(0.6, 0.005, 0.4)
 
 [sub_resource type="BoxShape3D" id="6"]
@@ -57,21 +62,27 @@ emission_energy_multiplier = 0.6
 [sub_resource type="BoxShape3D" id="8"]
 size = Vector3(1, 2.2, 0.15)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2aecg"]
-albedo_color = Color(1, 0.45, 0.45, 1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2cbcq"]
+albedo_texture = ExtResource("13_7nomh")
+uv1_scale = Vector3(2.4, 2, 2)
+uv1_offset = Vector3(0.1, 0, 0)
+uv2_world_triplanar = true
 
 [sub_resource type="BoxMesh" id="14"]
-material = SubResource("StandardMaterial3D_2aecg")
-size = Vector3(0.6, 0.8, 0.01)
+material = SubResource("StandardMaterial3D_2cbcq")
+size = Vector3(1.2, 0.8, 0.01)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_go7sj"]
-size = Vector3(0.6, 0.8, 0.01)
+size = Vector3(1.2, 0.8, 0.01)
 
 [sub_resource type="BoxMesh" id="15"]
-size = Vector3(0.5, 0.01, 0.4)
+size = Vector3(1, 0.01, 0.8)
 
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6dial"]
-albedo_color = Color(0.97, 0, 0, 1)
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2aecg"]
+albedo_texture = ExtResource("14_1s4pk")
+uv1_scale = Vector3(1.5, 1.5, 1.5)
+uv1_offset = Vector3(-0.252, 0.35, 0)
+uv2_world_triplanar = true
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_7gny6"]
 size = Vector3(0.5, 0.01, 0.4)
@@ -84,6 +95,8 @@ height = 1.8
 script = ExtResource("1")
 
 [node name="Environment" parent="." unique_id=846548183 instance=ExtResource("2_pa8r4")]
+
+[node name="AmbientPlayer" type="AudioStreamPlayer" parent="." unique_id=215185519]
 
 [node name="JumpscarePlayer" type="AudioStreamPlayer" parent="." unique_id=2114210015]
 
@@ -234,7 +247,7 @@ surface_material_override/0 = ExtResource("8_7gny6")
 shape = SubResource("4")
 
 [node name="Note2" type="StaticBody3D" parent="." unique_id=1255079717]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -1.65, 1.3000001, -1.5)
+transform = Transform3D(-1, -2.3849761e-08, 0, 0, 0, -1, 2.3849761e-08, -1, 0, -1.65, 1.3000001, -1.5)
 script = ExtResource("3")
 note_text = "Do not look at the tray. Do not look at the monitor.
 
@@ -345,8 +358,9 @@ scare_intensity = 3.0
 metadata/_edit_group_ = true
 
 [node name="BloodLab" type="MeshInstance3D" parent="Blood" unique_id=928652630]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.20000005)
 mesh = SubResource("15")
-surface_material_override/0 = SubResource("StandardMaterial3D_6dial")
+surface_material_override/0 = SubResource("StandardMaterial3D_2aecg")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Blood" unique_id=799605148]
 shape = SubResource("BoxShape3D_7gny6")

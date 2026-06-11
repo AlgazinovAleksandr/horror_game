@@ -19,7 +19,5 @@ environment = SubResource("1")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=569509760]
 transform = Transform3D(-0.091487676, -0.9934148, 0.068971016, -0.79325116, 0.1145731, 0.5980181, -0.60198224, -4.4612943e-08, -0.7985095, 0, 9.958156, 0)
-visible = false
 editor_only = true
-
-[node name="AmbientPlayer" type="AudioStreamPlayer" parent="." unique_id=1550137360]
+sky_mode = 1

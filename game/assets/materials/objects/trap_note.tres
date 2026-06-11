@@ -5,3 +5,5 @@
 [resource]
 albedo_color = Color(1, 0.4117647, 0.4117647, 1)
 albedo_texture = ExtResource("1_tfndl")
+uv1_scale = Vector3(0.8, 1, 0.8)
+uv1_offset = Vector3(0.1, -0.25, 0)

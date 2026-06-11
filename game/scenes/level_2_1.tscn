@@ -12,6 +12,7 @@
 [ext_resource type="Texture2D" uid="uid://bktxdf300lgd5" path="res://assets/textures/lock_face.png" id="6"]
 [ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="6_hwh6o"]
 [ext_resource type="Material" uid="uid://c2y6toodyo117" path="res://assets/materials/objects/trap_note.tres" id="8_j8p1t"]
+[ext_resource type="Texture2D" uid="uid://dlgufpo22aj0h" path="res://assets/textures/painting_house.png" id="12_hwh6o"]
 [ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="13_j8p1t"]
 
 [sub_resource type="BoxMesh" id="3"]
@@ -47,6 +48,12 @@ size = Vector3(1, 2.2, 0.15)
 [sub_resource type="BoxMesh" id="10"]
 size = Vector3(0.8, 1, 0.01)
 
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_t7las"]
+albedo_texture = ExtResource("12_hwh6o")
+uv1_scale = Vector3(1.2, 1, 1)
+uv1_offset = Vector3(0.6, 0.5, 0)
+uv1_triplanar = true
+
 [sub_resource type="CapsuleShape3D" id="2"]
 radius = 0.4
 height = 1.8
@@ -55,6 +62,8 @@ height = 1.8
 script = ExtResource("1")
 
 [node name="Environment" parent="." unique_id=846548183 instance=ExtResource("2_skn4w")]
+
+[node name="AmbientPlayer" type="AudioStreamPlayer" parent="." unique_id=1101765675]
 
 [node name="CreakPlayer" type="AudioStreamPlayer" parent="." unique_id=649932285]
 
@@ -160,7 +169,7 @@ omni_range = 6.0
 [node name="LightBedroom" type="OmniLight3D" parent="." unique_id=620858784]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 2.5, 5.5)
 light_color = Color(0.7, 0.55, 0.45, 1)
-light_energy = 0.4
+light_energy = 0.844
 
 [node name="NoteA" type="StaticBody3D" parent="." unique_id=1476300670]
 transform = Transform3D(-4.371139e-08, -1, 0, 0, 0, -1, 1, -4.371139e-08, 0, 1.2, 1.5, -1.1)
@@ -189,7 +198,7 @@ mesh = SubResource("3")
 shape = SubResource("4")
 
 [node name="NoteC" type="StaticBody3D" parent="." unique_id=221361974]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 6, 1.2, 8)
+transform = Transform3D(-1, 8.742278e-08, 0, 0, 0, -1, -8.742278e-08, -1, 0, 6.8, 1.6, 8)
 script = ExtResource("3")
 note_text = "Note to self: third digit, the one she always used — 2.
 
@@ -203,7 +212,7 @@ mesh = SubResource("3")
 shape = SubResource("4")
 
 [node name="TrapNote1" type="StaticBody3D" parent="." unique_id=1914189803]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 1.5, 1.2, 8)
+transform = Transform3D(-1, 8.742278e-08, 0, 0, 0, -1, -8.742278e-08, -1, 0, 1.5, 1.2, 8)
 script = ExtResource("3")
 note_text = "it got in it got in it got in it got in it got in it got in
 
@@ -219,7 +228,7 @@ surface_material_override/0 = ExtResource("8_j8p1t")
 shape = SubResource("4")
 
 [node name="TrapNote2" type="StaticBody3D" parent="." unique_id=696033197]
-transform = Transform3D(-4.371139e-08, -1, 0, -4.371139e-08, 1.9106855e-15, -1, 1, -4.371139e-08, -4.371139e-08, -1.9, 1.2, 5)
+transform = Transform3D(-4.371139e-08, 1, 3.821371e-15, -4.371139e-08, 1.9106855e-15, -1, -1, -4.371139e-08, 4.371139e-08, -1.9, 1.2, 5)
 script = ExtResource("3")
 note_text = "Subject 44 was removed on day 3.
 Subject 45 was removed on day 1.
@@ -282,8 +291,9 @@ surface_material_override/0 = SubResource("7")
 shape = SubResource("6")
 
 [node name="PaintingHouse" type="MeshInstance3D" parent="." unique_id=972317037]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1.5, 8.07)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 1.5, 7.97)
 mesh = SubResource("10")
+surface_material_override/0 = SubResource("StandardMaterial3D_t7las")
 
 [node name="Player" type="CharacterBody3D" parent="." unique_id=18587847]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0, -2.5)
