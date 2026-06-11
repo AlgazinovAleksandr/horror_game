@@ -1,0 +1,8 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://b3j3sqlajwsty"]
+
+[ext_resource type="Shader" uid="uid://52c32xai3y3w" path="res://assets/materials/hud/panic_color_tint.gdshader" id="1_28dt6"]
+
+[resource]
+shader = ExtResource("1_28dt6")
+shader_parameter/target_color = Color(0.55, 0.02, 0.02, 1)
+shader_parameter/blend_amount = 0.0490000023275

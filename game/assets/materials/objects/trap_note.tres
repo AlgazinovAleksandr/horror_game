@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://c2y6toodyo117"]
+
+[ext_resource type="Texture2D" uid="uid://dvcw6aal6iibx" path="res://assets/textures/note_paper.png" id="1_tfndl"]
+
+[resource]
+albedo_color = Color(1, 0.4117647, 0.4117647, 1)
+albedo_texture = ExtResource("1_tfndl")

@@ -11,7 +11,7 @@ var is_ending: bool = false       # True when loading intro room as the twist en
 
 const SCENE_INTRO   := "res://scenes/intro_room.tscn"
 const SCENE_LEVEL_1 := "res://scenes/level_1.tscn"
-const SCENE_LEVEL_2 := "res://scenes/level_2.tscn"
+const SCENE_LEVEL_2 := "res://scenes/level_2_1.tscn"
 const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"
 const SCENE_ENDING  := "res://scenes/ending.tscn"
 const SCENE_MAIN_MENU := "res://scenes/main_menu.tscn"
@@ -21,16 +21,19 @@ func reset_level_state() -> void:
 	has_keycard = false
 	level2_code_correct = false
 
-
-func advance_level() -> void:
-	current_level += 1
+func start_current_level() -> void:
 	reset_level_state()
 	match current_level:
+		0: get_tree().change_scene_to_file(SCENE_INTRO)
 		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
 		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
 		3: get_tree().change_scene_to_file(SCENE_LEVEL_3)
-		_: get_tree().change_scene_to_file(SCENE_ENDING)
+		4: get_tree().change_scene_to_file(SCENE_ENDING)
+		_: get_tree().change_scene_to_file(SCENE_INTRO)
 
+func advance_level() -> void:
+	current_level += 1
+	start_current_level()
 
 # Try loading an audio file by base name — accepts .wav or .ogg, whichever exists.
 static func load_audio(base_name: String) -> AudioStream:
@@ -43,10 +46,7 @@ static func load_audio(base_name: String) -> AudioStream:
 
 func go_back() -> void:
 	current_level -= 1
-	match current_level:
-		0: get_tree().change_scene_to_file(SCENE_INTRO)
-		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
-		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
+	start_current_level()
 
 
 func go_to_main_menu() -> void:
@@ -59,9 +59,4 @@ func go_to_main_menu() -> void:
 
 
 func restart_current_level() -> void:
-	reset_level_state()
-	match current_level:
-		0: get_tree().change_scene_to_file(SCENE_INTRO)
-		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
-		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
-		3: get_tree().change_scene_to_file(SCENE_LEVEL_3)
+	start_current_level()

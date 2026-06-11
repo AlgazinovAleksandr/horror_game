@@ -35,10 +35,9 @@ func _ready() -> void:
 			js.stream = s
 
 	_reset_jumpscare_timer()
-	_apply_textures()
-	_spawn_note_tables()
-	# Subtle grey-green tint, mild vignette
-	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
+	#_apply_textures()
+	#_spawn_note_tables()
+	# Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 
 
 func _spawn_note_tables() -> void:

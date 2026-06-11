@@ -1,20 +1,14 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene format=3 uid="uid://0lolsu3d4ryt"]
 
-[ext_resource type="Script" path="res://scripts/intro_room.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/player.gd" id="2"]
-[ext_resource type="Script" path="res://scripts/note.gd" id="3"]
-[ext_resource type="Script" path="res://scripts/door.gd" id="4"]
-
-[sub_resource type="Environment" id="1"]
-background_mode = 1
-background_color = Color(0, 0, 0, 1)
-ambient_light_source = 2
-ambient_light_color = Color(0.05, 0.03, 0.01, 1)
-ambient_light_energy = 0.15
-
-[sub_resource type="CapsuleShape3D" id="2"]
-radius = 0.4
-height = 1.8
+[ext_resource type="Script" uid="uid://b8ltv4bph0wjl" path="res://scripts/intro_room.gd" id="1"]
+[ext_resource type="Script" uid="uid://bhxpo0kngyl8e" path="res://scripts/player.gd" id="2"]
+[ext_resource type="Material" uid="uid://tqf5apuj14yh" path="res://assets/materials/level_layout/floor_intro.tres" id="2_btp1i"]
+[ext_resource type="Script" uid="uid://cq75prfex0038" path="res://scripts/note.gd" id="3"]
+[ext_resource type="Material" uid="uid://cyi2fllput1e5" path="res://assets/materials/level_layout/roof_intro.tres" id="3_8eu68"]
+[ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="4"]
+[ext_resource type="Material" uid="uid://nsp5325i6uf8" path="res://assets/materials/objects/table.tres" id="4_8eu68"]
+[ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="5_5vum6"]
+[ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="8_838je"]
 
 [sub_resource type="BoxMesh" id="3"]
 size = Vector3(0.21, 0.005, 0.297)
@@ -23,136 +17,134 @@ size = Vector3(0.21, 0.005, 0.297)
 size = Vector3(0.21, 0.005, 0.297)
 
 [sub_resource type="BoxMesh" id="5"]
-size = Vector3(1.0, 2.2, 0.15)
-
-[sub_resource type="BoxShape3D" id="6"]
-size = Vector3(1.0, 2.2, 0.15)
+size = Vector3(1, 2.2, 0.15)
 
 [sub_resource type="StandardMaterial3D" id="7"]
 albedo_color = Color(0.15, 0.01, 0.01, 1)
+metallic = 0.45
+metallic_specular = 0.18
 emission_enabled = true
 emission = Color(0.15, 0.01, 0.01, 1)
 emission_energy_multiplier = 0.6
 
+[sub_resource type="BoxShape3D" id="6"]
+size = Vector3(1, 2.2, 0.15)
+
 [sub_resource type="BoxMesh" id="8"]
-size = Vector3(1.0, 0.8, 0.01)
+size = Vector3(1, 0.8, 0.01)
 
-; ── Scene root ────────────────────────────────────────────────────────────────
+[sub_resource type="CapsuleShape3D" id="2"]
+radius = 0.4
+height = 1.8
 
-[node name="IntroRoom" type="Node3D"]
+[node name="IntroRoom" type="Node3D" unique_id=203649692]
 script = ExtResource("1")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("1")
+[node name="Environment" parent="." unique_id=846548183 instance=ExtResource("8_838je")]
 
-; ── Room geometry (CSG boxes) ─────────────────────────────────────────────────
-
-[node name="Floor" type="CSGBox3D" parent="."]
+[node name="Floor" type="CSGBox3D" parent="." unique_id=425225130]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
-size = Vector3(5.6, 0.3, 5.6)
 use_collision = true
+size = Vector3(5.6, 0.3, 5.6)
+material = ExtResource("2_btp1i")
 
-[node name="Ceiling" type="CSGBox3D" parent="."]
+[node name="Ceiling" type="CSGBox3D" parent="." unique_id=543178644]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.15, 0)
+use_collision = true
 size = Vector3(5.6, 0.3, 5.6)
-use_collision = true
+material = ExtResource("3_8eu68")
 
-[node name="WallBack" type="CSGBox3D" parent="."]
+[node name="WallBack" type="CSGBox3D" parent="." unique_id=2018298307]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -2.65)
-size = Vector3(5.6, 3.0, 0.3)
 use_collision = true
+size = Vector3(5.6, 3, 0.3)
+material = ExtResource("2_btp1i")
 
-[node name="WallFront" type="CSGBox3D" parent="."]
+[node name="WallFront" type="CSGBox3D" parent="." unique_id=1303811469]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 2.65)
-size = Vector3(5.6, 3.0, 0.3)
 use_collision = true
+size = Vector3(5.6, 3, 0.3)
+material = ExtResource("2_btp1i")
 
-[node name="WallLeft" type="CSGBox3D" parent="."]
+[node name="WallLeft" type="CSGBox3D" parent="." unique_id=804165156]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.65, 1.5, 0)
-size = Vector3(0.3, 3.0, 5.0)
 use_collision = true
+size = Vector3(0.3, 3, 5)
+material = ExtResource("2_btp1i")
 
-[node name="WallRight" type="CSGBox3D" parent="."]
+[node name="WallRight" type="CSGBox3D" parent="." unique_id=658472266]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.65, 1.5, 0)
-size = Vector3(0.3, 3.0, 5.0)
 use_collision = true
+size = Vector3(0.3, 3, 5)
+material = ExtResource("2_btp1i")
 
-; ── Table ─────────────────────────────────────────────────────────────────────
-
-[node name="Table" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0.0)
+[node name="Table" type="CSGBox3D" parent="." unique_id=225261590]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+use_collision = true
 size = Vector3(1.2, 0.8, 0.6)
-use_collision = true
+material = ExtResource("4_8eu68")
 
-; ── Candle light (flickered in intro_room.gd) ─────────────────────────────────
-
-[node name="CandleLight" type="OmniLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 1.0, 0.0)
-light_color = Color(1.0, 0.58, 0.18, 1)
+[node name="CandleLight" type="OmniLight3D" parent="." unique_id=1367048582]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 2.6, 0)
+light_color = Color(1, 0.58, 0.18, 1)
 light_energy = 1.8
-omni_range = 5.5
 shadow_enabled = true
+omni_range = 5.5
 
-; ── Note on the table ─────────────────────────────────────────────────────────
-
-[node name="Note" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.4, 1.2, 0.0)
+[node name="Note" type="StaticBody3D" parent="." unique_id=1105143918]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8000001, 0)
 script = ExtResource("3")
-note_text = ""
-is_trap = false
+metadata/_edit_group_ = true
 
-[node name="NoteMesh" type="MeshInstance3D" parent="Note"]
+[node name="NoteMesh" type="MeshInstance3D" parent="Note" unique_id=1695810681]
 mesh = SubResource("3")
+surface_material_override/0 = ExtResource("5_5vum6")
 
-[node name="NoteCollision" type="CollisionShape3D" parent="Note"]
+[node name="NoteCollision" type="CollisionShape3D" parent="Note" unique_id=710867718]
 shape = SubResource("4")
 
-; ── Glowing exit door ─────────────────────────────────────────────────────────
-
-[node name="ExitDoor" type="StaticBody3D" parent="."]
+[node name="ExitDoor" type="StaticBody3D" parent="." unique_id=48227876]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, -2.5)
 script = ExtResource("4")
-unlock_condition = 0
-advances_level = true
+metadata/_edit_group_ = true
 
-[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor"]
+[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor" unique_id=1803992134]
 mesh = SubResource("5")
 surface_material_override/0 = SubResource("7")
 
-[node name="DoorCollision" type="CollisionShape3D" parent="ExitDoor"]
+[node name="DoorCollision" type="CollisionShape3D" parent="ExitDoor" unique_id=1103913074]
 shape = SubResource("6")
 
-; ── Decals ────────────────────────────────────────────────────────────────────
-
-[node name="PaintingIntro" type="MeshInstance3D" parent="."]
+[node name="PaintingIntro" type="MeshInstance3D" parent="." unique_id=944909673]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, -2.57)
 mesh = SubResource("8")
 
-; ── Player ────────────────────────────────────────────────────────────────────
-
-[node name="Player" type="CharacterBody3D" parent="."]
+[node name="Player" type="CharacterBody3D" parent="." unique_id=1904902519]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.5)
 script = ExtResource("2")
+metadata/_edit_group_ = true
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=8285157]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("2")
 
-[node name="Camera3D" type="Camera3D" parent="Player"]
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=2032659789]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
 
-[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D"]
+[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D" unique_id=2008158808]
 light_energy = 1.2
+shadow_enabled = true
 spot_range = 15.0
 spot_angle = 25.0
 spot_angle_attenuation = 0.3
-shadow_enabled = true
 
-[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player"]
+[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player" unique_id=989620569]
 
-[node name="InteractUI" type="CanvasLayer" parent="Player"]
+[node name="InteractUI" type="CanvasLayer" parent="Player" unique_id=1993281156]
 
-[node name="Label" type="Label" parent="Player/InteractUI"]
+[node name="Label" type="Label" parent="Player/InteractUI" unique_id=1405121031]
+visible = false
+anchors_preset = -1
 anchor_left = 0.5
 anchor_top = 0.6
 anchor_right = 0.5
@@ -163,4 +155,3 @@ offset_right = 60.0
 offset_bottom = 15.0
 text = "Press E"
 horizontal_alignment = 1
-visible = false

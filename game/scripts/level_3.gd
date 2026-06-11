@@ -24,8 +24,7 @@ func _ready() -> void:
 	_reset_shake_timer()
 	_apply_textures()
 	_spawn_note_tables()
-	# Strong blue-purple tint, heavy vignette
-	Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
+	# Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
 
 
 func _spawn_note_tables() -> void:

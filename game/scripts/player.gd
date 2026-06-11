@@ -5,6 +5,9 @@ const MOUSE_SENSITIVITY := 0.002
 const PITCH_LIMIT := deg_to_rad(80)
 const INTERACT_RANGE := 2.5
 const GAZE_TRIGGER_TIME := 3.0  # seconds of staring to trigger a trigger_object
+const PANIC_MAX := 50.0
+const PANIC_BASE_RATE := 20.0  # panic per second at scare_intensity 1.0
+const PANIC_DECAY_RATE := 15.0
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -14,11 +17,15 @@ const GAZE_TRIGGER_TIME := 3.0  # seconds of staring to trigger a trigger_object
 var _pitch: float = 0.0
 var _gaze_timer: float = 0.0
 var _gazed_object: Node = null
+var _panic: float = 0.0
 var _is_moving: bool = false
 var _footstep_timer: float = 0.0
 var _interact_target: Node = null
 var _heartbeat_player: AudioStreamPlayer = null
+var _panic_hud: Node = null
 const FOOTSTEP_INTERVAL := 0.5
+const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
+const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
 
 
 func _ready() -> void:
@@ -34,6 +41,9 @@ func _ready() -> void:
 		_heartbeat_player.stream = hb_stream
 		_heartbeat_player.volume_db = -20.0
 		add_child(_heartbeat_player)
+
+	_panic_hud = _PANIC_HUD_SCENE.instantiate()
+	add_child(_panic_hud)
 
 	_add_crosshair()
 
@@ -141,13 +151,43 @@ func _handle_gaze(delta: float) -> void:
 	else:
 		_gazed_object = null
 		_gaze_timer = 0.0
+
+	_update_panic(delta, target)
 	_update_heartbeat()
+
+
+func _find_scary_object(node: Node) -> Node:
+	var current: Node = node
+	while current:
+		if current.get_script() == _SCARY_OBJECT_SCRIPT:
+			return current
+		current = current.get_parent()
+	return null
+
+
+func _update_panic(delta: float, target: Node) -> void:
+	var scary := _find_scary_object(target) if target else null
+	if scary:
+		var intensity: float = scary.scare_intensity
+		_panic += delta * intensity * PANIC_BASE_RATE
+		if _panic >= PANIC_MAX:
+			_panic = 0.0
+			Screamer.trigger()
+	else:
+		_panic = maxf(0.0, _panic - delta * PANIC_DECAY_RATE)
+
+	if _panic_hud:
+		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
 
 
 func _update_heartbeat() -> void:
 	if not _heartbeat_player:
 		return
-	var ratio: float = clamp(_gaze_timer / GAZE_TRIGGER_TIME, 0.0, 1.0)
+	var ratio: float = 0.0
+	if _panic > 0.05:
+		ratio = clamp(_panic / PANIC_MAX, 0.0, 1.0)
+	elif _gaze_timer > 0.0:
+		ratio = clamp(_gaze_timer / GAZE_TRIGGER_TIME, 0.0, 1.0)
 	if ratio > 0.05:
 		if not _heartbeat_player.playing:
 			_heartbeat_player.play()
