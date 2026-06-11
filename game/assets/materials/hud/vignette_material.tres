@@ -1,0 +1,8 @@
+[gd_resource type="ShaderMaterial" format=3 uid="uid://vsxk4gcpd62f"]
+
+[ext_resource type="Shader" uid="uid://lwbig6s3awa0" path="res://assets/materials/hud/vignette_shader.gdshader" id="1_we2ya"]
+
+[resource]
+shader = ExtResource("1_we2ya")
+shader_parameter/tint_color = Color(0, 0, 0, 1)
+shader_parameter/vignette_strength = 3.0

@@ -1,0 +1,37 @@
+[gd_scene format=3 uid="uid://boxjcorxxbiey"]
+
+[ext_resource type="Script" uid="uid://1wrtpmtbjrq3" path="res://scripts/panic_hud.gd" id="1_bmpk4"]
+[ext_resource type="Material" uid="uid://dlnaa8yyesnpy" path="res://assets/materials/hud/panic_blur_material.tres" id="2_62d8q"]
+[ext_resource type="Material" uid="uid://b3j3sqlajwsty" path="res://assets/materials/hud/panic_tint_material.tres" id="3_lg1lt"]
+[ext_resource type="Material" uid="uid://vsxk4gcpd62f" path="res://assets/materials/hud/vignette_material.tres" id="4_t1bcn"]
+
+[node name="HUDCanvas" type="CanvasLayer" unique_id=1319832927]
+script = ExtResource("1_bmpk4")
+max_tint_blend = 0.1
+
+[node name="BlurRect" type="ColorRect" parent="." unique_id=746936019]
+material = ExtResource("2_62d8q")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TintRect" type="ColorRect" parent="." unique_id=1910759022]
+material = ExtResource("3_lg1lt")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Vignette" type="ColorRect" parent="." unique_id=1341431270]
+material = ExtResource("4_t1bcn")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2

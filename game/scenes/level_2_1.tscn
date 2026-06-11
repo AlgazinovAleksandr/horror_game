@@ -1,0 +1,325 @@
+[gd_scene format=3 uid="uid://bewnc6qp2dojc"]
+
+[ext_resource type="Script" uid="uid://ceya4utmkjmbs" path="res://scripts/level_2.gd" id="1"]
+[ext_resource type="Script" uid="uid://bhxpo0kngyl8e" path="res://scripts/player.gd" id="2"]
+[ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="2_skn4w"]
+[ext_resource type="Material" uid="uid://cc2fbxw4x4tlo" path="res://assets/materials/level_layout/roof_2.tres" id="2_urj8b"]
+[ext_resource type="Script" uid="uid://cq75prfex0038" path="res://scripts/note.gd" id="3"]
+[ext_resource type="Material" uid="uid://5mbrvwfu2fm2" path="res://assets/materials/level_layout/wall_2.tres" id="3_skn4w"]
+[ext_resource type="Script" uid="uid://bwmxctklmyafd" path="res://scripts/combination_lock.gd" id="4"]
+[ext_resource type="Material" uid="uid://yeoafu5wd2ur" path="res://assets/materials/level_layout/floor_2.tres" id="4_j8p1t"]
+[ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="5"]
+[ext_resource type="Texture2D" uid="uid://bktxdf300lgd5" path="res://assets/textures/lock_face.png" id="6"]
+[ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="6_hwh6o"]
+[ext_resource type="Material" uid="uid://c2y6toodyo117" path="res://assets/materials/objects/trap_note.tres" id="8_j8p1t"]
+[ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="13_j8p1t"]
+
+[sub_resource type="BoxMesh" id="3"]
+material = ExtResource("6_hwh6o")
+size = Vector3(0.21, 0.005, 0.297)
+
+[sub_resource type="BoxShape3D" id="4"]
+size = Vector3(0.21, 0.005, 0.297)
+
+[sub_resource type="BoxMesh" id="8"]
+size = Vector3(0.6, 0.8, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="11"]
+albedo_texture = ExtResource("6")
+metallic = 0.3
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="9"]
+size = Vector3(0.6, 0.8, 0.15)
+
+[sub_resource type="BoxMesh" id="5"]
+size = Vector3(1, 2.2, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="7"]
+albedo_color = Color(0.15, 0.01, 0.01, 1)
+emission_enabled = true
+emission = Color(0.15, 0.01, 0.01, 1)
+emission_energy_multiplier = 0.6
+
+[sub_resource type="BoxShape3D" id="6"]
+size = Vector3(1, 2.2, 0.15)
+
+[sub_resource type="BoxMesh" id="10"]
+size = Vector3(0.8, 1, 0.01)
+
+[sub_resource type="CapsuleShape3D" id="2"]
+radius = 0.4
+height = 1.8
+
+[node name="Level2" type="Node3D" unique_id=792899633]
+script = ExtResource("1")
+
+[node name="Environment" parent="." unique_id=846548183 instance=ExtResource("2_skn4w")]
+
+[node name="CreakPlayer" type="AudioStreamPlayer" parent="." unique_id=649932285]
+
+[node name="HallCeiling" type="CSGBox3D" parent="." unique_id=1411861669]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.85, 0)
+use_collision = true
+size = Vector3(2.4, 0.3, 6)
+material = ExtResource("2_urj8b")
+
+[node name="HallWallL" type="CSGBox3D" parent="." unique_id=1152570773]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.35, 1.35, 0)
+use_collision = true
+size = Vector3(0.3, 3, 6)
+material = ExtResource("3_skn4w")
+
+[node name="HallWallR" type="CSGBox3D" parent="." unique_id=390981374]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.35, 1.35, 0)
+use_collision = true
+size = Vector3(0.3, 3, 6)
+material = ExtResource("3_skn4w")
+
+[node name="HallWallBack" type="CSGBox3D" parent="." unique_id=1847201847]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, -3.15)
+use_collision = true
+size = Vector3(2.4, 3, 0.3)
+material = ExtResource("3_skn4w")
+
+[node name="HallWallBack2" type="CSGBox3D" parent="." unique_id=236823733]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.7000002, 1.35, 2.85)
+use_collision = true
+size = Vector3(0.4, 3, 0.3)
+material = ExtResource("3_skn4w")
+
+[node name="HallFloor" type="CSGBox3D" parent="." unique_id=1507757144]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
+use_collision = true
+size = Vector3(2.4, 0.3, 6)
+material = ExtResource("4_j8p1t")
+
+[node name="LivFloor" type="CSGBox3D" parent="." unique_id=1498774488]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.8000002, -0.15, 5.5)
+use_collision = true
+size = Vector3(11.400001, 0.3, 5)
+material = ExtResource("4_j8p1t")
+
+[node name="LivWallBack" type="CSGBox3D" parent="." unique_id=1687160328]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.8000004, 1.35, 8.15)
+use_collision = true
+size = Vector3(11.400001, 3, 0.3)
+material = ExtResource("3_skn4w")
+
+[node name="LivWallL" type="CSGBox3D" parent="." unique_id=833723083]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.05, 1.35, 5.5)
+use_collision = true
+size = Vector3(0.3, 3, 5)
+material = ExtResource("3_skn4w")
+
+[node name="LivWallDoorway" type="CSGCombiner3D" parent="." unique_id=1844424878]
+use_collision = true
+
+[node name="LivWallR_A" type="CSGBox3D" parent="LivWallDoorway" unique_id=896689196]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65, 1.35, 5.5)
+use_collision = true
+size = Vector3(0.3, 3, 5)
+material = ExtResource("3_skn4w")
+
+[node name="LivWallDoor" type="CSGBox3D" parent="LivWallDoorway" unique_id=130086223]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.65, 0.79999995, 5.5)
+operation = 2
+use_collision = true
+size = Vector3(0.3, 3, 1.4)
+material = ExtResource("3_skn4w")
+
+[node name="BedCeiling" type="CSGBox3D" parent="." unique_id=600049495]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.75, 2.85, 5.5)
+use_collision = true
+size = Vector3(11.5, 0.3, 5)
+material = ExtResource("2_urj8b")
+
+[node name="BedWallR" type="CSGBox3D" parent="." unique_id=312888025]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.65, 1.35, 5.5)
+use_collision = true
+size = Vector3(0.3, 3, 5)
+material = ExtResource("3_skn4w")
+
+[node name="BedWallFront" type="CSGBox3D" parent="." unique_id=1614200870]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5.5, 1.35, 2.85)
+use_collision = true
+size = Vector3(8, 3, 0.3)
+material = ExtResource("3_skn4w")
+
+[node name="LightHall" type="OmniLight3D" parent="." unique_id=2140027338]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0)
+light_color = Color(0.9, 0.75, 0.55, 1)
+light_energy = 0.6
+
+[node name="LightLiving" type="OmniLight3D" parent="." unique_id=4336456]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 2.5, 5.5)
+light_color = Color(0.8, 0.65, 0.5, 1)
+light_energy = 0.5
+omni_range = 6.0
+
+[node name="LightBedroom" type="OmniLight3D" parent="." unique_id=620858784]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.5, 2.5, 5.5)
+light_color = Color(0.7, 0.55, 0.45, 1)
+light_energy = 0.4
+
+[node name="NoteA" type="StaticBody3D" parent="." unique_id=1476300670]
+transform = Transform3D(-4.371139e-08, -1, 0, 0, 0, -1, 1, -4.371139e-08, 0, 1.2, 1.5, -1.1)
+script = ExtResource("3")
+note_text = "The first number is written on the wall of the bedroom. It is 4."
+metadata/_edit_group_ = true
+
+[node name="NoteAMesh" type="MeshInstance3D" parent="NoteA" unique_id=2036028094]
+mesh = SubResource("3")
+
+[node name="NoteACol" type="CollisionShape3D" parent="NoteA" unique_id=1149461951]
+shape = SubResource("4")
+
+[node name="NoteB" type="StaticBody3D" parent="." unique_id=81312293]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 2, 1.8, 3)
+script = ExtResource("3")
+note_text = "I checked everywhere. The second number must be 7. I'm sure of it.
+
+I'm sure."
+metadata/_edit_group_ = true
+
+[node name="NoteBMesh" type="MeshInstance3D" parent="NoteB" unique_id=692330974]
+mesh = SubResource("3")
+
+[node name="NoteBCol" type="CollisionShape3D" parent="NoteB" unique_id=1897328114]
+shape = SubResource("4")
+
+[node name="NoteC" type="StaticBody3D" parent="." unique_id=221361974]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 6, 1.2, 8)
+script = ExtResource("3")
+note_text = "Note to self: third digit, the one she always used — 2.
+
+Don't forget. Don't forget. Don't forget."
+metadata/_edit_group_ = true
+
+[node name="NoteCMesh" type="MeshInstance3D" parent="NoteC" unique_id=720836257]
+mesh = SubResource("3")
+
+[node name="NoteCCol" type="CollisionShape3D" parent="NoteC" unique_id=46417522]
+shape = SubResource("4")
+
+[node name="TrapNote1" type="StaticBody3D" parent="." unique_id=1914189803]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 1.5, 1.2, 8)
+script = ExtResource("3")
+note_text = "it got in it got in it got in it got in it got in it got in
+
+DONT READ THIS dont read this stop stop stop stop stop"
+is_trap = true
+metadata/_edit_group_ = true
+
+[node name="TrapNote1Mesh" type="MeshInstance3D" parent="TrapNote1" unique_id=1883426338]
+mesh = SubResource("3")
+surface_material_override/0 = ExtResource("8_j8p1t")
+
+[node name="TrapNote1Col" type="CollisionShape3D" parent="TrapNote1" unique_id=935198829]
+shape = SubResource("4")
+
+[node name="TrapNote2" type="StaticBody3D" parent="." unique_id=696033197]
+transform = Transform3D(-4.371139e-08, -1, 0, -4.371139e-08, 1.9106855e-15, -1, 1, -4.371139e-08, -4.371139e-08, -1.9, 1.2, 5)
+script = ExtResource("3")
+note_text = "Subject 44 was removed on day 3.
+Subject 45 was removed on day 1.
+Subject 46 was removed on day 6.
+
+You are not going to make it."
+is_trap = true
+metadata/_edit_group_ = true
+
+[node name="TrapNote2Mesh" type="MeshInstance3D" parent="TrapNote2" unique_id=498509543]
+mesh = SubResource("3")
+surface_material_override/0 = ExtResource("8_j8p1t")
+
+[node name="TrapNote2Col" type="CollisionShape3D" parent="TrapNote2" unique_id=177442027]
+shape = SubResource("4")
+
+[node name="CombinationLock" type="StaticBody3D" parent="." unique_id=1454090228]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1.3, 8.05)
+script = ExtResource("4")
+metadata/_edit_group_ = true
+
+[node name="LockMesh" type="MeshInstance3D" parent="CombinationLock" unique_id=1323210176]
+mesh = SubResource("8")
+surface_material_override/0 = SubResource("11")
+
+[node name="LockCol" type="CollisionShape3D" parent="CombinationLock" unique_id=1959427471]
+shape = SubResource("9")
+
+[node name="LockLight" type="OmniLight3D" parent="." unique_id=1052574679]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1.8, 7.8)
+light_color = Color(0.8, 0.6, 0.4, 1)
+light_energy = 0.5
+omni_range = 1.5
+
+[node name="ExitDoor" type="StaticBody3D" parent="." unique_id=1150269721]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.1000001, 1.1, 8.05)
+script = ExtResource("5")
+unlock_condition = 2
+metadata/_edit_group_ = true
+
+[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor" unique_id=930726633]
+mesh = SubResource("5")
+surface_material_override/0 = SubResource("7")
+
+[node name="DoorCol" type="CollisionShape3D" parent="ExitDoor" unique_id=24952466]
+shape = SubResource("6")
+
+[node name="BackDoor" type="StaticBody3D" parent="." unique_id=217277525]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, -3.05)
+script = ExtResource("5")
+advances_level = false
+goes_back = true
+metadata/_edit_group_ = true
+
+[node name="BackDoorMesh" type="MeshInstance3D" parent="BackDoor" unique_id=1200845127]
+mesh = SubResource("5")
+surface_material_override/0 = SubResource("7")
+
+[node name="BackDoorCol" type="CollisionShape3D" parent="BackDoor" unique_id=601808854]
+shape = SubResource("6")
+
+[node name="PaintingHouse" type="MeshInstance3D" parent="." unique_id=972317037]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1.5, 8.07)
+mesh = SubResource("10")
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=18587847]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0, -2.5)
+script = ExtResource("2")
+metadata/_edit_group_ = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=263422695]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("2")
+
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=688091181]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+
+[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D" unique_id=1583717638]
+light_energy = 1.2
+shadow_enabled = true
+spot_range = 15.0
+spot_angle = 25.0
+spot_angle_attenuation = 0.3
+
+[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player" unique_id=1905083432]
+
+[node name="InteractUI" type="CanvasLayer" parent="Player" unique_id=1688756]
+
+[node name="Label" type="Label" parent="Player/InteractUI" unique_id=184696012]
+visible = false
+anchors_preset = -1
+anchor_left = 0.5
+anchor_top = 0.6
+anchor_right = 0.5
+anchor_bottom = 0.6
+offset_left = -60.0
+offset_top = -15.0
+offset_right = 60.0
+offset_bottom = 15.0
+text = "Press E"
+horizontal_alignment = 1
+
+[node name="HUDCanvas" parent="." unique_id=1319832927 instance=ExtResource("13_j8p1t")]

@@ -1,0 +1,9 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://b21k6mmb7w16t"]
+
+[ext_resource type="Texture2D" uid="uid://cxwg2my6n6rco" path="res://assets/textures/ceiling_lab.png" id="1_ij1qc"]
+
+[resource]
+albedo_texture = ExtResource("1_ij1qc")
+uv1_scale = Vector3(0.25, 0.25, 0.25)
+uv1_triplanar = true
+uv1_world_triplanar = true

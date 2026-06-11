@@ -1,0 +1,9 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://nsp5325i6uf8"]
+
+[ext_resource type="Texture2D" uid="uid://piiq2bvepiyw" path="res://assets/textures/floor_house.png" id="1_vu6gy"]
+
+[resource]
+albedo_color = Color(0.7019608, 0.7019608, 0.7019608, 1)
+albedo_texture = ExtResource("1_vu6gy")
+uv1_triplanar = true
+uv1_world_triplanar = true

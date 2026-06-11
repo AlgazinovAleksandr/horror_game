@@ -24,10 +24,9 @@ func _ready() -> void:
 			creak.stream = s
 
 	_reset_creak_timer()
-	_apply_textures()
-	_spawn_note_tables()
-	# Warm sepia tint, moderate vignette
-	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
+	#_apply_textures()
+	#_spawn_note_tables()
+	# Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 
 
 func _spawn_note_tables() -> void:

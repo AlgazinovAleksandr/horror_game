@@ -14,7 +14,7 @@ const BASE_ENERGY := 1.8
 func _ready() -> void:
 	GameState.current_level = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	_apply_textures()
+	#_apply_textures()
 
 	if GameState.is_ending:
 		note.note_text = ENDING_NOTE

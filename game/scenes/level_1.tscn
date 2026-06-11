@@ -1,22 +1,19 @@
-[gd_scene load_steps=20 format=3]
+[gd_scene format=3 uid="uid://bbwpv1venp1mi"]
 
-[ext_resource type="Script" path="res://scripts/level_1.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/player.gd" id="2"]
-[ext_resource type="Script" path="res://scripts/note.gd" id="3"]
-[ext_resource type="Script" path="res://scripts/trigger_object.gd" id="4"]
-[ext_resource type="Script" path="res://scripts/keycard.gd" id="5"]
-[ext_resource type="Script" path="res://scripts/door.gd" id="6"]
-
-[sub_resource type="Environment" id="1"]
-background_mode = 1
-background_color = Color(0, 0, 0, 1)
-ambient_light_source = 2
-ambient_light_color = Color(0.04, 0.04, 0.05, 1)
-ambient_light_energy = 0.25
-
-[sub_resource type="CapsuleShape3D" id="2"]
-radius = 0.4
-height = 1.8
+[ext_resource type="Script" uid="uid://eentvmrsvhgy" path="res://scripts/level_1.gd" id="1"]
+[ext_resource type="Script" uid="uid://bhxpo0kngyl8e" path="res://scripts/player.gd" id="2"]
+[ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="2_pa8r4"]
+[ext_resource type="Script" uid="uid://cq75prfex0038" path="res://scripts/note.gd" id="3"]
+[ext_resource type="Material" uid="uid://b2kjd8dv4y6sn" path="res://assets/materials/level_layout/floor_1.tres" id="3_2y5yt"]
+[ext_resource type="Material" uid="uid://xa5e3ytf15cp" path="res://assets/materials/level_layout/wall_1.tres" id="3_15mv3"]
+[ext_resource type="Material" uid="uid://b21k6mmb7w16t" path="res://assets/materials/level_layout/roof_1.tres" id="3_e3sih"]
+[ext_resource type="Script" uid="uid://casm0rjrrnetx" path="res://scripts/trigger_object.gd" id="4"]
+[ext_resource type="Script" uid="uid://cnnl7yionmpi4" path="res://scripts/keycard.gd" id="5"]
+[ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="6"]
+[ext_resource type="Material" uid="uid://nsp5325i6uf8" path="res://assets/materials/objects/table.tres" id="6_go7sj"]
+[ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="8_7gny6"]
+[ext_resource type="Script" uid="uid://c3lbhft83q7ts" path="res://scripts/scary_object.gd" id="12_7gny6"]
+[ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="14_2aecg"]
 
 [sub_resource type="BoxMesh" id="3"]
 size = Vector3(0.21, 0.005, 0.297)
@@ -30,23 +27,14 @@ size = Vector3(0.6, 0.005, 0.4)
 [sub_resource type="BoxShape3D" id="6"]
 size = Vector3(0.6, 0.005, 0.4)
 
-[sub_resource type="BoxMesh" id="7"]
-size = Vector3(1.0, 2.2, 0.15)
-
-[sub_resource type="BoxShape3D" id="8"]
-size = Vector3(1.0, 2.2, 0.15)
-
-[sub_resource type="StandardMaterial3D" id="9"]
-albedo_color = Color(0.15, 0.01, 0.01, 1)
-emission_enabled = true
-emission = Color(0.15, 0.01, 0.01, 1)
-emission_energy_multiplier = 0.6
-
 [sub_resource type="BoxMesh" id="10"]
 size = Vector3(0.1, 0.05, 0.06)
 
 [sub_resource type="BoxShape3D" id="11"]
 size = Vector3(0.1, 0.05, 0.06)
+
+[sub_resource type="BoxMesh" id="BoxMesh_2aecg"]
+size = Vector3(0.1, 0.005, 0.15)
 
 [sub_resource type="StandardMaterial3D" id="12"]
 albedo_color = Color(0.2, 0.8, 0.3, 1)
@@ -57,300 +45,341 @@ emission_energy_multiplier = 1.5
 [sub_resource type="BoxShape3D" id="13"]
 size = Vector3(0.3, 0.3, 0.6)
 
+[sub_resource type="BoxMesh" id="7"]
+size = Vector3(1, 2.2, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="9"]
+albedo_color = Color(0.15, 0.01, 0.01, 1)
+emission_enabled = true
+emission = Color(0.15, 0.01, 0.01, 1)
+emission_energy_multiplier = 0.6
+
+[sub_resource type="BoxShape3D" id="8"]
+size = Vector3(1, 2.2, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2aecg"]
+albedo_color = Color(1, 0.45, 0.45, 1)
+
 [sub_resource type="BoxMesh" id="14"]
+material = SubResource("StandardMaterial3D_2aecg")
+size = Vector3(0.6, 0.8, 0.01)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_go7sj"]
 size = Vector3(0.6, 0.8, 0.01)
 
 [sub_resource type="BoxMesh" id="15"]
 size = Vector3(0.5, 0.01, 0.4)
 
-; ── Scene root ────────────────────────────────────────────────────────────────
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_6dial"]
+albedo_color = Color(0.97, 0, 0, 1)
 
-[node name="Level1" type="Node3D"]
+[sub_resource type="BoxShape3D" id="BoxShape3D_7gny6"]
+size = Vector3(0.5, 0.01, 0.4)
+
+[sub_resource type="CapsuleShape3D" id="2"]
+radius = 0.4
+height = 1.8
+
+[node name="Level1" type="Node3D" unique_id=655132858]
 script = ExtResource("1")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
-environment = SubResource("1")
+[node name="Environment" parent="." unique_id=846548183 instance=ExtResource("2_pa8r4")]
 
-[node name="AmbientPlayer" type="AudioStreamPlayer" parent="."]
-autoplay = false
+[node name="JumpscarePlayer" type="AudioStreamPlayer" parent="." unique_id=2114210015]
 
-[node name="JumpscarePlayer" type="AudioStreamPlayer" parent="."]
-autoplay = false
-
-; ── Main corridor: 12m long, 3m wide, 3m tall, running along Z axis ───────────
-
-[node name="CorridorFloor" type="CSGBox3D" parent="."]
+[node name="CorridorFloor" type="CSGBox3D" parent="." unique_id=777323480]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
-size = Vector3(3.0, 0.3, 12.0)
 use_collision = true
+size = Vector3(3, 0.3, 12)
+material = ExtResource("3_2y5yt")
 
-[node name="CorridorCeiling" type="CSGBox3D" parent="."]
+[node name="CorridorCeiling" type="CSGBox3D" parent="." unique_id=1643619476]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.15, 0)
-size = Vector3(3.0, 0.3, 12.0)
 use_collision = true
+size = Vector3(3, 0.3, 12)
+material = ExtResource("3_e3sih")
 
-[node name="WallLeft_A" type="CSGBox3D" parent="."]
+[node name="WallLeft_A" type="CSGBox3D" parent="." unique_id=888077164]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.65, 1.5, -5.325)
+use_collision = true
 size = Vector3(0.3, 3.3, 1.65)
-use_collision = true
+material = ExtResource("3_15mv3")
 
-[node name="WallLeft_B" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.65, 1.5, -1.0)
-size = Vector3(0.3, 3.3, 1.0)
+[node name="WallLeft_B" type="CSGBox3D" parent="." unique_id=281664496]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.65, 1.5, -1)
 use_collision = true
+size = Vector3(0.3, 3.3, 1)
+material = ExtResource("3_15mv3")
 
-[node name="WallLeft_C" type="CSGBox3D" parent="."]
+[node name="WallLeft_C" type="CSGBox3D" parent="." unique_id=1782248974]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.65, 1.5, 4.325)
+use_collision = true
 size = Vector3(0.3, 3.3, 3.65)
-use_collision = true
+material = ExtResource("3_15mv3")
 
-[node name="CorridorWallRight" type="CSGBox3D" parent="."]
+[node name="CorridorWallRight" type="CSGBox3D" parent="." unique_id=76644918]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.65, 1.5, 0)
-size = Vector3(0.3, 3.3, 12.0)
 use_collision = true
+size = Vector3(0.3, 3.3, 12)
+material = ExtResource("3_15mv3")
 
-[node name="CorridorWallStart" type="CSGBox3D" parent="."]
+[node name="CorridorWallStart" type="CSGBox3D" parent="." unique_id=975199165]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -6.15)
-size = Vector3(3.0, 3.3, 0.3)
 use_collision = true
+size = Vector3(3, 3.3, 0.3)
+material = ExtResource("3_15mv3")
 
-[node name="CorridorWallEnd" type="CSGBox3D" parent="."]
+[node name="CorridorWallEnd" type="CSGBox3D" parent="." unique_id=2060373121]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 6.15)
-size = Vector3(3.0, 3.3, 0.3)
 use_collision = true
+size = Vector3(3, 3.3, 0.3)
+material = ExtResource("3_15mv3")
 
-; ── Side room 1 (left, z=-3) ──────────────────────────────────────────────────
-
-[node name="Room1Floor" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, -0.15, -3.0)
-size = Vector3(4.0, 0.3, 4.0)
+[node name="Room1Floor" type="CSGBox3D" parent="." unique_id=338820554]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, -0.15, -3)
 use_collision = true
+size = Vector3(4, 0.3, 4)
+material = ExtResource("3_2y5yt")
 
-[node name="Room1Ceiling" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 3.15, -3.0)
-size = Vector3(4.0, 0.3, 4.0)
+[node name="Room1Ceiling" type="CSGBox3D" parent="." unique_id=1717257396]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 3.15, -3)
 use_collision = true
+size = Vector3(4, 0.3, 4)
+material = ExtResource("3_e3sih")
 
-[node name="Room1WallLeft" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.65, 1.5, -3.0)
-size = Vector3(0.3, 3.3, 4.0)
+[node name="Room1WallLeft" type="CSGBox3D" parent="." unique_id=1217654706]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.65, 1.5, -3)
 use_collision = true
+size = Vector3(0.3, 3.3, 4)
+material = ExtResource("3_15mv3")
 
-[node name="Room1WallBack" type="CSGBox3D" parent="."]
+[node name="Room1WallBack" type="CSGBox3D" parent="." unique_id=644532698]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -5.15)
-size = Vector3(4.0, 3.3, 0.3)
 use_collision = true
+size = Vector3(4, 3.3, 0.3)
+material = ExtResource("3_15mv3")
 
-[node name="Room1WallFront" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -0.85)
-size = Vector3(4.0, 3.3, 0.3)
+[node name="Room2Floor" type="CSGBox3D" parent="." unique_id=900099271]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, -0.15, 1)
 use_collision = true
+size = Vector3(4, 0.3, 4)
+material = ExtResource("3_2y5yt")
 
-; ── Side room 2 (left, z=1) ───────────────────────────────────────────────────
-
-[node name="Room2Floor" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, -0.15, 1.0)
-size = Vector3(4.0, 0.3, 4.0)
+[node name="Room2Ceiling" type="CSGBox3D" parent="." unique_id=1168904782]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 3.15, 1)
 use_collision = true
+size = Vector3(4, 0.3, 4)
+material = ExtResource("3_e3sih")
 
-[node name="Room2Ceiling" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 3.15, 1.0)
-size = Vector3(4.0, 0.3, 4.0)
+[node name="Room2WallLeft" type="CSGBox3D" parent="." unique_id=834060229]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.65, 1.5, 1)
 use_collision = true
+size = Vector3(0.3, 3.3, 4)
+material = ExtResource("3_15mv3")
 
-[node name="Room2WallLeft" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5.65, 1.5, 1.0)
-size = Vector3(0.3, 3.3, 4.0)
+[node name="Room2WallBack" type="CSGBox3D" parent="." unique_id=207945646]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.65, 1.5, -0.99999994)
 use_collision = true
+size = Vector3(3.7, 3.3, 0.6)
+material = ExtResource("3_15mv3")
 
-[node name="Room2WallBack" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -1.15)
-size = Vector3(4.0, 3.3, 0.3)
-use_collision = true
-
-[node name="Room2WallFront" type="CSGBox3D" parent="."]
+[node name="Room2WallFront" type="CSGBox3D" parent="." unique_id=1993684326]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, 3.15)
-size = Vector3(4.0, 3.3, 0.3)
 use_collision = true
+size = Vector3(4, 3.3, 0.3)
+material = ExtResource("3_15mv3")
 
-; ── Lights (fluorescent, flickered by level_1.gd) ────────────────────────────
-
-[node name="Light1" type="SpotLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, -1, 0, 2.9, -4.0)
-light_energy = 1.0
+[node name="Light1" type="SpotLight3D" parent="." unique_id=737634856]
+transform = Transform3D(-3.785517e-08, 0.96592593, 0.2588191, -2.1855698e-08, -0.2588191, 0.96592593, 1, 3.0908623e-08, 3.0908623e-08, 1.1920929e-07, 2.9, -4)
 spot_range = 6.0
 spot_angle = 60.0
 
-[node name="Light2" type="SpotLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, -1, 0, 2.9, 0.0)
-light_energy = 1.0
+[node name="Light2" type="SpotLight3D" parent="." unique_id=216229146]
+transform = Transform3D(-1.1313339e-08, 0.86602545, -0.5, -4.2221952e-08, 0.5, 0.86602545, 1, 3.0908616e-08, 3.0908623e-08, 1.1920929e-07, 2.9, 0)
 spot_range = 6.0
 spot_angle = 60.0
 
-[node name="Light3" type="SpotLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, -1, 0, 2.9, 4.0)
-light_energy = 1.0
+[node name="Light3" type="SpotLight3D" parent="." unique_id=652996583]
+transform = Transform3D(-3.785517e-08, 0.96592593, 0.2588191, -2.1855698e-08, -0.2588191, 0.96592593, 1, 3.0908623e-08, 3.0908623e-08, 1.1920929e-07, 2.9, 4)
 spot_range = 6.0
 spot_angle = 60.0
 
-[node name="LightRoom1" type="SpotLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, -1, -3.5, 2.9, -3.0)
+[node name="LightRoom1" type="SpotLight3D" parent="." unique_id=79127670]
+transform = Transform3D(-2.1855685e-08, -0.96592593, 0.25881913, 3.7855184e-08, 0.25881913, 0.96592593, -1, 3.0908623e-08, 3.0908623e-08, -3.5, 2.9, -3)
 light_energy = 0.7
-spot_range = 5.0
 spot_angle = 60.0
 
-[node name="LightRoom2" type="SpotLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, -1, -3.5, 2.9, 1.0)
+[node name="LightRoom2" type="SpotLight3D" parent="." unique_id=919501628]
+transform = Transform3D(-2.1855685e-08, -0.96592593, 0.25881913, 3.7855184e-08, 0.25881913, 0.96592593, -1, 3.0908623e-08, 3.0908623e-08, -3.5, 2.9, 1)
 light_energy = 0.7
-spot_range = 5.0
 spot_angle = 60.0
 
-; ── Examination table (Room 2 — keycard hidden under it) ─────────────────────
-
-[node name="ExamTable" type="CSGBox3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 0.45, 1.0)
+[node name="ExamTable" type="CSGBox3D" parent="." unique_id=133671789]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 0.45, 1)
+use_collision = true
 size = Vector3(1.8, 0.9, 0.6)
-use_collision = true
+material = ExtResource("6_go7sj")
 
-; ── Notes ─────────────────────────────────────────────────────────────────────
-
-[node name="Note1" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.5, 1.2, -2.0)
+[node name="Note1" type="StaticBody3D" parent="." unique_id=1223761218]
+transform = Transform3D(-4.371139e-08, -1, 0, 0, 0, -1, 1, -4.371139e-08, 0, 1.5, 1.7, -1.1)
 script = ExtResource("3")
 note_text = "Subject 46 left something in the first room on the left. It may be useful."
-is_trap = false
+metadata/_edit_group_ = true
 
-[node name="Note1Mesh" type="MeshInstance3D" parent="Note1"]
+[node name="Note1Mesh" type="MeshInstance3D" parent="Note1" unique_id=906355718]
 mesh = SubResource("3")
+surface_material_override/0 = ExtResource("8_7gny6")
 
-[node name="Note1Col" type="CollisionShape3D" parent="Note1"]
+[node name="Note1Col" type="CollisionShape3D" parent="Note1" unique_id=2147113190]
 shape = SubResource("4")
 
-[node name="Note2" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -2.0, 1.2, -3.0)
+[node name="Note2" type="StaticBody3D" parent="." unique_id=1255079717]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -1.65, 1.3000001, -1.5)
 script = ExtResource("3")
-note_text = "Do not look at the tray. Do not look at the monitor.\n\nThey are not what they appear.\n\nDo not look."
-is_trap = false
+note_text = "Do not look at the tray. Do not look at the monitor.
 
-[node name="Note2Mesh" type="MeshInstance3D" parent="Note2"]
+They are not what they appear.
+
+Do not look."
+metadata/_edit_group_ = true
+
+[node name="Note2Mesh" type="MeshInstance3D" parent="Note2" unique_id=1145486642]
 mesh = SubResource("3")
+surface_material_override/0 = ExtResource("8_7gny6")
 
-[node name="Note2Col" type="CollisionShape3D" parent="Note2"]
+[node name="Note2Col" type="CollisionShape3D" parent="Note2" unique_id=1070986038]
 shape = SubResource("4")
 
-[node name="Note3" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -4.5, 1.2, 1.5)
+[node name="Note3" type="StaticBody3D" parent="." unique_id=641438181]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.8, 0.90000004, 0.9)
 script = ExtResource("3")
-note_text = "The keycard is taped under the second examination table.\n\nDon't let them see you take it."
-is_trap = false
+note_text = "The keycard is taped under the second examination table.
 
-[node name="Note3Mesh" type="MeshInstance3D" parent="Note3"]
+Don't let them see you take it."
+metadata/_edit_group_ = true
+
+[node name="Note3Mesh" type="MeshInstance3D" parent="Note3" unique_id=1387704368]
 mesh = SubResource("3")
+surface_material_override/0 = ExtResource("8_7gny6")
 
-[node name="Note3Col" type="CollisionShape3D" parent="Note3"]
+[node name="Note3Col" type="CollisionShape3D" parent="Note3" unique_id=2136578904]
 shape = SubResource("4")
 
-; ── Trigger objects ───────────────────────────────────────────────────────────
-
-[node name="SurgicalTray" type="StaticBody3D" parent="."]
+[node name="SurgicalTray" type="StaticBody3D" parent="." unique_id=1377619202]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.851, -3.5)
 script = ExtResource("4")
+metadata/_edit_group_ = true
 
-[node name="TrayMesh" type="MeshInstance3D" parent="SurgicalTray"]
+[node name="TrayMesh" type="MeshInstance3D" parent="SurgicalTray" unique_id=1769528417]
 mesh = SubResource("5")
 
-[node name="TrayCol" type="CollisionShape3D" parent="SurgicalTray"]
+[node name="TrayCol" type="CollisionShape3D" parent="SurgicalTray" unique_id=1850924645]
 shape = SubResource("6")
 
-[node name="Monitor" type="StaticBody3D" parent="."]
+[node name="Monitor" type="StaticBody3D" parent="." unique_id=836561688]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.8, 1.3, -4.5)
 script = ExtResource("4")
+metadata/_edit_group_ = true
 
-[node name="MonitorMesh" type="MeshInstance3D" parent="Monitor"]
+[node name="MonitorMesh" type="MeshInstance3D" parent="Monitor" unique_id=696304203]
 mesh = SubResource("10")
 
-[node name="MonitorCol" type="CollisionShape3D" parent="Monitor"]
+[node name="MonitorCol" type="CollisionShape3D" parent="Monitor" unique_id=767232339]
 shape = SubResource("11")
 
-; ── Keycard ───────────────────────────────────────────────────────────────────
-
-[node name="Keycard" type="StaticBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3.0, 0.8, 1.0)
+[node name="Keycard" type="StaticBody3D" parent="." unique_id=489245240]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3, 0.8, 1)
 script = ExtResource("5")
+metadata/_edit_group_ = true
 
-[node name="KeycardMesh" type="MeshInstance3D" parent="Keycard"]
-mesh = SubResource("3")
+[node name="KeycardMesh" type="MeshInstance3D" parent="Keycard" unique_id=664656065]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 0, -0.100000024)
+mesh = SubResource("BoxMesh_2aecg")
 surface_material_override/0 = SubResource("12")
 
-[node name="KeycardCol" type="CollisionShape3D" parent="Keycard"]
+[node name="KeycardCol" type="CollisionShape3D" parent="Keycard" unique_id=318672522]
 shape = SubResource("13")
 
-; ── Exit door (keycard-locked) ────────────────────────────────────────────────
-
-[node name="ExitDoor" type="StaticBody3D" parent="."]
+[node name="ExitDoor" type="StaticBody3D" parent="." unique_id=1810727205]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 6.05)
 script = ExtResource("6")
 unlock_condition = 1
-advances_level = true
+metadata/_edit_group_ = true
 
-[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor"]
+[node name="DoorMesh" type="MeshInstance3D" parent="ExitDoor" unique_id=280990533]
 mesh = SubResource("7")
 surface_material_override/0 = SubResource("9")
 
-[node name="DoorCol" type="CollisionShape3D" parent="ExitDoor"]
+[node name="DoorCol" type="CollisionShape3D" parent="ExitDoor" unique_id=123525834]
 shape = SubResource("8")
 
-; ── Back door (returns to intro room) ─────────────────────────────────────────
-
-[node name="BackDoor" type="StaticBody3D" parent="."]
+[node name="BackDoor" type="StaticBody3D" parent="." unique_id=162472127]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, -6.05)
 script = ExtResource("6")
-unlock_condition = 0
 advances_level = false
 goes_back = true
+metadata/_edit_group_ = true
 
-[node name="BackDoorMesh" type="MeshInstance3D" parent="BackDoor"]
+[node name="BackDoorMesh" type="MeshInstance3D" parent="BackDoor" unique_id=1457656385]
 mesh = SubResource("7")
 surface_material_override/0 = SubResource("9")
 
-[node name="BackDoorCol" type="CollisionShape3D" parent="BackDoor"]
+[node name="BackDoorCol" type="CollisionShape3D" parent="BackDoor" unique_id=99732012]
 shape = SubResource("8")
 
-; ── Decals ────────────────────────────────────────────────────────────────────
+[node name="Poster" type="StaticBody3D" parent="." unique_id=28625784]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -4.9700003)
+script = ExtResource("12_7gny6")
+metadata/_edit_group_ = true
 
-[node name="PosterLab" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1.5, -5.07)
+[node name="PosterLab" type="MeshInstance3D" parent="Poster" unique_id=1973526507]
 mesh = SubResource("14")
 
-[node name="BloodLab" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 0.01, 1.3)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Poster" unique_id=753886529]
+shape = SubResource("BoxShape3D_go7sj")
+
+[node name="Blood" type="StaticBody3D" parent="." unique_id=1809883656]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 0.01, 2.7)
+script = ExtResource("12_7gny6")
+scare_intensity = 3.0
+metadata/_edit_group_ = true
+
+[node name="BloodLab" type="MeshInstance3D" parent="Blood" unique_id=928652630]
 mesh = SubResource("15")
+surface_material_override/0 = SubResource("StandardMaterial3D_6dial")
 
-; ── Player ────────────────────────────────────────────────────────────────────
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Blood" unique_id=799605148]
+shape = SubResource("BoxShape3D_7gny6")
 
-[node name="Player" type="CharacterBody3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -5.5)
+[node name="HUDCanvas" parent="." unique_id=1319832927 instance=ExtResource("14_2aecg")]
+visible = false
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=1410250809]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0, 0, -5.5)
 script = ExtResource("2")
+metadata/_edit_group_ = true
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=21505252]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("2")
 
-[node name="Camera3D" type="Camera3D" parent="Player"]
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=872390062]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
 
-[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D"]
+[node name="Flashlight" type="SpotLight3D" parent="Player/Camera3D" unique_id=2031480040]
 light_energy = 1.2
+shadow_enabled = true
 spot_range = 15.0
 spot_angle = 25.0
 spot_angle_attenuation = 0.3
-shadow_enabled = true
 
-[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player"]
+[node name="FootstepPlayer" type="AudioStreamPlayer3D" parent="Player" unique_id=1643249219]
 
-[node name="InteractUI" type="CanvasLayer" parent="Player"]
+[node name="InteractUI" type="CanvasLayer" parent="Player" unique_id=1582567364]
 
-[node name="Label" type="Label" parent="Player/InteractUI"]
+[node name="Label" type="Label" parent="Player/InteractUI" unique_id=1674321722]
+visible = false
+anchors_preset = -1
 anchor_left = 0.5
 anchor_top = 0.6
 anchor_right = 0.5
@@ -361,4 +390,3 @@ offset_right = 60.0
 offset_bottom = 15.0
 text = "Press E"
 horizontal_alignment = 1
-visible = false
