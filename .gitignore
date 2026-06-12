@@ -19,6 +19,11 @@ venv/
 # Secrets
 .env
 
+# Draft textures (local working copies — .gitkeep preserves folder structure)
+game/assets/textures/*/draft/*.png
+game/assets/textures/*/draft/*.jpg
+game/assets/textures/*/draft/*.jpeg
+
 # macOS
 .DS_Store
 .DS_Store?

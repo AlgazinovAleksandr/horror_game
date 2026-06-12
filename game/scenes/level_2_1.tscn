@@ -9,10 +9,10 @@
 [ext_resource type="Script" uid="uid://bwmxctklmyafd" path="res://scripts/combination_lock.gd" id="4"]
 [ext_resource type="Material" uid="uid://yeoafu5wd2ur" path="res://assets/materials/level_layout/floor_2.tres" id="4_j8p1t"]
 [ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="5"]
-[ext_resource type="Texture2D" uid="uid://bktxdf300lgd5" path="res://assets/textures/level_2/lock_face.png" id="6"]
+[ext_resource type="Texture2D" uid="uid://bktxdf300lgd5" path="res://assets/textures/level_2_house/lock_face.png" id="6"]
 [ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="6_hwh6o"]
 [ext_resource type="Material" uid="uid://c2y6toodyo117" path="res://assets/materials/objects/trap_note.tres" id="8_j8p1t"]
-[ext_resource type="Texture2D" uid="uid://dlgufpo22aj0h" path="res://assets/textures/level_2/painting_house.png" id="12_hwh6o"]
+[ext_resource type="Texture2D" uid="uid://dlgufpo22aj0h" path="res://assets/textures/level_2_house/painting_house.png" id="12_hwh6o"]
 [ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="13_j8p1t"]
 
 [sub_resource type="BoxMesh" id="3"]

@@ -37,7 +37,7 @@ func advance_level() -> void:
 	current_level += 1
 	start_current_level()
 
-const AUDIO_SUBDIRS := ["shared", "level_1", "level_2", "level_3_corridor", "level_4_void"]
+const AUDIO_SUBDIRS := ["shared", "level_1_lab", "level_2_house", "level_3_corridor", "level_4_void"]
 
 # Try loading an audio file by base name — searches all audio subdirectories.
 static func load_audio(base_name: String) -> AudioStream:

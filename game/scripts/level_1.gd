@@ -35,7 +35,7 @@ func _ready() -> void:
 			js.stream = s
 
 	_reset_jumpscare_timer()
-	#_apply_textures()
+	_apply_textures()
 	#_spawn_note_tables()
 	# Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 
@@ -52,16 +52,16 @@ func _spawn_note_tables() -> void:
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load("res://assets/textures/level_1/wall_lab.png") \
-		if ResourceLoader.exists("res://assets/textures/level_1/wall_lab.png") else null
-	var floor_tex: Texture2D = load("res://assets/textures/level_1/floor_lab.png") \
-		if ResourceLoader.exists("res://assets/textures/level_1/floor_lab.png") else null
-	var ceiling_tex: Texture2D = load("res://assets/textures/level_1/ceiling_lab.png") \
-		if ResourceLoader.exists("res://assets/textures/level_1/ceiling_lab.png") else null
-	var poster_tex: Texture2D = load("res://assets/textures/level_1/poster_lab.png") \
-		if ResourceLoader.exists("res://assets/textures/level_1/poster_lab.png") else null
-	var blood_tex: Texture2D = load("res://assets/textures/level_1/blood_lab.png") \
-		if ResourceLoader.exists("res://assets/textures/level_1/blood_lab.png") else null
+	var wall_tex: Texture2D = load("res://assets/textures/level_1_lab/lab_wall.png") \
+		if ResourceLoader.exists("res://assets/textures/level_1_lab/lab_wall.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/level_1_lab/lab_floor.png") \
+		if ResourceLoader.exists("res://assets/textures/level_1_lab/lab_floor.png") else null
+	var ceiling_tex: Texture2D = load("res://assets/textures/level_1_lab/lab_ceiling.png") \
+		if ResourceLoader.exists("res://assets/textures/level_1_lab/lab_ceiling.png") else null
+	var poster_tex: Texture2D = load("res://assets/textures/level_1_lab/poster_lab.png") \
+		if ResourceLoader.exists("res://assets/textures/level_1_lab/poster_lab.png") else null
+	var blood_tex: Texture2D = load("res://assets/textures/level_1_lab/blood_lab.png") \
+		if ResourceLoader.exists("res://assets/textures/level_1_lab/blood_lab.png") else null
 	for child in get_children():
 		var n: String = child.name.to_lower()
 		if child is CSGBox3D:
