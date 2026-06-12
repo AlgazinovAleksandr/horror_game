@@ -74,11 +74,10 @@ Columns:
 ## Notes
 
 ### Ceiling textures
-`ceiling_lab` and `ceiling_house` are separate from their wall textures. The current `_apply_textures()` in `level_1.gd` and `level_2.gd` applies `wall_tex` to nodes matching `"wall"` OR `"ceiling"` in their name. Once ceiling textures are ready, add a third branch:
-```gdscript
-if "ceiling" in name.to_lower():
-    mesh.material_override = ceiling_mat
-```
+`lab_ceiling` and `house_ceiling` are separate from their wall textures. `_apply_textures()` in `level_1.gd` and `level_2.gd` already has a dedicated `"ceiling"` name branch that applies them.
+
+### Material .tres files must use per-level subfolder paths
+The `.tres` materials in `assets/materials/level_layout/` and `assets/materials/objects/` reference textures by `ext_resource` path + UID. When textures were reorganised into per-level subfolders, all of these silently broke (e.g. `wall_2.tres` still pointed at `res://assets/textures/wall_house.png`). Fixed in session 8 — see ISSUES_SOLUTIONS.md Issue 8. When adding or moving a texture, update both the **path** and the **uid** in any `.tres` that references it (the correct uid is in the texture's `.png.import` file).
 
 ### Decal-type textures
 `painting_intro`, `cobweb_intro`, `poster_lab`, `blood_lab`, `painting_house` are flat MeshInstance3D quads placed against surfaces. They require both a texture file AND a MeshInstance3D node added to the scene. The Texture Audit Rule in CLAUDE.md covers both checks.
@@ -91,4 +90,7 @@ Screamer images live in `game/assets/textures/screamers/`. Any `.png` dropped in
 The corridor-exclusive screamer (`screamer_hotel.png`) lives in `level_3_corridor/` and is deliberately kept out of `screamers/` so it never appears in other levels.
 
 ### Note paper textures
-`note_paper.png` is applied in `note.gd`'s `_style_mesh()` as the base material for all note mesh instances. Trap notes then receive a `Color(0.9, 0.55, 0.55)` red tint on top.
+`note_paper.png` is referenced by the scene-level materials `assets/materials/objects/note.tres` (safe notes) and `trap_note.tres` (trap notes, red-tinted variant), assigned as `surface_material_override` in the `.tscn` files. The runtime styling in `note.gd` (`_style_mesh()`) is commented out — the `.tres` materials are the live path.
+
+### Procedural (untextured) Level 2 props — candidates for future textures
+The session-8 pressure package builds several props in `level_2.gd` from plain `StandardMaterial3D` colors, no texture files: the living-room **window** (dark glass + wooden crossbar frame), the **tarnished mirror** (dark metallic quad), and the window-glimpse **silhouette** (near-black capsule). If texture budget allows, a `window_house.png` (grimy glass, night outside) and `mirror_house.png` would upgrade these — add rows above when generated.

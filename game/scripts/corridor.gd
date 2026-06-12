@@ -36,6 +36,7 @@ const BEARTRAPS := [  # [distance, lateral offset]
 ]
 
 const DARK_ZONES := [Vector2(145.0, 172.0), Vector2(240.0, 318.0)]
+const DREAD_ZONE := Vector2(230.0, 320.0)  # Zone C: weak decay + constant pressure
 
 const NOTE_TEXT := """Hotel Vesper — night audit.
 
@@ -70,6 +71,7 @@ func _ready() -> void:
 	_spawn_panels()
 	_spawn_beartraps()
 	_spawn_dark_zones()
+	_spawn_dread_zone()
 	_spawn_doors()
 	_spawn_intro_note()
 	_spawn_events()
@@ -328,21 +330,31 @@ func _spawn_beartraps() -> void:
 
 func _spawn_dark_zones() -> void:
 	for zone_range in DARK_ZONES:
-		for seg in _segments:
-			var a: float = maxf(zone_range.x, seg.start_d)
-			var b: float = minf(zone_range.y, seg.start_d + seg.len)
-			if b - a < 0.5:
-				continue
-			var zone := DarkZone.new()
-			var col := CollisionShape3D.new()
-			var shape := BoxShape3D.new()
-			shape.size = Vector3(W, H, b - a)
-			col.shape = shape
-			zone.add_child(col)
-			var mid2: Vector2 = seg.p0 + (seg.dir as Vector2) * ((a + b) / 2.0 - seg.start_d)
-			zone.position = Vector3(mid2.x, H / 2.0, mid2.y)
-			zone.rotation.y = atan2(seg.dir.x, seg.dir.y)
-			add_child(zone)
+		_spawn_zone_boxes(zone_range, func() -> Area3D: return DarkZone.new())
+
+
+func _spawn_dread_zone() -> void:
+	_spawn_zone_boxes(DREAD_ZONE, func() -> Area3D: return DreadZone.new())
+
+
+# Cover [range.x, range.y] of the path with axis-aligned Area3D boxes, one per
+# segment slice. `make_zone` constructs the zone node type.
+func _spawn_zone_boxes(zone_range: Vector2, make_zone: Callable) -> void:
+	for seg in _segments:
+		var a: float = maxf(zone_range.x, seg.start_d)
+		var b: float = minf(zone_range.y, seg.start_d + seg.len)
+		if b - a < 0.5:
+			continue
+		var zone: Area3D = make_zone.call()
+		var col := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(W, H, b - a)
+		col.shape = shape
+		zone.add_child(col)
+		var mid2: Vector2 = seg.p0 + (seg.dir as Vector2) * ((a + b) / 2.0 - seg.start_d)
+		zone.position = Vector3(mid2.x, H / 2.0, mid2.y)
+		zone.rotation.y = atan2(seg.dir.x, seg.dir.y)
+		add_child(zone)
 
 
 # ---------------------------------------------------------------- doors & note

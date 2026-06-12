@@ -6,8 +6,11 @@ extends Node3D
 
 var _flicker_timers: Array[float] = []
 var _jumpscare_timer: float = 0.0
+var _blackout_timer: float = 0.0  # taking the keycard kills the lights briefly
 const JUMPSCARE_MIN := 30.0
 const JUMPSCARE_MAX := 90.0
+const BLACKOUT_DURATION := 1.6
+const KEYCARD_PANIC := 8.0
 
 
 func _ready() -> void:
@@ -36,8 +39,8 @@ func _ready() -> void:
 
 	_reset_jumpscare_timer()
 	_apply_textures()
-	#_spawn_note_tables()
-	# Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
+	_spawn_note_tables()
+	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 
 
 func _spawn_note_tables() -> void:
@@ -107,10 +110,30 @@ func _process(delta: float) -> void:
 
 
 func _flicker_lights(delta: float) -> void:
+	_blackout_timer = maxf(0.0, _blackout_timer - delta)
 	for i in range(lights.size()):
 		_flicker_timers[i] += delta
 		var t := _flicker_timers[i]
-		lights[i].light_energy = 1.0 + sin(t * 11.3) * 0.08 + sin(t * 23.7) * 0.04
+		if _blackout_timer > 0.0:
+			# Dying stutter: near-dark with brief erratic pulses.
+			lights[i].light_energy = 0.04 + maxf(0.0, sin(t * 37.0) * sin(t * 8.1)) * 0.25
+		else:
+			lights[i].light_energy = 1.0 + sin(t * 11.3) * 0.08 + sin(t * 23.7) * 0.04
+
+
+func on_keycard_taken() -> void:
+	_blackout_timer = BLACKOUT_DURATION
+	var creak := GameState.load_audio("creak")
+	if creak:
+		var p := AudioStreamPlayer.new()
+		p.stream = creak
+		p.volume_db = 2.0
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+	var player := get_node_or_null("Player")
+	if player and player.has_method("add_panic"):
+		player.add_panic(KEYCARD_PANIC)
 
 
 func _tick_jumpscare(delta: float) -> void:

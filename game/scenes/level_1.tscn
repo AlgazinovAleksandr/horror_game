@@ -266,7 +266,9 @@ shape = SubResource("4")
 [node name="Note3" type="StaticBody3D" parent="." unique_id=641438181]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.8, 0.90000004, 0.9)
 script = ExtResource("3")
-note_text = "The keycard is taped under the second examination table.
+note_text = "The keycard is on the cart in the first room — between the tray and the monitor.
+
+Keep your eyes on the floor. Take it quickly.
 
 Don't let them see you take it."
 metadata/_edit_group_ = true
@@ -300,8 +302,13 @@ mesh = SubResource("10")
 [node name="MonitorCol" type="CollisionShape3D" parent="Monitor" unique_id=767232339]
 shape = SubResource("11")
 
+[node name="KeycardCart" type="CSGBox3D" parent="." unique_id=489245241]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.6, 0.4, -4.4)
+use_collision = true
+size = Vector3(0.6, 0.8, 0.5)
+
 [node name="Keycard" type="StaticBody3D" parent="." unique_id=489245240]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3, 0.8, 1)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3.6, 0.85, -4.4)
 script = ExtResource("5")
 metadata/_edit_group_ = true
 

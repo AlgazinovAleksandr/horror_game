@@ -8,19 +8,22 @@ const ENDING_NOTE := "This is not an experiment.\n\nThere is no exit.\n\nThey al
 @onready var note: Node = $Note
 
 var _flicker_time: float = 0.0
+var _red_light: OmniLight3D = null  # ending only: slow blood-red throb
 const BASE_ENERGY := 1.8
 
 
 func _ready() -> void:
 	GameState.current_level = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	#_apply_textures()
+	_apply_textures()
 
 	if GameState.is_ending:
 		note.note_text = ENDING_NOTE
 		NoteUI.closed.connect(_on_ending_note_closed, CONNECT_ONE_SHOT)
+		_corrupt_room()
 	else:
 		note.note_text = OPENING_NOTE
+		_show_controls_hint()
 
 	_spawn_cobwebs()
 
@@ -72,12 +75,94 @@ func _apply_textures() -> void:
 					child.set_surface_override_material(0, mat)
 
 
+# The twist ending: same room, visibly wrong. The candle is dead, the room
+# throbs blood-red, the exit is boarded over, and the new note is the only
+# brightly lit thing left.
+func _corrupt_room() -> void:
+	candle_light.light_energy = 0.0
+	candle_light.visible = false
+
+	_red_light = OmniLight3D.new()
+	_red_light.light_color = Color(0.8, 0.06, 0.04)
+	_red_light.light_energy = 0.5
+	_red_light.omni_range = 7.0
+	_red_light.shadow_enabled = true
+	_red_light.position = Vector3(0, 2.4, -1.0)
+	add_child(_red_light)
+
+	# The door you came through is gone — planks where it used to be.
+	var exit_door := get_node_or_null("ExitDoor")
+	if exit_door:
+		exit_door.queue_free()
+	var plank_mat := StandardMaterial3D.new()
+	plank_mat.albedo_color = Color(0.10, 0.07, 0.04)
+	plank_mat.roughness = 0.95
+	for plank in [
+		[Vector3(0, 1.6, -2.45), 0.35],
+		[Vector3(0, 1.0, -2.45), -0.3],
+		[Vector3(0, 0.5, -2.45), 0.15],
+	]:
+		var mesh_inst := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(1.7, 0.22, 0.06)
+		mesh_inst.mesh = mesh
+		mesh_inst.set_surface_override_material(0, plank_mat)
+		mesh_inst.position = plank[0]
+		mesh_inst.rotation.z = plank[1]
+		add_child(mesh_inst)
+
+	# Harsh cold spotlight pinning the note to the table.
+	var spot := SpotLight3D.new()
+	spot.light_color = Color(0.95, 0.93, 0.85)
+	spot.light_energy = 4.0
+	spot.spot_range = 4.0
+	spot.spot_angle = 18.0
+	spot.shadow_enabled = true
+	spot.position = Vector3(0, 2.8, 0)
+	spot.rotation_degrees.x = -90.0
+	add_child(spot)
+
+	# Low whisper loop under everything.
+	var stream := GameState.load_audio("whispers")
+	if stream:
+		var p := AudioStreamPlayer.new()
+		p.stream = stream
+		p.volume_db = -14.0
+		add_child(p)
+		p.finished.connect(p.play)
+		p.play()
+
+
+func _show_controls_hint() -> void:
+	var canvas := CanvasLayer.new()
+	canvas.layer = 40
+	add_child(canvas)
+
+	var lbl := Label.new()
+	lbl.text = "WASD — move    ·    E — interact    ·    F — flashlight    ·    Shift — run"
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	lbl.position.y -= 60.0
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_color_override("font_color", Color(0.7, 0.66, 0.58, 0.9))
+	lbl.add_theme_font_size_override("font_size", 18)
+	canvas.add_child(lbl)
+
+	var tween := create_tween()
+	tween.tween_interval(8.0)
+	tween.tween_property(lbl, "modulate:a", 0.0, 2.0)
+	tween.tween_callback(canvas.queue_free)
+
+
 func _spawn_cobwebs() -> void:
 	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
 		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
 	if not cobweb_tex:
 		return
 	var positions := [Vector3(-2.5, 2.6, -2.4), Vector3(2.5, 2.6, -2.4)]
+	if GameState.is_ending:
+		# Trial 2: the room has been abandoned far longer than you were gone.
+		positions += [Vector3(-2.5, 2.6, 2.4), Vector3(2.5, 2.6, 2.4),
+			Vector3(-2.5, 1.2, -2.4), Vector3(2.5, 1.2, 2.4)]
 	for pos in positions:
 		var mesh_inst := MeshInstance3D.new()
 		mesh_inst.name = "CobwebIntro"
@@ -96,6 +181,12 @@ func _spawn_cobwebs() -> void:
 
 func _process(delta: float) -> void:
 	_flicker_time += delta
+	if _red_light:
+		# Slow arrhythmic throb, like something breathing through the walls.
+		_red_light.light_energy = 0.5 \
+			+ maxf(0.0, sin(_flicker_time * 1.7)) * 0.35 \
+			+ sin(_flicker_time * 0.6) * 0.1
+		return
 	candle_light.light_energy = BASE_ENERGY \
 		+ sin(_flicker_time * 7.3) * 0.18 \
 		+ sin(_flicker_time * 13.7) * 0.09 \

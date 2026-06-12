@@ -29,21 +29,24 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 **Level 1 — The Lab (institutional corridor)**
 - Sterile hallway + 3 examination rooms, flickering fluorescent lights
 - 3 safe notes (reveal keycard location), 2 trigger objects (surgical tray, monitor with face)
+- **Guarded keycard**: the keycard sits on a cart in Room 1 *between* the tray and the monitor — retrieving it means navigating your own gaze. Taking it fires `on_keycard_taken()` in `level_1.gd`: 1.6 s light-blackout stutter + creak + 8 panic
 - Win: collect keycard → use on exit door
 - Fail: touch/stare at a trigger object for 3+ seconds → screamer → restart
 
 **Level 2 — The House (abandoned domestic interior)**
-- Hallway, living room, kitchen, staircase, bedroom
+- Hallway, living room, bedroom (geometry in `level_2_1.tscn`)
 - 3 safe notes (each contains one digit of a 3-digit code), 2 trap notes
 - Win: read 3 safe notes, enter code on combination lock on exit door
-- Fail: read a trap note fully → screamer → restart
-- Trap note cues: desperate tone, fragmented writing, slightly different visual texture
-- Creature glimpsed once through a window (static, no behaviour)
+- Fail: read a trap note **fully** → screamer → restart. Read-to-die: trap notes open normally but feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); the text bleeds red as panic climbs; closing early saves you with a part-full bar
+- Trap note cues: desperate tone, fragmented writing, red-tinted paper texture
+- **Pressure package** (built at runtime in `level_2.gd`): window on the living-room back wall with a one-shot creature glimpse (silhouette pressed against the glass + sting + 15 panic); cursed props (bedroom painting 0.8, living-room mirror 1.2) feed gaze panic; 4 `CorridorEvent` triggers — front door slam (+8), footsteps overhead (+6, `footsteps_above.wav`), window glimpse, bedroom light dies (+6, bedroom becomes a `DarkZone`)
+- **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
 
 **Level 3 — The Corridor (haunted hotel hallway)** — inspired by *The Corridor* (2012)
 - ~320 m zigzag hallway built **procedurally** in `corridor.gd` from `PATH_2D` (7 segments, 90° turns, 3 m wide). Three zones: A "Hotel" 0–90 m (intact, lit torches every 12 m, paintings, grandfather clock), B "Decay" 90–230 m (blood smears, lights shatter, beartraps in the dark stretch), C "Nightmare" 230–320 m (dead torch panels, the mirror, constant whispers, near-black)
 - **No fetch quest** — exit door (room 217, `door.png`) has `unlock_condition = NONE`; walking the corridor without panicking IS the test
 - Panic pressure: `CorridorEvent` triggers add panic directly (entry door slam +10, clock chime +10, silhouette crossing the far junction +20, floor crack +10); `DarkZone`s add +3/s while flashlight is off; `Torch3D` calm zones decay panic ×2.5; cursed gaze panels (paintings 0.8/1.2, clock 1.0, mirror 2.5); beartraps = snap + 25 panic + 3 s limp (never instant fail)
+- **Zone C dread** (230–320 m, `DreadZone` spawned by `_spawn_dread_zone()`): decay weakens 15→6/s and a constant +1.5/s pressure accrues regardless of anything else — panic from the silhouette/floor-crack/mirror no longer fully drains, making the last 90 m an endurance gauntlet
 - One framing note at the entrance ("Hotel Vesper — The Management"); 3 fake locked doors (`fake_door.gd`) that knock back (+8 panic, first try only)
 - Corridor-exclusive screamer: `screamer_hotel.png` — kept OUT of `screamers/`; `screamer.gd` selects it when `GameState.current_level == 3`
 - Prop textures (`door/clock/mirror/torch.png`) share the same baked wallpaper+wainscot background as `wall.png`, so they're applied as full-height wall panels that blend into the wall texture
@@ -56,10 +59,10 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - Fail: touch a trap note or trigger object → creature rushes camera → screamer → restart
 
 **Twist Ending**
-Final door loads back to the intro room. New note on the table: *"Very good, Subject 47. Beginning trial 2."* Screen fades → credits.
+Final door loads back to the intro room — **corrupted** (`_corrupt_room()` in `intro_room.gd`, fires when `GameState.is_ending`): candle dead, slow blood-red throb light, exit door replaced by planks (no way forward), harsh cold spotlight pinning the new note to the table, extra cobwebs, low whisper loop. Reading the note → 2 s → `Screamer.trigger_to_menu()`.
 
 ### Trigger Object Rules
-- Trigger objects and trap notes are **instant fail** on interaction (press E) OR after 3 continuous seconds of direct gaze
+- Trigger objects are **instant fail** on interaction (press E) OR after 3 continuous seconds of direct gaze; trap notes are **read-to-die** (panic +12/s while open — see Level 2)
 - Screamer sequence: black flash → screamer image fullscreen → loud audio burst → 1.5s delay → scene reloads
 - Visual hint: trigger objects have a faint pulse glow or subtle audio cue when player is close
 
@@ -90,15 +93,15 @@ Registered in `game/project.godot`. Access directly by name from any script.
 |----------|------|-------------|
 | `GameState` | `scripts/game_state.gd` | Level state (`current_level`: 0=intro, 1=lab, 2=house, **3=corridor, 4=void, 5=ending**), `has_keycard`, `level2_code_correct`, `twist_read`, `is_ending`; `advance_level()`; `go_back()` (both call `start_current_level()` → `reset_level_state()`); `restart_current_level()`; `go_to_main_menu()`; `load_audio(base_name)` |
 | `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` bool guards both `trigger()` and `trigger_to_menu()` against re-entry. Textures loaded via `DirAccess` scan of `res://assets/textures/screamers/` at startup — drop any `.png` there to add it to the rotation. The Corridor (level 3) always shows `assets/textures/level_3_corridor/screamer_hotel.png` instead (deliberately NOT in `screamers/` so it never appears in other levels). |
-| `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic |
+| `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text, trap_rate := 0.0)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic. While `trap_rate > 0` and the note is open, feeds `player.add_panic()` per frame and tints the text toward red; auto-drops the overlay if the tree unpauses (= a screamer fired) |
 
 ### Key scripts
 | Script | Responsibility |
 |--------|---------------|
-| `player.gd` | `CharacterBody3D` movement, raycast interaction, gaze timer (3s stare → fail), **panic system** (`_panic` float, `PANIC_MAX=50`, `PANIC_BASE_RATE=20/s`, `PANIC_DECAY_RATE=15/s`), flashlight toggle (`toggle_flashlight` action), heartbeat audio tied to panic ratio. Corridor API: `add_panic(amount)` (instant spike, screamer at max), `apply_slow(duration)` (speed ×0.45), `jolt_camera(strength, duration)`, `enter/exit_calm_zone()` (decay ×2.5), `enter/exit_dark_zone()` (+3 panic/s with flashlight off) |
+| `player.gd` | `CharacterBody3D` movement, raycast interaction, gaze timer (3s stare → fail), **panic system** (`_panic` float, `PANIC_MAX=50`, `PANIC_BASE_RATE=20/s`, `PANIC_DECAY_RATE=15/s`), flashlight toggle (`toggle_flashlight` action, F), heartbeat audio tied to panic ratio. **Sprint** (`sprint` action, Shift): ×1.6 speed, +6 panic/s while sprinting (suppresses decay), faster footsteps. **Flashlight battery**: 240 s per scene (`BATTERY_MAX`), dying-bulb stutter below 48 s, dead = can't re-enable. Zone API: `add_panic(amount)` (instant spike, screamer at max), `apply_slow(duration)` (speed ×0.45), `jolt_camera(strength, duration)`, `enter/exit_calm_zone()` (decay ×2.5), `enter/exit_dark_zone()` (+3 panic/s with flashlight off), `enter/exit_dread_zone()` (decay 6/s + constant 1.5/s pressure), `get_panic_ratio()` |
 | `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors |
-| `note.gd` | Note interact, `is_trap` / `is_twist_note` flags, red tint on trap notes |
-| `combination_lock.gd` | 3-digit spinner UI for Level 2 exit (code: **472**) |
+| `note.gd` | Note interact, `is_trap` / `is_twist_note` flags. Trap notes open via `NoteUI.show_note(text, TRAP_PANIC_RATE)` — read-to-die, no instant fail |
+| `combination_lock.gd` | 3-digit spinner UI for Level 2 exit (code: **472**). Wrong code = buzz + 10 panic (`WRONG_CODE_PANIC`); UI auto-drops if a screamer fires while open |
 | `creature_static.gd` | Level 3 static creature; `rush_camera()` fires on trigger |
 | `vignette.gd` | `class_name Vignette` — `Vignette.spawn(parent, color, strength)` adds per-level overlay |
 | `keycard.gd` | Pickup → sets `GameState.has_keycard`; auto-hides on reload if already collected |
@@ -110,7 +113,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `corridor.gd` | Level 3 script — builds the entire 320 m corridor procedurally from `PATH_2D`: geometry (overlapping CSG segments with corner openings), triplanar materials, torches, wall panels, beartraps, zones, doors, intro note, events. Walls use `uv1_triplanar` with **y-scale −1/3** (negative flips V so the wainscot sits at the floor; positive renders the wall texture upside-down) |
 | `corridor_event.gd` | `CorridorEvent` Area3D — one-shot trigger volume; emits `fired` on player entry. `corridor.gd` connects each to an event callback (`_ev_*`) |
 | `beartrap.gd` | `Beartrap` Area3D — self-building base+jaw meshes with faint emissive glint (keep emission ≤0.12 or it reads as white paper in the dark); on step: snap SFX + `add_panic(25)` + `apply_slow(3)` + camera jolt + jaw-close tween. One-shot |
-| `calm_zone.gd` / `dark_zone.gd` | `CalmZone` / `DarkZone` Area3D — call `player.enter/exit_calm_zone()` / `enter/exit_dark_zone()` on body enter/exit |
+| `calm_zone.gd` / `dark_zone.gd` / `dread_zone.gd` | `CalmZone` / `DarkZone` / `DreadZone` Area3D — call the matching `player.enter/exit_*_zone()` on body enter/exit |
 | `torch_3d.gd` | `Torch3D` Node3D — self-building wall torch (bracket + cup + emissive flame + flickering OmniLight + CalmZone child). `extinguish()` kills flame/light + frees the CalmZone — used by the lights-out event |
 | `fake_door.gd` | `FakeDoor` StaticBody3D — locked hotel door panel; interact → door_slam answers from the other side, +8 panic first try only |
 
@@ -135,11 +138,17 @@ Visual feedback is provided by `hud_canvas.tscn` (at `game/assets/elements/hud_c
 
 To make a prop raise panic: attach a `ScaryObject` node as a **child** of the prop's `StaticBody3D`. Set `scare_intensity` (default 1.0). No other wiring required — `player.gd` walks the parent chain automatically.
 
-### Corridor additions (Level 3)
+Panic source priority per frame (`_update_panic`): gaze at ScaryObject > sprinting (+6/s) > dark-zone creep (+3/s, flashlight off) > decay. Dread-zone pressure (+1.5/s) is added **on top** regardless of branch.
+
+### Zone & movement modifiers
 - `add_panic(amount)` — instant spike from scripted events/traps; fires the screamer at max like gaze panic
+- **Sprint** (Shift): ×1.6 speed, +6 panic/s, suppresses decay while held — "Walk. Do not run." is a real rule
 - **Calm zones** (torchlight): while inside ≥1 `CalmZone`, decay runs at ×2.5 (`CALM_DECAY_MULT`)
 - **Dark zones**: while inside ≥1 `DarkZone` with the flashlight OFF, panic creeps +3/s (`DARK_PANIC_RATE`); gaze panic takes priority over dark-creep
+- **Dread zones** (corridor Zone C): decay weakens to 6/s (`DREAD_DECAY_RATE`) and +1.5/s (`DREAD_PANIC_RATE`) accrues constantly
+- **Flashlight battery**: 240 s of ON time per scene (player re-instances each level, so it resets); stutters below 48 s, then dies for the rest of the level. ON by default at spawn — a player who never toggles it loses it near the corridor's final dark zone
 - `apply_slow(duration)` — beartrap limp, speed ×0.45 (`SLOW_MULTIPLIER`); timers don't stack, longest wins
+- **Read-to-die trap notes**: `NoteUI` feeds `player.add_panic(TRAP_PANIC_RATE × delta)` while a trap note is open (works during tree pause — NoteUI is `PROCESS_MODE_ALWAYS`)
 
 ## Folder Layout
 ```
@@ -162,7 +171,7 @@ horror_game/
 ```
 
 ### Audio import
-New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees them: `/Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import` (or open the editor and let the scan run). Corridor SFX (`clock_chime`, `glass_shatter`, `beartrap_snap`, `door_slam`, `whispers`) are generated by `tools/make_sfx.py` (seeded, reproducible); `ghost_house.wav` is the corridor ambience.
+New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees them: `/Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import` (or open the editor and let the scan run). Corridor SFX (`clock_chime`, `glass_shatter`, `beartrap_snap`, `door_slam`, `whispers`) are generated by `tools/make_sfx.py` (seeded, reproducible); `ghost_house.wav` is the corridor ambience. House SFX (`lock_buzz`, `footsteps_above`) are generated by `tools/make_sfx_house.py` (same stdlib-only conventions).
 
 ## Skills Installed (in .agents/skills/)
 | Skill | When to invoke |

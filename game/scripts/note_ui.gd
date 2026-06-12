@@ -9,6 +9,8 @@ var _root: Control
 var _text_label: RichTextLabel
 var is_open: bool = false
 var _block_close: bool = false
+var _trap_rate: float = 0.0   # panic/s fed to the player while this note is open
+var _player: Node = null
 
 
 func _ready() -> void:
@@ -81,14 +83,35 @@ func _ready() -> void:
 	_root.visible = false
 
 
-func show_note(text: String) -> void:
+func show_note(text: String, trap_rate: float = 0.0) -> void:
 	_text_label.text = text
+	_text_label.add_theme_color_override("default_color", Color(0.92, 0.88, 0.80))
 	_root.visible = true
 	is_open = true
 	_block_close = true
+	_trap_rate = trap_rate
+	_player = get_tree().current_scene.get_node_or_null("Player") if get_tree().current_scene else null
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().paused = true
 	set_deferred("_block_close", false)
+
+
+func _process(delta: float) -> void:
+	if not is_open:
+		return
+	# The tree unpausing while a note is open means a screamer fired —
+	# drop the overlay silently so it doesn't survive the scene reload.
+	if not get_tree().paused:
+		_root.visible = false
+		is_open = false
+		_trap_rate = 0.0
+		return
+	if _trap_rate > 0.0 and _player and is_instance_valid(_player) and _player.has_method("add_panic"):
+		_player.add_panic(delta * _trap_rate)
+		# The page bleeds: text shifts toward red as panic climbs while reading.
+		var ratio: float = _player.get_panic_ratio() if _player.has_method("get_panic_ratio") else 0.0
+		_text_label.add_theme_color_override("default_color",
+			Color(0.92, 0.88, 0.80).lerp(Color(0.85, 0.1, 0.08), ratio))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -100,6 +123,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _close() -> void:
 	_root.visible = false
 	is_open = false
+	_trap_rate = 0.0
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	closed.emit()

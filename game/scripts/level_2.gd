@@ -25,8 +25,11 @@ func _ready() -> void:
 
 	_reset_creak_timer()
 	_apply_textures()
-	#_spawn_note_tables()
-	# Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
+	_spawn_note_tables()
+	_spawn_window()
+	_spawn_cursed_props()
+	_spawn_events()
+	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 
 
 func _spawn_note_tables() -> void:
@@ -91,3 +94,176 @@ func _process(delta: float) -> void:
 
 func _reset_creak_timer() -> void:
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
+
+
+# ---------------------------------------------------------------- pressure
+
+# Back wall interior face is at z = 8.0; the window sits flush on it, left of
+# the trap note. The glimpse event presses a silhouette against the glass.
+const WINDOW_POS := Vector3(-0.8, 1.6, 7.96)
+
+var _window_glass: MeshInstance3D
+
+
+func _spawn_window() -> void:
+	_window_glass = MeshInstance3D.new()
+	_window_glass.name = "WindowGlass"
+	var pane := QuadMesh.new()
+	pane.size = Vector2(1.0, 1.2)
+	_window_glass.mesh = pane
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(0.04, 0.06, 0.09, 0.4)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.metallic = 0.6
+	glass.roughness = 0.15
+	_window_glass.set_surface_override_material(0, glass)
+	_window_glass.position = WINDOW_POS
+	_window_glass.rotation.y = PI  # face into the room (-z)
+	add_child(_window_glass)
+
+	# Simple wooden frame: two crossbars over the pane.
+	var frame_mat := StandardMaterial3D.new()
+	frame_mat.albedo_color = Color(0.12, 0.08, 0.05)
+	frame_mat.roughness = 0.85
+	for bar_size in [Vector3(1.06, 0.06, 0.04), Vector3(0.06, 1.26, 0.04)]:
+		var bar := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = bar_size
+		bar.mesh = mesh
+		bar.set_surface_override_material(0, frame_mat)
+		bar.position = WINDOW_POS + Vector3(0, 0, -0.025)
+		add_child(bar)
+
+
+func _spawn_cursed_props() -> void:
+	# Family painting in the bedroom (mesh already in the scene) — staring feeds panic.
+	_make_cursed_body(Vector3(8.0, 1.5, 7.97), Vector2(0.8, 1.0), PI, 0.8)
+	# Tarnished mirror on the living room's left wall.
+	var mirror := _make_cursed_body(Vector3(-1.88, 1.5, 6.5), Vector2(0.7, 1.1), PI / 2.0, 1.2)
+	var quad := MeshInstance3D.new()
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(0.7, 1.1)
+	quad.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.05, 0.07, 0.08)
+	mat.metallic = 0.9
+	mat.roughness = 0.12
+	quad.set_surface_override_material(0, mat)
+	mirror.add_child(quad)
+
+
+func _make_cursed_body(pos: Vector3, size: Vector2, y_rot: float, intensity: float) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.position = pos
+	body.rotation.y = y_rot
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(size.x, size.y, 0.1)
+	col.shape = shape
+	body.add_child(col)
+	var scary := ScaryObject.new()
+	scary.scare_intensity = intensity
+	body.add_child(scary)
+	add_child(body)
+	return body
+
+
+func _spawn_events() -> void:
+	# Front door slams behind you as you head for the living room.
+	_spawn_event(Vector3(0, 1.5, 2.0), Vector3(2.4, 3, 1.5), _ev_front_door_slam)
+	# Someone paces the floor above the living room.
+	_spawn_event(Vector3(1.5, 1.5, 5.0), Vector3(5.0, 3, 1.5), _ev_footsteps_above)
+	# The thing in the window — near the back-left of the living room.
+	_spawn_event(Vector3(0.2, 1.5, 6.6), Vector3(3.0, 3, 1.8), _ev_window_glimpse)
+	# The bedroom light dies as you step through its doorway.
+	_spawn_event(Vector3(4.65, 1.5, 5.5), Vector3(1.2, 3, 1.6), _ev_bedroom_dark)
+
+
+func _spawn_event(pos: Vector3, size: Vector3, callback: Callable) -> void:
+	var ev := CorridorEvent.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	col.shape = shape
+	ev.add_child(col)
+	ev.position = pos
+	ev.fired.connect(callback)
+	add_child(ev)
+
+
+func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
+	var stream := GameState.load_audio(base_name)
+	if not stream:
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = stream
+	p.volume_db = volume_db
+	p.unit_size = 8.0
+	p.max_db = 6.0
+	add_child(p)
+	p.position = pos
+	p.finished.connect(p.queue_free)
+	p.play()
+
+
+func _ev_front_door_slam() -> void:
+	_play_at("door_slam", Vector3(0, 1.2, -3.0), 2.0)
+	var player := _get_player()
+	if player:
+		player.add_panic(8.0)
+
+
+func _ev_footsteps_above() -> void:
+	_play_at("footsteps_above", Vector3(2.0, 3.2, 5.5), 3.0)
+	var player := _get_player()
+	if player:
+		player.add_panic(6.0)
+
+
+func _ev_window_glimpse() -> void:
+	# A figure pressed against the glass, gone when you look twice.
+	var fig := MeshInstance3D.new()
+	var capsule := CapsuleMesh.new()
+	capsule.radius = 0.15
+	capsule.height = 1.5
+	fig.mesh = capsule
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.01, 0.01, 0.02)
+	mat.emission_enabled = true
+	mat.emission = Color(0.05, 0.04, 0.06)
+	mat.emission_energy_multiplier = 0.3
+	fig.set_surface_override_material(0, mat)
+	fig.position = Vector3(WINDOW_POS.x, 1.35, 8.05)
+	add_child(fig)
+	_play_at("jumpscare", WINDOW_POS, -10.0)
+	var player := _get_player()
+	if player:
+		player.add_panic(15.0)
+	get_tree().create_timer(1.4).timeout.connect(fig.queue_free)
+
+
+func _ev_bedroom_dark() -> void:
+	_play_at("creak", Vector3(7.5, 2.5, 5.5), 2.0)
+	var light: OmniLight3D = get_node_or_null("LightBedroom")
+	if light:
+		var tween := create_tween()
+		tween.tween_property(light, "light_energy", 1.4, 0.12)
+		tween.tween_property(light, "light_energy", 0.1, 0.08)
+		tween.tween_property(light, "light_energy", 0.9, 0.10)
+		tween.tween_property(light, "light_energy", 0.0, 0.25)
+	# The bedroom is a dark zone from now on — flashlight off costs panic.
+	var zone := DarkZone.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(4.7, 3.0, 5.2)
+	col.shape = shape
+	zone.add_child(col)
+	zone.position = Vector3(7.15, 1.5, 5.5)
+	add_child(zone)
+	var player := _get_player()
+	if player:
+		player.add_panic(6.0)
+
+
+func _get_player() -> CharacterBody3D:
+	return get_node_or_null("Player") as CharacterBody3D

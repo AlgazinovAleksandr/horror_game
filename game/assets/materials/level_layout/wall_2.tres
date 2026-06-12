@@ -1,6 +1,6 @@
 [gd_resource type="StandardMaterial3D" format=3 uid="uid://5mbrvwfu2fm2"]
 
-[ext_resource type="Texture2D" uid="uid://c5laldfldxmsy" path="res://assets/textures/wall_house.png" id="1_wboda"]
+[ext_resource type="Texture2D" uid="uid://blede18yymt6m" path="res://assets/textures/level_2_house/house_wall.png" id="1_wboda"]
 
 [resource]
 albedo_color = Color(0.7019608, 0.7019608, 0.7019608, 1)

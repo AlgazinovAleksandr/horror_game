@@ -3,6 +3,8 @@ extends StaticBody3D
 # 3-digit combination lock for Level 2 exit door.
 # Builds its own UI programmatically — no child nodes required in the scene.
 
+const WRONG_CODE_PANIC := 10.0  # brute-forcing the lock is the fail path
+
 var _canvas: CanvasLayer
 var _panel: PanelContainer
 var _digit_labels: Array[Label] = []
@@ -10,11 +12,25 @@ var _feedback_label: Label
 var _digits: Array[int] = [0, 0, 0]
 var _selected: int = 0
 var _ui_open: bool = false
+var _buzz_player: AudioStreamPlayer
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_ui()
+	_buzz_player = AudioStreamPlayer.new()
+	var buzz := GameState.load_audio("lock_buzz")
+	if buzz:
+		_buzz_player.stream = buzz
+	add_child(_buzz_player)
+
+
+func _process(_delta: float) -> void:
+	# Tree unpausing while the lock is open means a screamer fired —
+	# drop the UI silently so it doesn't survive the scene reload.
+	if _ui_open and not get_tree().paused:
+		_panel.visible = false
+		_ui_open = false
 
 
 func _build_ui() -> void:
@@ -65,6 +81,8 @@ func _build_ui() -> void:
 func interact() -> void:
 	_ui_open = true
 	_panel.visible = true
+	_feedback_label.text = "↑↓ change  ←→ select  E confirm  Esc cancel"
+	_feedback_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().paused = true
 	_refresh_display()
@@ -103,7 +121,13 @@ func _submit() -> void:
 		await get_tree().create_timer(0.8).timeout
 		_close_ui()
 	else:
-		_feedback_label.text = "INCORRECT — try again"
+		_feedback_label.text = "INCORRECT"
+		_feedback_label.add_theme_color_override("font_color", Color(0.85, 0.2, 0.15))
+		if _buzz_player.stream:
+			_buzz_player.play()
+		var player := get_tree().current_scene.get_node_or_null("Player")
+		if player and player.has_method("add_panic"):
+			player.add_panic(WRONG_CODE_PANIC)
 
 
 func _close_ui() -> void:
