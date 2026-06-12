@@ -89,7 +89,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | Autoload | File | What it owns |
 |----------|------|-------------|
 | `GameState` | `scripts/game_state.gd` | Level state (`current_level`: 0=intro, 1=lab, 2=house, **3=corridor, 4=void, 5=ending**), `has_keycard`, `level2_code_correct`, `twist_read`, `is_ending`; `advance_level()`; `go_back()` (both call `start_current_level()` → `reset_level_state()`); `restart_current_level()`; `go_to_main_menu()`; `load_audio(base_name)` |
-| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` bool guards both `trigger()` and `trigger_to_menu()` against re-entry. Textures loaded via `DirAccess` scan of `res://assets/textures/screamers/` at startup — drop any `.png` there to add it to the rotation. The Corridor (level 3) always shows `assets/textures/screamer_hotel.png` instead (deliberately NOT in `screamers/` so it never appears in other levels). |
+| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` bool guards both `trigger()` and `trigger_to_menu()` against re-entry. Textures loaded via `DirAccess` scan of `res://assets/textures/screamers/` at startup — drop any `.png` there to add it to the rotation. The Corridor (level 3) always shows `assets/textures/level_3_corridor/screamer_hotel.png` instead (deliberately NOT in `screamers/` so it never appears in other levels). |
 | `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic |
 
 ### Key scripts
@@ -176,8 +176,8 @@ New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees th
 
 ## Asset Pipeline
 - **3D models:** Blender → File > Export > glTF 2.0 (.glb) → `game/assets/models/`
-- **Textures:** PolyHaven / AmbientCG (CC0 PBR) or Stable Diffusion → `game/assets/textures/`
-- **Audio:** Freesound.org (CC0) or MusicGen (HuggingFace) → export as .ogg → `game/assets/audio/`
+- **Textures:** PolyHaven / AmbientCG (CC0 PBR) or Stable Diffusion → `game/assets/textures/<subfolder>/` (see TEXTURES.md for the per-level subfolder layout)
+- **Audio:** Freesound.org (CC0) or MusicGen (HuggingFace) → export as .ogg → `game/assets/audio/<subfolder>/` (`shared/`, `level_1/`, `level_2/`, `level_3_corridor/`, `level_4_void/`)
 - **Characters/animations:** Mixamo (free) → download as .fbx → open in Blender → export as .glb
 
 ### Texture audit rule (run at the start of every level content session)

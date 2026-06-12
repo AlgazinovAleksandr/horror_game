@@ -80,4 +80,4 @@ sips -s format png path/to/image.png --out path/to/image.png
 
 **New audio files need a Godot import pass.** If a `.wav`/`.ogg` file has no matching `.import` file in the same directory, Godot won't load it. Open the editor and let the filesystem scan complete (or run `Godot --headless --path game --import`) after adding audio assets.
 
-**Corridor SFX are procedurally generated.** `tools/make_sfx.py` (pure stdlib Python) synthesizes `clock_chime.wav`, `glass_shatter.wav`, `beartrap_snap.wav`, `door_slam.wav` and `whispers.wav` into `game/assets/audio/`. Re-run it to regenerate; replace any file with a Freesound CC0 recording for higher fidelity.
+**Corridor SFX are procedurally generated.** `tools/make_sfx.py` (pure stdlib Python) synthesizes `clock_chime.wav`, `glass_shatter.wav`, `beartrap_snap.wav`, `door_slam.wav` and `whispers.wav` into `game/assets/audio/level_3_corridor/`. Re-run it to regenerate; replace any file with a Freesound CC0 recording for higher fidelity.

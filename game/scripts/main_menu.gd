@@ -10,7 +10,7 @@ func _build_ui() -> void:
 	add_child(canvas)
 
 	# Background image (corridor silhouette)
-	var bg_tex_path := "res://assets/textures/main_menu_bg.png"
+	var bg_tex_path := "res://assets/textures/ui/main_menu_bg.png"
 	if ResourceLoader.exists(bg_tex_path):
 		var bg_img := TextureRect.new()
 		bg_img.texture = load(bg_tex_path)

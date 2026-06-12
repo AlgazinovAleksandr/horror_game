@@ -26,16 +26,16 @@ func _ready() -> void:
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load("res://assets/textures/wall_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/wall_intro.png") else null
-	var floor_tex: Texture2D = load("res://assets/textures/floor_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/floor_intro.png") else null
-	var ceiling_tex: Texture2D = load("res://assets/textures/ceiling_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/ceiling_intro.png") else null
-	var painting_tex: Texture2D = load("res://assets/textures/painting_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/painting_intro.png") else null
-	var cobweb_tex: Texture2D = load("res://assets/textures/cobweb_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/cobweb_intro.png") else null
+	var wall_tex: Texture2D = load("res://assets/textures/intro/wall_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/wall_intro.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/intro/floor_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/floor_intro.png") else null
+	var ceiling_tex: Texture2D = load("res://assets/textures/intro/ceiling_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/ceiling_intro.png") else null
+	var painting_tex: Texture2D = load("res://assets/textures/intro/painting_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/painting_intro.png") else null
+	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
 	for child in get_children():
 		var n: String = child.name.to_lower()
 		if child is CSGBox3D:
@@ -73,8 +73,8 @@ func _apply_textures() -> void:
 
 
 func _spawn_cobwebs() -> void:
-	var cobweb_tex: Texture2D = load("res://assets/textures/cobweb_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/cobweb_intro.png") else null
+	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
+		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
 	if not cobweb_tex:
 		return
 	var positions := [Vector3(-2.5, 2.6, -2.4), Vector3(2.5, 2.6, -2.4)]

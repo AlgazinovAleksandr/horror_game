@@ -17,7 +17,7 @@ const PATH_2D: Array[Vector2] = [
 	Vector2(-5, 100), Vector2(-5, 145), Vector2(40, 145), Vector2(40, 190),
 ]
 
-const TEX_DIR := "res://assets/textures/"
+const TEX_DIR := "res://assets/textures/level_3_corridor/"
 
 # Lit torches: [distance, side]. Zone A is generous, Zone B sparser.
 # The three at 148–168 sit in the dark stretch and get shattered by the

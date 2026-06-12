@@ -41,14 +41,14 @@ func _spawn_note_tables() -> void:
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load("res://assets/textures/wall_house.png") \
-		if ResourceLoader.exists("res://assets/textures/wall_house.png") else null
-	var floor_tex: Texture2D = load("res://assets/textures/floor_house.png") \
-		if ResourceLoader.exists("res://assets/textures/floor_house.png") else null
-	var ceiling_tex: Texture2D = load("res://assets/textures/ceiling_house.png") \
-		if ResourceLoader.exists("res://assets/textures/ceiling_house.png") else null
-	var painting_tex: Texture2D = load("res://assets/textures/painting_house.png") \
-		if ResourceLoader.exists("res://assets/textures/painting_house.png") else null
+	var wall_tex: Texture2D = load("res://assets/textures/level_2/wall_house.png") \
+		if ResourceLoader.exists("res://assets/textures/level_2/wall_house.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/level_2/floor_house.png") \
+		if ResourceLoader.exists("res://assets/textures/level_2/floor_house.png") else null
+	var ceiling_tex: Texture2D = load("res://assets/textures/level_2/ceiling_house.png") \
+		if ResourceLoader.exists("res://assets/textures/level_2/ceiling_house.png") else null
+	var painting_tex: Texture2D = load("res://assets/textures/level_2/painting_house.png") \
+		if ResourceLoader.exists("res://assets/textures/level_2/painting_house.png") else null
 	for child in get_children():
 		var n: String = child.name.to_lower()
 		if child is CSGBox3D:

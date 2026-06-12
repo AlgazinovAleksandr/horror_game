@@ -13,8 +13,8 @@
 [ext_resource type="Material" uid="uid://nsp5325i6uf8" path="res://assets/materials/objects/table.tres" id="6_go7sj"]
 [ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="8_7gny6"]
 [ext_resource type="Script" uid="uid://c3lbhft83q7ts" path="res://scripts/scary_object.gd" id="12_7gny6"]
-[ext_resource type="Texture2D" uid="uid://de7ceqrda5ey" path="res://assets/textures/poster_lab.png" id="13_7nomh"]
-[ext_resource type="Texture2D" uid="uid://ddfe1viol4v4q" path="res://assets/textures/blood_lab.png" id="14_1s4pk"]
+[ext_resource type="Texture2D" uid="uid://de7ceqrda5ey" path="res://assets/textures/level_1/poster_lab.png" id="13_7nomh"]
+[ext_resource type="Texture2D" uid="uid://ddfe1viol4v4q" path="res://assets/textures/level_1/blood_lab.png" id="14_1s4pk"]
 [ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="14_2aecg"]
 
 [sub_resource type="BoxMesh" id="3"]

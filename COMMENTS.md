@@ -176,3 +176,7 @@ This is a small example of a broader principle: prefer convention over configura
 Levels 1 and 2 both call `_spawn_note_tables()` in `_ready()`, which dynamically spawns a CSGBox3D pedestal under each note child. Level 3 never got this — an oversight from when Level 3 was built after the function already existed in the other level scripts.
 
 The practical effect was noticeable in the Void's environment specifically. The dark, nearly featureless corridors meant floating note cards had no visual context — nothing nearby for the eye to anchor them to. The tables give players a target to orient toward when scanning a room, and make the notes look like intentionally placed objects rather than floating UI artefacts. In a brighter level you might not notice; in the Void, the absence was jarring once seen.
+
++ Use references not only as images, but as other horror-games also
+
++ Use 2d references to anchor 3d objects in a scene

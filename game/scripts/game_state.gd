@@ -37,12 +37,15 @@ func advance_level() -> void:
 	current_level += 1
 	start_current_level()
 
-# Try loading an audio file by base name — accepts .wav or .ogg, whichever exists.
+const AUDIO_SUBDIRS := ["shared", "level_1", "level_2", "level_3_corridor", "level_4_void"]
+
+# Try loading an audio file by base name — searches all audio subdirectories.
 static func load_audio(base_name: String) -> AudioStream:
 	for ext in ["wav", "ogg"]:
-		var path := "res://assets/audio/%s.%s" % [base_name, ext]
-		if ResourceLoader.exists(path):
-			return load(path)
+		for subdir in AUDIO_SUBDIRS:
+			var path := "res://assets/audio/%s/%s.%s" % [subdir, base_name, ext]
+			if ResourceLoader.exists(path):
+				return load(path)
 	return null
 
 

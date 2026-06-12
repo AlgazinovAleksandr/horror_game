@@ -2,7 +2,7 @@
 """Procedural SFX generator for the Corridor level.
 
 Pure-stdlib (wave/math/random) so it runs on any Python 3 — no numpy needed.
-Outputs 16-bit mono 44.1 kHz .wav files into game/assets/audio/.
+Outputs 16-bit mono 44.1 kHz .wav files into game/assets/audio/level_3_corridor/.
 
 Usage: python3 tools/make_sfx.py
 """
@@ -14,7 +14,7 @@ import struct
 import wave
 
 SR = 44100
-OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "game", "assets", "audio")
+OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "game", "assets", "audio", "level_3_corridor")
 
 
 def write_wav(name, samples):

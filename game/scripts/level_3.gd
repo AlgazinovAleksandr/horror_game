@@ -39,10 +39,10 @@ func _spawn_note_tables() -> void:
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load("res://assets/textures/wall_void.png") \
-		if ResourceLoader.exists("res://assets/textures/wall_void.png") else null
-	var floor_tex: Texture2D = load("res://assets/textures/floor_void.png") \
-		if ResourceLoader.exists("res://assets/textures/floor_void.png") else null
+	var wall_tex: Texture2D = load("res://assets/textures/level_4_void/wall_void.png") \
+		if ResourceLoader.exists("res://assets/textures/level_4_void/wall_void.png") else null
+	var floor_tex: Texture2D = load("res://assets/textures/level_4_void/floor_void.png") \
+		if ResourceLoader.exists("res://assets/textures/level_4_void/floor_void.png") else null
 	for child in get_children():
 		if not child is CSGBox3D:
 			continue

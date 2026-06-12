@@ -11,7 +11,7 @@ var _corridor_texture: Texture2D = null  # level-exclusive screamer for the Corr
 var _is_triggering: bool = false
 
 const CORRIDOR_LEVEL := 3
-const CORRIDOR_TEXTURE_PATH := "res://assets/textures/screamer_hotel.png"
+const CORRIDOR_TEXTURE_PATH := "res://assets/textures/level_3_corridor/screamer_hotel.png"
 
 const RESTART_DELAY := 2.5
 
@@ -42,7 +42,7 @@ func _ready() -> void:
 		var fname := dir.get_next()
 		while fname != "":
 			if not dir.current_is_dir() and fname.ends_with(".png"):
-				var tex: Texture2D = load("res://assets/textures/screamers/" + fname)
+				var tex: Texture2D = load("res://assets/textures/screamers/" + fname)  # screamers/ path unchanged
 				if tex:
 					_screamer_textures.append(tex)
 			fname = dir.get_next()
