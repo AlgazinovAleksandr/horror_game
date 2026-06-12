@@ -4,11 +4,11 @@
 
 2) Implement the panic scale. The panic increases x (~5) times faster than decreases
 
-**Responsible: Andrey**. TODO: implement the panic scale. Increases when looking at the trigger object (implement some of the trigger object for unit testing), and make it decrease in a calm environment. Implement the logic when the player finds some particular objects (like the candy) that decrease the panic
+**Responsible: Andrey**. TODO: implement the panic scale. Increases when looking at the trigger object (implement some of the trigger object for unit testing), and make it decrease in a calm environment. Implement the logic when the player finds some particular objects (like the candy) that decrease the panic. UPD: the basic function is done, need to review and maybe improve the minor things related to it
 
 3) Think about the ways to remove the panic besides just waiting until it gets back to the normal condition
 
-4) Think about random noises / half-screamers at the random moments in the game to keep the tension. Examples: floor crack, painting falls. TODO: create sounds, textures, falling logic in case of paintings
+4) Think about random noises / half-screamers at the random moments in the game to keep the tension. Examples: floor crack, painting falls. TODO: create sounds, textures, falling logic in case of paintings. UPD: some sounds are already there, check the repo. Important thing is some new textures and 3D models, the logic of the falling objects
 
 **Responsible: Spartak**
 
@@ -16,11 +16,7 @@
 
 **Responsible: Spartak**
 
-7) Think about another level: long corridor (absolute dark but the player has the torch) with traps: bear traps, screamers, visual effects, weird noises, good vibe sound track (like in the corridor game). The level idea: pass the long corridor without panicking and without the creature kill you. At least 2-minute walk
-
-Responsible: Sasha. TODO: generate the sound for the level (might use it somewhere else also), implement the logic with traps / screamers / dark level with the torch, etc. For now the level starts after the house level (level 2)
-
-7) Think about the checkpoints - the game starts from the beginning / or at the beginning of the level
+7) Think about the checkpoints - the game starts from the beginning / or at the beginning of the level / several levels back
 
 8) Somewhere at the end of the game we can create a maze on the wall - the player needs to use the mouse to pass the maze somehow (think about the logic)
 
