@@ -91,6 +91,18 @@ func _process(delta: float) -> void:
 		if creak and creak.stream:
 			creak.play()
 
+	# Press your face to the glass and the forest presses back. One-shot per scene.
+	if not _forest_fired:
+		var player := _get_player()
+		if player:
+			var dx: float = player.global_position.x - WINDOW_POS.x
+			var dz: float = player.global_position.z - WINDOW_POS.z
+			if Vector2(dx, dz).length() <= FOREST_SCARE_DIST:
+				_forest_fired = true
+				Screamer.flash_scare(FOREST_SCARE_PATH, "screamer_forest", 0.8)
+				player.jolt_camera(0.08, 0.5)
+				player.add_panic(FOREST_SCARE_PANIC)
+
 
 func _reset_creak_timer() -> void:
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
@@ -99,20 +111,47 @@ func _reset_creak_timer() -> void:
 # ---------------------------------------------------------------- pressure
 
 # Back wall interior face is at z = 8.0; the window sits flush on it, left of
-# the trap note. The glimpse event presses a silhouette against the glass.
+# the trap note. Layering from the room (-z) toward the wall (+z):
+#   frame bars (7.935) -> glass (7.96) -> forest view (7.99) -> wall (8.0).
+# A moonlit treeline shows through the pane; getting close fires the forest scare.
 const WINDOW_POS := Vector3(-0.8, 1.6, 7.96)
+const FOREST_PATH := "res://assets/textures/level_2_house/forest.png"
+const FOREST_SCARE_PATH := "res://assets/textures/level_2_house/screamer_forest.png"
+const FOREST_SCARE_DIST := 1.5
+const FOREST_SCARE_PANIC := 25.0
 
 var _window_glass: MeshInstance3D
+var _forest_fired: bool = false
 
 
 func _spawn_window() -> void:
+	# The forest behind the glass — a faint moonlit treeline. Self-illuminated
+	# so it reads in the dark room; sits in the gap between glass and wall.
+	if ResourceLoader.exists(FOREST_PATH):
+		var forest := MeshInstance3D.new()
+		forest.name = "WindowForest"
+		var fmesh := QuadMesh.new()
+		fmesh.size = Vector2(1.0, 1.2)
+		forest.mesh = fmesh
+		var fmat := StandardMaterial3D.new()
+		var ftex := load(FOREST_PATH)
+		fmat.albedo_texture = ftex
+		fmat.emission_enabled = true
+		fmat.emission_texture = ftex
+		# Self-lit so the treeline reads through the glass in the dark room.
+		fmat.emission_energy_multiplier = 0.9
+		forest.set_surface_override_material(0, fmat)
+		forest.position = WINDOW_POS + Vector3(0, 0, 0.03)
+		forest.rotation.y = PI
+		add_child(forest)
+
 	_window_glass = MeshInstance3D.new()
 	_window_glass.name = "WindowGlass"
 	var pane := QuadMesh.new()
 	pane.size = Vector2(1.0, 1.2)
 	_window_glass.mesh = pane
 	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color(0.04, 0.06, 0.09, 0.4)
+	glass.albedo_color = Color(0.06, 0.08, 0.10, 0.10)  # lighter so the forest reads through
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.metallic = 0.6
 	glass.roughness = 0.15
@@ -153,18 +192,23 @@ func _spawn_cursed_props() -> void:
 
 
 func _make_cursed_body(pos: Vector3, size: Vector2, y_rot: float, intensity: float) -> StaticBody3D:
+	# The ScaryObject must sit ABOVE the collider: player.gd walks UP from the
+	# ray-hit StaticBody to find it. Nesting it under the body (as before) meant
+	# gaze panic never registered. ScaryObject is a plain Node and breaks the
+	# spatial chain, so the transform lives on the StaticBody3D itself (its
+	# non-spatial parent makes local == global). Body is returned for the mesh.
+	var scary := ScaryObject.new()
+	scary.scare_intensity = intensity
+	add_child(scary)
 	var body := StaticBody3D.new()
 	body.position = pos
 	body.rotation.y = y_rot
+	scary.add_child(body)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(size.x, size.y, 0.1)
 	col.shape = shape
 	body.add_child(col)
-	var scary := ScaryObject.new()
-	scary.scare_intensity = intensity
-	body.add_child(scary)
-	add_child(body)
 	return body
 
 
@@ -173,8 +217,6 @@ func _spawn_events() -> void:
 	_spawn_event(Vector3(0, 1.5, 2.0), Vector3(2.4, 3, 1.5), _ev_front_door_slam)
 	# Someone paces the floor above the living room.
 	_spawn_event(Vector3(1.5, 1.5, 5.0), Vector3(5.0, 3, 1.5), _ev_footsteps_above)
-	# The thing in the window — near the back-left of the living room.
-	_spawn_event(Vector3(0.2, 1.5, 6.6), Vector3(3.0, 3, 1.8), _ev_window_glimpse)
 	# The bedroom light dies as you step through its doorway.
 	_spawn_event(Vector3(4.65, 1.5, 5.5), Vector3(1.2, 3, 1.6), _ev_bedroom_dark)
 
@@ -218,28 +260,6 @@ func _ev_footsteps_above() -> void:
 	var player := _get_player()
 	if player:
 		player.add_panic(6.0)
-
-
-func _ev_window_glimpse() -> void:
-	# A figure pressed against the glass, gone when you look twice.
-	var fig := MeshInstance3D.new()
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.15
-	capsule.height = 1.5
-	fig.mesh = capsule
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.01, 0.01, 0.02)
-	mat.emission_enabled = true
-	mat.emission = Color(0.05, 0.04, 0.06)
-	mat.emission_energy_multiplier = 0.3
-	fig.set_surface_override_material(0, mat)
-	fig.position = Vector3(WINDOW_POS.x, 1.35, 8.05)
-	add_child(fig)
-	_play_at("jumpscare", WINDOW_POS, -10.0)
-	var player := _get_player()
-	if player:
-		player.add_panic(15.0)
-	get_tree().create_timer(1.4).timeout.connect(fig.queue_free)
 
 
 func _ev_bedroom_dark() -> void:

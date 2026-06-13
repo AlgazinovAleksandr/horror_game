@@ -21,10 +21,53 @@ func _ready() -> void:
 		if ambient.stream:
 			ambient.play()
 
+	_break_room_c_floor()  # before textures so the new floor parts get the floor material
 	_reset_shake_timer()
 	_apply_textures()
 	_spawn_note_tables()
+	_spawn_void_zones()
 	Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
+
+
+# Room C's floor gives way to the void around its centre — a 1.6 m hole ringed
+# by walkable borders. Step into it and you fall (see _check_void_fall).
+func _break_room_c_floor() -> void:
+	var floor_node := get_node_or_null("RoomCFloor")
+	if not floor_node:
+		return
+	floor_node.free()
+	var strips := [
+		[Vector3(8, -0.15, 6.1), Vector3(6, 0.3, 2.2)],
+		[Vector3(8, -0.15, 9.9), Vector3(6, 0.3, 2.2)],
+		[Vector3(6.1, -0.15, 8), Vector3(2.2, 0.3, 1.6)],
+		[Vector3(9.9, -0.15, 8), Vector3(2.2, 0.3, 1.6)],
+	]
+	for i in range(strips.size()):
+		var part := CSGBox3D.new()
+		part.name = "RoomCFloorPart%d" % i
+		part.position = strips[i][0]
+		part.size = strips[i][1]
+		part.use_collision = true
+		add_child(part)
+
+
+# Ambient endurance: the whole void is a dread zone (panic drains slowly, a
+# constant unease presses), and the far two rooms are dark — costing panic if
+# the flashlight is off. Milder than the corridor's Zone C, but never restful.
+func _spawn_void_zones() -> void:
+	_add_zone(DreadZone.new(), Vector3(4, 1.65, 4), Vector3(15, 3.3, 15))
+	_add_zone(DarkZone.new(), Vector3(8, 1.5, 8), Vector3(6, 3, 6))   # Room C
+	_add_zone(DarkZone.new(), Vector3(0, 1.5, 8), Vector3(6, 3, 6))   # Room D
+
+
+func _add_zone(zone: Area3D, pos: Vector3, size: Vector3) -> void:
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = size
+	col.shape = shape
+	zone.add_child(col)
+	zone.position = pos
+	add_child(zone)
 
 
 func _spawn_note_tables() -> void:
@@ -61,6 +104,14 @@ func _apply_textures() -> void:
 
 func _process(delta: float) -> void:
 	_tick_shake(delta)
+	_check_void_fall()
+
+
+# Fall off the broken geometry and the void claims you.
+func _check_void_fall() -> void:
+	var player: CharacterBody3D = get_node_or_null("Player")
+	if player and player.global_position.y < -4.0:
+		Screamer.trigger()
 
 
 func _tick_shake(delta: float) -> void:

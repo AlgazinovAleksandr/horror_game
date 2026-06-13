@@ -15,7 +15,7 @@ const SPRINT_MULTIPLIER := 1.6
 const SPRINT_PANIC_RATE := 6.0   # running feeds fear — "Walk. Do not run."
 const SPRINT_FOOTSTEP_INTERVAL := 0.32
 const DREAD_DECAY_RATE := 6.0    # weakened decay inside a dread zone (Zone C)
-const DREAD_PANIC_RATE := 1.5    # constant pressure inside a dread zone
+const DREAD_PANIC_RATE := 2.0    # constant pressure inside a dread zone
 const BATTERY_MAX := 240.0       # seconds of flashlight per level
 const BATTERY_FLICKER_BELOW := 48.0
 

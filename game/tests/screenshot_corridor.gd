@@ -17,6 +17,10 @@ const SHOTS := [
 	[43.0, 53.0, "08_corner1"],
 	[83.0, 93.0, "09_corner2"],
 	[178.0, 188.0, "10_corner4"],
+	[88.3, 89.8, "11_turnmirror_90"],
+	[228.3, 229.8, "12_turnmirror_230"],
+	[273.3, 274.8, "13_turnmirror_275"],
+	[13.0, 19.0, "14_ordinary_door"],
 ]
 
 var _frame := 0
