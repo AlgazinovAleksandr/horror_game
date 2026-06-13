@@ -11,6 +11,13 @@ const PANIC_DECAY_RATE := 15.0
 const CALM_DECAY_MULT := 2.5   # decay multiplier inside a calm zone (torchlight)
 const DARK_PANIC_RATE := 3.0   # panic per second in a dark zone with flashlight off
 const SLOW_MULTIPLIER := 0.45  # movement factor while slowed (beartrap limp)
+const SPRINT_MULTIPLIER := 1.6
+const SPRINT_PANIC_RATE := 6.0   # running feeds fear — "Walk. Do not run."
+const SPRINT_FOOTSTEP_INTERVAL := 0.32
+const DREAD_DECAY_RATE := 6.0    # weakened decay inside a dread zone (Zone C)
+const DREAD_PANIC_RATE := 2.0    # constant pressure inside a dread zone
+const BATTERY_MAX := 240.0       # seconds of flashlight per level
+const BATTERY_FLICKER_BELOW := 48.0
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -28,7 +35,11 @@ var _heartbeat_player: AudioStreamPlayer = null
 var _panic_hud: Node = null
 var _calm_zones: int = 0
 var _dark_zones: int = 0
+var _dread_zones: int = 0
 var _slow_timer: float = 0.0
+var _is_sprinting: bool = false
+var _battery: float = BATTERY_MAX
+var _flash_base_energy: float = 1.0
 const FOOTSTEP_INTERVAL := 0.5
 const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
 const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
@@ -37,6 +48,7 @@ const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	interact_label.visible = false
+	_flash_base_energy = flashlight.light_energy
 	var fs := GameState.load_audio("footstep")
 	if fs:
 		footstep_player.stream = fs
@@ -76,7 +88,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 	if event.is_action_pressed("toggle_flashlight"):
-		flashlight.visible = not flashlight.visible
+		if flashlight.visible:
+			flashlight.visible = false
+		elif _battery > 0.0:
+			flashlight.visible = true
 
 	if event.is_action_pressed("ui_cancel"):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -87,9 +102,26 @@ func _physics_process(delta: float) -> void:
 	_apply_gravity(delta)
 	_apply_movement()
 	move_and_slide()
+	_tick_battery(delta)
 	_handle_footsteps(delta)
 	_handle_gaze(delta)
 	_update_interact_prompt()
+
+
+func _tick_battery(delta: float) -> void:
+	if not flashlight.visible:
+		return
+	_battery = maxf(0.0, _battery - delta)
+	if _battery <= 0.0:
+		flashlight.visible = false
+		flashlight.light_energy = _flash_base_energy
+	elif _battery < BATTERY_FLICKER_BELOW:
+		# Dying-bulb stutter warns the player before the light goes out.
+		var t := Time.get_ticks_msec() * 0.001
+		var drop := maxf(0.0, sin(t * 31.0) * sin(t * 7.3))
+		flashlight.light_energy = _flash_base_energy * (1.0 - 0.6 * drop)
+	else:
+		flashlight.light_energy = _flash_base_energy
 
 
 func _rotate_camera(mouse_delta: Vector2) -> void:
@@ -107,6 +139,9 @@ func _apply_movement() -> void:
 	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	_is_sprinting = Input.is_action_pressed("sprint") and direction != Vector3.ZERO and is_on_floor()
+	if _is_sprinting:
+		speed *= SPRINT_MULTIPLIER
 	if direction:
 		velocity.x = direction.x * speed
 		velocity.z = direction.z * speed
@@ -121,7 +156,7 @@ func _handle_footsteps(delta: float) -> void:
 	if _is_moving and is_on_floor():
 		_footstep_timer -= delta
 		if _footstep_timer <= 0.0:
-			_footstep_timer = FOOTSTEP_INTERVAL
+			_footstep_timer = SPRINT_FOOTSTEP_INTERVAL if _is_sprinting else FOOTSTEP_INTERVAL
 			if footstep_player.stream:
 				footstep_player.play()
 	else:
@@ -178,11 +213,18 @@ func _update_panic(delta: float, target: Node) -> void:
 	if scary:
 		var intensity: float = scary.scare_intensity
 		_panic += delta * intensity * PANIC_BASE_RATE
+	elif _is_sprinting:
+		_panic += delta * SPRINT_PANIC_RATE
 	elif _dark_zones > 0 and not flashlight.visible:
 		_panic += delta * DARK_PANIC_RATE
 	else:
-		var decay := PANIC_DECAY_RATE * (CALM_DECAY_MULT if _calm_zones > 0 else 1.0)
+		var base_decay := DREAD_DECAY_RATE if _dread_zones > 0 else PANIC_DECAY_RATE
+		var decay := base_decay * (CALM_DECAY_MULT if _calm_zones > 0 else 1.0)
 		_panic = maxf(0.0, _panic - delta * decay)
+
+	# Dread zones (Zone C whispers) press on the mind no matter what else happens.
+	if _dread_zones > 0:
+		_panic += delta * DREAD_PANIC_RATE
 
 	if _panic >= PANIC_MAX:
 		_panic = 0.0
@@ -190,6 +232,10 @@ func _update_panic(delta: float, target: Node) -> void:
 
 	if _panic_hud:
 		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
+
+
+func get_panic_ratio() -> float:
+	return clampf(_panic / PANIC_MAX, 0.0, 1.0)
 
 
 func add_panic(amount: float) -> void:
@@ -226,6 +272,14 @@ func enter_dark_zone() -> void:
 
 func exit_dark_zone() -> void:
 	_dark_zones = maxi(0, _dark_zones - 1)
+
+
+func enter_dread_zone() -> void:
+	_dread_zones += 1
+
+
+func exit_dread_zone() -> void:
+	_dread_zones = maxi(0, _dread_zones - 1)
 
 
 func _update_heartbeat() -> void:

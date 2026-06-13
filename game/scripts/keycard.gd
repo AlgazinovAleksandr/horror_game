@@ -9,6 +9,9 @@ func _ready() -> void:
 func interact() -> void:
 	GameState.has_keycard = true
 	_show_feedback()
+	var level := get_tree().current_scene
+	if level and level.has_method("on_keycard_taken"):
+		level.on_keycard_taken()
 	var pickup_audio: AudioStreamPlayer3D = get_node_or_null("PickupAudio")
 	if pickup_audio and pickup_audio.stream:
 		pickup_audio.play()

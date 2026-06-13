@@ -44,12 +44,13 @@ func _ready() -> void:
 # 			child.shape = box
 
 
-func interact() -> void:
-	if is_trap:
-		Screamer.trigger()
-		return
+# Trap notes are read-to-die: the note opens normally, but panic climbs while
+# it stays open. Closing early leaves you shaken; reading to the end kills you.
+const TRAP_PANIC_RATE := 12.0  # panic per second while a trap note is open
 
+
+func interact() -> void:
 	if is_twist_note:
 		GameState.twist_read = true
 
-	NoteUI.show_note(note_text)
+	NoteUI.show_note(note_text, TRAP_PANIC_RATE if is_trap else 0.0)

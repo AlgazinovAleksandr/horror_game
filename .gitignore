@@ -16,8 +16,22 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Secrets
-.env
+# Secrets — all .env variants (.env.local, .env.backup, ...) except the template
+.env*
+!.env.example
+
+# Godot export / build artifacts (export_presets.cfg above can hold signing credentials)
+build/
+export/
+*.app
+*.dmg
+*.pck
+
+# Claude Code local settings (personal permissions, not for the shared repo)
+.claude/settings.local.json
+
+# Logs
+*.log
 
 # Draft textures (local working copies — .gitkeep preserves folder structure)
 game/assets/textures/*/draft/*.png

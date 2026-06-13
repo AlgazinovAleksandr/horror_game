@@ -9,11 +9,14 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 ## Gameplay
 
 - **First-person exploration** — walk through 4 escalating environments
-- **Trigger objects & trap notes** — specific objects and notes are traps. Interact with them (press E) or stare for 3 continuous seconds → screamer → level restarts
+- **Trigger objects** — specific objects are traps. Interact with them (press E) or stare for 3 continuous seconds → screamer → level restarts
+- **Trap notes (read-to-die)** — trap notes open like any other note, but panic climbs fast while the page is open and the text bleeds red. Close it in time and you escape shaken; read to the end and the screamer takes you
 - **Panic system** — staring at any object tagged as `ScaryObject` fills a panic bar. The bar rises ~1.3× faster than it falls. Hit the limit → screamer. Visual feedback: blur + red-tint overlay. Audio feedback: heartbeat whose pitch and volume rise with panic
-- **Corridor survival** (Level 3) — scripted scares spike panic directly; darkness makes it creep up unless the flashlight is on; standing in torchlight calms it 2.5× faster; beartraps snap, hurt and slow you. Walking the hallway calm is the whole test
+- **Sprint at a cost** — Shift runs ×1.6 faster but feeds panic ~6/s and blocks recovery. The corridor's note warns you: *Walk. Do not run.* It means it
+- **Flashlight with a battery** — toggle with **F**. Each level's charge lasts ~4 minutes of ON time; the bulb stutters as a warning, then dies for the rest of the level. It's on by default — manage it or lose it in the dark stretches
+- **Scripted scares** (Levels 2–3) — one-shot events spike panic directly: door slams, footsteps overhead, a figure pressed against the window glass, lights dying as you enter a room; darkness makes panic creep unless the flashlight is on; torchlight calms it 2.5× faster; beartraps snap, hurt and slow you; the corridor's final stretch is a dread zone where panic barely drains
 - **Notes** — find and read notes to collect clues, codes, and keycards needed to unlock each exit door
-- **Flashlight** — toggle with **F** (bound to `toggle_flashlight` action)
+- **Combination lock** — Level 2's exit needs a 3-digit code from the safe notes. Every wrong guess buzzes and spikes panic: brute-forcing the lock is itself a way to die
 - **Back doors** — each level has a back door (blood-red glow) that returns you to the previous level. Collected items (keycard, code) are cleared on re-entry
 - **No combat** — horror through atmosphere, sound, lighting, and restraint
 
@@ -23,9 +26,12 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 |-----|--------|
 | WASD | Move |
 | Mouse | Look |
+| Shift | Sprint (×1.6 speed — builds panic while held) |
 | E | Interact (notes, doors, keycard, lock) |
-| F | Toggle flashlight |
+| F | Toggle flashlight (battery: ~4 min per level) |
 | Esc | Release mouse cursor |
+
+A fading hint with these controls is shown in the intro room.
 
 ## Levels
 
@@ -35,11 +41,11 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 |-------|-------------|---------------|----------------|
 | Main Menu | Atmospheric background, title screen | Press START | — |
 | Intro | Dark room with candle | Walk through the glowing door | — |
-| 1 — The Lab | Sterile corridor + 3 examination rooms | Find keycard, use on exit door | Interact with or stare 3 s at a trigger object; or panic bar fills |
-| 2 — The House | Abandoned domestic interior | Read 3 safe notes, enter 3-digit code on lock | Read a trap note (fully) |
-| 3 — The Corridor | ~320 m haunted-hotel hallway (inspired by *The Corridor*, 2012) | Reach room 217 at the far end | Panic bar fills (events, darkness, beartraps, cursed mirror/clock/paintings) |
+| 1 — The Lab | Sterile corridor + 3 examination rooms | Take the keycard from the cart between the tray and the monitor (the lights die as you grab it), use on exit door | Interact with or stare 3 s at a trigger object; or panic bar fills |
+| 2 — The House | Abandoned domestic interior (door slams, footsteps overhead, something at the window) | Read 3 safe notes, enter 3-digit code on lock | Read a trap note to the end; panic bar fills (scares, cursed props, dark bedroom, wrong lock codes) |
+| 3 — The Corridor | ~320 m haunted-hotel hallway (inspired by *The Corridor*, 2012) | Reach room 217 at the far end | Panic bar fills (events, darkness, beartraps, cursed mirror/clock/paintings, sprinting, the final dread zone) |
 | 4 — The Void | Surreal broken geometry, looping corridors | Find the twist note, walk through exit | Interact with or stare at trap note / trigger object; panic bar fills |
-| Ending | Returns to intro room | Credits fade | — |
+| Ending | Returns to the intro room — corrupted: dead candle, blood-red throb, the way out boarded over, one spotlit note | Read the note | — |
 
 ## Stack
 
@@ -67,7 +73,7 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 |------|-------------|
 | [`COMMENTS.md`](COMMENTS.md) | Developer retrospective — design decisions, technical choices, and observations made throughout the build. Covers horror philosophy, level architecture, Godot patterns used, and what worked unexpectedly well. Starting point for a technical report. |
 | [`ISSUES_SOLUTIONS.md`](ISSUES_SOLUTIONS.md) | Hard-to-diagnose bugs with full root cause analysis. Each entry: symptom → root cause → fix → files changed. Covers the Godot input event double-fire, UI anchor footguns, raycasting geometry edge cases, and the Gemini API JPEG-as-PNG issue. |
-| [`TEXTURES.md`](TEXTURES.md) | Registry of all 20 textures — filename, visual description, which level/nodes it applies to, and generation status (`done` / `to_be_added`). Reference before any texture generation session. |
+| [`TEXTURES.md`](TEXTURES.md) | Registry of every texture — filename, visual description, which level/nodes it applies to, and generation status (`done` / `to_be_added`). Reference before any texture generation session. |
 
 ## Known Gotchas
 
@@ -80,4 +86,4 @@ sips -s format png path/to/image.png --out path/to/image.png
 
 **New audio files need a Godot import pass.** If a `.wav`/`.ogg` file has no matching `.import` file in the same directory, Godot won't load it. Open the editor and let the filesystem scan complete (or run `Godot --headless --path game --import`) after adding audio assets.
 
-**Corridor SFX are procedurally generated.** `tools/make_sfx.py` (pure stdlib Python) synthesizes `clock_chime.wav`, `glass_shatter.wav`, `beartrap_snap.wav`, `door_slam.wav` and `whispers.wav` into `game/assets/audio/level_3_corridor/`. Re-run it to regenerate; replace any file with a Freesound CC0 recording for higher fidelity.
+**Corridor and House SFX are procedurally generated.** `tools/make_sfx.py` (pure stdlib Python) synthesizes `clock_chime.wav`, `glass_shatter.wav`, `beartrap_snap.wav`, `door_slam.wav` and `whispers.wav` into `game/assets/audio/level_3_corridor/`; `tools/make_sfx_house.py` synthesizes `lock_buzz.wav` and `footsteps_above.wav` into `game/assets/audio/level_2_house/`. Re-run to regenerate; replace any file with a Freesound CC0 recording for higher fidelity.

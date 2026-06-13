@@ -180,3 +180,31 @@ The practical effect was noticeable in the Void's environment specifically. The 
 + Use references not only as images, but as other horror-games also
 
 + Use 2d references to anchor 3d objects in a scene
+
+---
+
+## Phase 4: The Difficulty Overhaul (Session 8)
+
+### Auditing the design against the code — and finding fiction
+
+The session started as a brainstorm ("the game is too easy, the corridor can't be failed") and turned into an audit. Three things the design docs *described* turned out not to exist in code: trap notes were supposed to fail you for *reading them fully* (the code screamered instantly on E, before any text rendered — the carefully written trap-note prose had never been seen by a player); Level 2 was supposed to have a creature glimpsed through a window (never built — and there was no window); and the corridor note's "Walk. Do not run." referred to a run button that didn't exist. Design docs drift into fiction quietly. The fix for all three was the same: make the documentation true.
+
+### Read-to-die: making the fail state a choice, not a gotcha
+
+The trap-note rework (panic +12/s while the note is open, text bleeding red, close early to survive) is the session's best mechanic-per-line-of-code ratio. The old instant-fail punished a decision the player had already committed to before any information arrived. Read-to-die punishes *continuing* — every line read is a fresh decision to stay. It also finally makes the trap-note prose load-bearing: the desperate, fragmented writing IS the warning, and greed is the failure. Implementation rides entirely on existing systems: NoteUI is `PROCESS_MODE_ALWAYS`, so it can feed `player.add_panic()` during the tree pause it created itself.
+
+### The panic budget: why the corridor couldn't kill you
+
+Doing the arithmetic exposed the problem precisely: PANIC_MAX 50, decay 15/s, and scripted spikes of +10/+20 spaced 40–60 m apart — every event fully drained before the next. Darkness creep (+3/s) was a fifth of decay, and the flashlight was free. The fixes attack the *decay*, not the spikes: the Zone C dread zone (decay 15→6/s plus a constant +1.5/s floor) means the last 90 m accumulates instead of resetting; sprint (+6/s, suppresses decay) converts the player's flight instinct into the failure mechanism; the battery (240 s/scene, on by default) makes light a spent resource exactly when the dark zones get long. Lesson: in any pressure system, the recovery rate is the real difficulty knob — spike sizes are theatre.
+
+### One fail philosophy, stated and kept
+
+The brainstorm settled it explicitly: panic is the ambient pressure everywhere; instant-fail is reserved for trigger objects only. Everything new feeds the bar — wrong lock codes (+10 + buzz, so brute-forcing 1000 combinations is now a death sentence rather than a free strategy), the keycard blackout, the House's scripted events. The combination lock is a nice microcosm: the original design assumed players would politely find three notes; the penalty makes the lock itself enforce that intent.
+
+### The pause-ownership bug class
+
+Making trap notes and the lock raise panic surfaced a latent invariant violation: these UIs pause the tree, but a screamer can now fire *during* the pause, unpause, and reload the scene — leaving an autoload overlay open over the new level. The fix (each pause-owning UI watches for "open but tree unpaused" and silently drops) is documented as Issue 9. The general rule joins Issue 7's: any system that pauses the tree must also handle the tree being unpaused out from under it.
+
+### The corrupted ending: same room, hostile light
+
+The twist room (dead candle, blood-red throb, planked-over door, one harsh spotlight on the note) cost ~60 lines and answers a real playtest confusion — players thought the loop back to the intro was a bug. The design insight: the room doesn't need new geometry to read as "wrong", it needs *hostile lighting*. Removing the door matters most — with no way forward, the spotlit note is the only affordance left, so the player walks to the twist instead of hunting for an exit that doesn't exist.
