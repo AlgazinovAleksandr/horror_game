@@ -51,13 +51,41 @@ func _break_room_c_floor() -> void:
 		add_child(part)
 
 
-# Ambient endurance: the whole void is a dread zone (panic drains slowly, a
-# constant unease presses), and the far two rooms are dark — costing panic if
-# the flashlight is off. Milder than the corridor's Zone C, but never restful.
+# Ambient endurance: the far rooms (C+D) are a dread zone; Room A has two calm
+# candles so the player can recover after learning the creature mechanic.
 func _spawn_void_zones() -> void:
-	_add_zone(DreadZone.new(), Vector3(4, 1.65, 4), Vector3(15, 3.3, 15))
-	_add_zone(DarkZone.new(), Vector3(8, 1.5, 8), Vector3(6, 3, 6))   # Room C
-	_add_zone(DarkZone.new(), Vector3(0, 1.5, 8), Vector3(6, 3, 6))   # Room D
+	_add_zone(DreadZone.new(), Vector3(4, 1.65, 8), Vector3(14, 3.3, 6))  # Rooms C+D only
+	_add_zone(DarkZone.new(), Vector3(8, 1.5, 8), Vector3(6, 3, 6))       # Room C dark
+	_add_zone(DarkZone.new(), Vector3(0, 1.5, 8), Vector3(6, 3, 6))       # Room D dark
+	# Calm anchors in Room A — the only relief in the Void. Looking away from a
+	# creature here lets panic drain 2.5× faster; staring at it still costs 12/s.
+	_add_zone(CalmZone.new(), Vector3(-1.5, 1.0, -1.5), Vector3(2.5, 3.0, 2.5))
+	_add_zone(CalmZone.new(), Vector3(1.5, 1.0, -1.5), Vector3(2.5, 3.0, 2.5))
+	_spawn_candle(Vector3(-1.5, 0.0, -1.5))
+	_spawn_candle(Vector3(1.5, 0.0, -1.5))
+
+
+func _spawn_candle(pos: Vector3) -> void:
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.7, 0.3)
+	light.light_energy = 0.6
+	light.omni_range = 2.5
+	light.position = pos + Vector3(0, 0.8, 0)
+	add_child(light)
+	var candle := MeshInstance3D.new()
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.02
+	mesh.bottom_radius = 0.025
+	mesh.height = 0.15
+	candle.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.9, 0.85, 0.7)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.8, 0.4)
+	mat.emission_energy_multiplier = 1.5
+	candle.set_surface_override_material(0, mat)
+	candle.position = pos + Vector3(0, 0.075, 0)
+	add_child(candle)
 
 
 func _add_zone(zone: Area3D, pos: Vector3, size: Vector3) -> void:

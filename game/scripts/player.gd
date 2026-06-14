@@ -4,17 +4,18 @@ const SPEED := 4.0
 const MOUSE_SENSITIVITY := 0.002
 const PITCH_LIMIT := deg_to_rad(80)
 const INTERACT_RANGE := 2.5
+const GAZE_RANGE := 3.0          # panic detection radius — wider than interact range
 const GAZE_TRIGGER_TIME := 3.0  # seconds of staring to trigger a trigger_object
 const PANIC_MAX := 50.0
 const PANIC_BASE_RATE := 20.0  # panic per second at scare_intensity 1.0
-const PANIC_DECAY_RATE := 15.0
+const PANIC_DECAY_RATE := 3.5   # 4.3× slower than the original 15/s — scares linger
 const CALM_DECAY_MULT := 2.5   # decay multiplier inside a calm zone (torchlight)
 const DARK_PANIC_RATE := 3.0   # panic per second in a dark zone with flashlight off
 const SLOW_MULTIPLIER := 0.45  # movement factor while slowed (beartrap limp)
 const SPRINT_MULTIPLIER := 1.6
 const SPRINT_PANIC_RATE := 6.0   # running feeds fear — "Walk. Do not run."
 const SPRINT_FOOTSTEP_INTERVAL := 0.32
-const DREAD_DECAY_RATE := 6.0    # weakened decay inside a dread zone (Zone C)
+const DREAD_DECAY_RATE := 2.0    # weakened decay inside a dread zone (Zone C)
 const DREAD_PANIC_RATE := 2.0    # constant pressure inside a dread zone
 const BATTERY_MAX := 240.0       # seconds of flashlight per level
 const BATTERY_FLICKER_BELOW := 48.0
@@ -163,10 +164,10 @@ func _handle_footsteps(delta: float) -> void:
 		_footstep_timer = 0.0
 
 
-func _get_raycast_target() -> Node:
+func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:
 	var space_state := get_world_3d().direct_space_state
 	var ray_origin := camera.global_position
-	var ray_end := ray_origin + (-camera.global_transform.basis.z * INTERACT_RANGE)
+	var ray_end := ray_origin + (-camera.global_transform.basis.z * range)
 	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
 	query.exclude = [self]
 	var result := space_state.intersect_ray(query)
@@ -181,7 +182,7 @@ func _try_interact() -> void:
 
 
 func _handle_gaze(delta: float) -> void:
-	var target := _get_raycast_target()
+	var target := _get_raycast_target(GAZE_RANGE)
 	if target and target.has_method("on_gaze_tick"):
 		if target == _gazed_object:
 			_gaze_timer += delta
@@ -249,6 +250,10 @@ func add_panic(amount: float) -> void:
 
 func apply_slow(duration: float) -> void:
 	_slow_timer = maxf(_slow_timer, duration)
+
+
+func cancel_slow() -> void:
+	_slow_timer = 0.0
 
 
 func jolt_camera(strength: float = 0.05, duration: float = 0.35) -> void:
