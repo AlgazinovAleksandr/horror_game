@@ -2,6 +2,8 @@
 
 **Responsible: Sasha**
 
+FIRST THINGS TO DO: 1) UPDATE CLAUDE.MD, README.MD, COMMENT, TEXTURES, ETC, SO THAT THEY ARE UP TO DATE 2) FIX LEVEL 4 CURRETNTLY IT IS IMPOSSIBLE
+
 2) Implement the panic scale. The panic increases x (~5) times faster than decreases
 
 **Responsible: Andrey**. TODO: implement the panic scale. Increases when looking at the trigger object (implement some of the trigger object for unit testing), and make it decrease in a calm environment. Implement the logic when the player finds some particular objects (like the candy) that decrease the panic. UPD: the basic function is done, need to review and maybe improve the minor things related to it

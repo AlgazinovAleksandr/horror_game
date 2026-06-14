@@ -6,10 +6,12 @@ Developer retrospective. Useful for a technical report or just remembering why t
 
 ## Horror Design Philosophy
 
-### Atmosphere over AI
-The most deliberate early decision: no active enemy AI. The creature exists in the game but never moves on its own — it only "rushes" the camera as a scripted screamer trigger. This was partly pragmatic (no time to build a nav-mesh chase system) but it turned out to be an interesting constraint. Static horror — something that is *there* but doesn't acknowledge you — is often more unsettling than something that chases you. You can outrun a monster; you can't outrun the feeling that it already knows where you are.
+### Atmosphere over AI (and the one exception)
+The most deliberate early decision: no active enemy AI for most of the game. The creatures exist but, in Levels 1–3, never move on their own — horror comes from atmosphere, lighting, sound, and scripted screamer triggers, not a nav-mesh chase. This was partly pragmatic (no time to build a full chase system) but it turned out to be an interesting constraint. Static horror — something that is *there* but doesn't acknowledge you — is often more unsettling than something that chases you. You can outrun a monster; you can't outrun the feeling that it already knows where you are.
 
-The Level 3 design leans into this: multiple static creature instances visible in every room simultaneously. You're never alone, but nothing moves.
+The **one exception** (added later) is The Void's stalking creatures (`creature_stalker.gd`): Weeping-Angel logic — they freeze while in your view and line-of-sight, and advance only the moment you look away. It's still not a real-time chase AI (no pathfinding, no pursuit when unseen-but-out-of-grace handling beyond a straight-line step), but it's the first creature that *moves toward the player* under its own logic. Crucially it preserves the original philosophy: the threat is tied to the player's own gaze. Looking at the danger is what stops it; the instinct to watch it is exactly what the experiment tests. See Phase 5 below.
+
+The earlier prototype leaned hard on the static version: multiple motionless creature instances visible at once. You're never alone, but nothing moves — until the Void.
 
 ### The "psychological experiment" frame as a meta-trick
 Framing the game as a clinical trial ("Subject 47") does two things. First, it gives the player a plausible reason to keep walking into obviously dangerous rooms — they signed up for this, they're being tested. Second, it sets up the twist: the final door leads back to the intro room with "Beginning trial 2." The horror isn't the creature; it's the loop. The experiment doesn't end.
@@ -28,16 +30,16 @@ Level 2 trap notes are supposed to be identifiable by a careful player — despe
 
 ## Level Architecture Decisions
 
-### Three-level aesthetic progression: sterile → domestic → void
-The level sequence tracks a psychological descent. The Lab is institutional and ordered (fluorescent lights, linoleum). The House is personal and decayed (wallpaper, wooden floors, a bedroom). The Void has no coherent geometry at all — corridors loop, tiles float. Each step removes one more layer of the familiar. By the time you reach Level 3, spatial logic has broken down, which is meant to mirror what the experiment is supposedly doing to the subject.
+### Aesthetic progression: sterile → domestic → hotel → void
+The level sequence tracks a psychological descent. The Lab is institutional and ordered (fluorescent lights, linoleum). The House is personal and decayed (wallpaper, wooden floors, a bedroom). The Corridor (added later as Level 3) is a haunted-hotel hallway — still architecturally coherent but stretched into an endurance gauntlet. The Void has no coherent geometry at all — corridors loop, tiles float. Each step removes one more layer of the familiar. By the time you reach the Void (Level 4), spatial logic has broken down entirely, which is meant to mirror what the experiment is supposedly doing to the subject.
 
-The texture work reflects this: Lab textures are clinical pale grey-green; House textures are warm but deteriorating; the Void's walls are deep black with glowing purple cracks. Each level has a different vignette tint applied at scene load (grey-green, sepia, blue-purple) — a cheap but effective way to make the colour grade feel physically present rather than just a post-process overlay.
+The texture work reflects this: Lab textures are clinical pale grey-green; House textures are warm but deteriorating; the Corridor is Victorian damask over dark wainscot; the Void's walls are deep black with glowing purple cracks. Each level has a different vignette tint applied at scene load (grey-green, sepia, blue-purple) — a cheap but effective way to make the colour grade feel physically present rather than just a post-process overlay.
 
 ### The Intro Room as a compression chamber
 The intro room is tiny and has nothing to interact with except one note and one door. This was deliberate: before the player has any mechanics explained, they need to feel *small* and watched. The note text ends with "We are watching." The room design enforces this — low ceiling, single candle, no exits except the door you're supposed to take. The lack of anything to do is itself atmospheric.
 
-### Level 3's looping corridors
-The Void uses repeated geometry to create the impression that corridors loop back on themselves. This is purely visual — no actual portal/teleportation magic. But because the CSGBox3D rooms look similar, players lose their mental map quickly. This maps onto a known psychological response: spatial disorientation as anxiety induction, used in real-world sensory deprivation research (which fits the Subject 47 framing).
+### The Void's looping corridors
+The Void (Level 4) uses repeated geometry to create the impression that corridors loop back on themselves. This is purely visual — no actual portal/teleportation magic. But because the CSGBox3D rooms look similar, players lose their mental map quickly. This maps onto a known psychological response: spatial disorientation as anxiety induction, used in real-world sensory deprivation research (which fits the Subject 47 framing).
 
 ---
 
@@ -208,3 +210,21 @@ Making trap notes and the lock raise panic surfaced a latent invariant violation
 ### The corrupted ending: same room, hostile light
 
 The twist room (dead candle, blood-red throb, planked-over door, one harsh spotlight on the note) cost ~60 lines and answers a real playtest confusion — players thought the loop back to the intro was a bug. The design insight: the room doesn't need new geometry to read as "wrong", it needs *hostile lighting*. Removing the door matters most — with no way forward, the spotlit note is the only affordance left, so the player walks to the twist instead of hunting for an exit that doesn't exist.
+
+---
+
+## Phase 5: The Scare Bug-Fix Round
+
+### A plain `Node` silently severs the transform chain — and zeroes gaze panic
+The biggest bug this round was invisible because it failed *quietly*. Gaze panic is detected by `player.gd:_find_scary_object()` walking **up** the parent chain from the ray-hit collider to a `ScaryObject` ancestor. Several props (the House paintings/mirror, the corridor paintings/clock/side-mirrors) had been built with the `ScaryObject` nested *below* the `StaticBody3D` — so the upward walk never found it and those props registered **zero** panic. They looked cursed; they did nothing. Fixed by inverting the nesting everywhere (`ScaryObject → StaticBody3D → collider`).
+
+Inverting it exposed a second, deeper Godot fact. `ScaryObject extends Node` (not `Node3D` — it has no transform). A plain `Node` placed *between* two `Node3D`s **breaks the spatial chain**: Godot's `get_parent_node_3d()` returns null for a non-spatial parent, so the child body's *local* transform becomes its *global* transform. Verified empirically with a throwaway test (the body stayed at the origin no matter where its `Node3D` ancestor sat). Consequence: the world transform must live on the `StaticBody3D` itself, and for a *moving* gaze prop (the Void creatures) you move the inner body, not the outer node. This one fact explained both the dead cursed props and why the Void creatures weren't reacting.
+
+### Survivable scares need their own primitive
+Three new scares (House forest, corridor Manager, corridor turn mirrors) should shock without killing. Reusing `Screamer.trigger()` would have restarted the level; instead they call `Screamer.flash_scare(image, audio, hold)` — a fullscreen flash + sound with **no tree pause and no reload**, leaving the caller to add a survivable panic spike. Separating "shock" from "fail" turned the screamer into two primitives: the fatal `trigger()` and the survivable `flash_scare()`. The House window dropping its old instant-fail capsule glimpse in favour of only the forest flash is the clearest win — the moment is now a jolt you walk away from, not a coin-flip death.
+
+### Distance triggers beat wall-clock triggers in a level you can sprint
+The corridor Manager originally fired on a wall-time delay, but the corridor can be walked in ~60 s or sprinted in ~50 s, so a high roll lost the race to the exit and the scare often never happened. Rebuilding it on the existing `_spawn_event(distance, callback)` (an `Area3D` trigger placed at a path distance) makes it fire at a random *position* (80–180 m) regardless of speed — guaranteed mid-hall. Lesson: in a space the player traverses at variable speed, trigger on **where they are**, not **how long it's been**.
+
+### Teaching "don't look" without an instakill
+The Void creatures were invisible (bare untextured capsules, no material) *and* one stood 2 m from spawn with no grace period — so the first glance awakened it and it lunged within a second, reading as a random screamer with no cause. The fix is a teaching beat: build a visibly tall, dark, red-eyed silhouette; place one creature dead ahead at a safe distance facing the player; add a 5 s `START_GRACE` before anything can hunt. Now the player *sees* the figure, feels the gaze panic climb while staring, looks away, watches it step closer — and learns the rule before it can cost them. A mechanic the player can't see isn't a mechanic; it's a bug.
