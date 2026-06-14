@@ -1,8 +1,6 @@
-1) Fix the fix-void skill so that the YAML part shows correctly
+1) Fix Void level, currently the difficulty level is impossible there
 
 **Responsible: Sasha**
-
-FIRST THINGS TO DO: 1) UPDATE CLAUDE.MD, README.MD, COMMENT, TEXTURES, ETC, SO THAT THEY ARE UP TO DATE 2) FIX LEVEL 4 CURRETNTLY IT IS IMPOSSIBLE
 
 2) Implement the panic scale. The panic increases x (~5) times faster than decreases
 
