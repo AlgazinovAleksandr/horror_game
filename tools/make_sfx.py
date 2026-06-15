@@ -16,7 +16,6 @@ import wave
 SR = 44100
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "game", "assets", "audio", "level_3_corridor")
 
-
 def write_wav(name, samples):
     """samples: list of floats in [-1, 1]."""
     peak = max(1e-9, max(abs(s) for s in samples))

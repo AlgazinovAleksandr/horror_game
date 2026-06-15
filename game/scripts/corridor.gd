@@ -77,6 +77,7 @@ func _ready() -> void:
 	_spawn_events()
 	_start_ambience()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
+	RandomAmbient.register_player(_player)
 
 
 # ---------------------------------------------------------------- path helpers
@@ -477,8 +478,10 @@ func _spawn_intro_note() -> void:
 func _spawn_events() -> void:
 	_spawn_event(6.0, _ev_entry_slam)
 	_spawn_event(46.0, _ev_clock_chime)
+	_spawn_event(72.0, _ev_painting_fall)    
 	_spawn_event(138.0, _ev_lights_out)
 	_spawn_event(188.0, _ev_whisper_oneshot)
+	_spawn_event(195.0, _ev_painting_fall)   
 	_spawn_event(205.0, _ev_silhouette)
 	_spawn_event(235.0, _ev_whisper_loop)
 	_spawn_event(250.0, _ev_floor_crack)
@@ -586,6 +589,24 @@ func _ev_floor_crack() -> void:
 			quad.position = Vector3(_player.global_position.x, 0.012, _player.global_position.z)
 			quad.rotation_degrees.x = -90.0
 
+func _ev_painting_fall() -> void:
+	# Картина срывается со стены перед игроком.
+	var pt := _path_point(_player.global_position.length())
+	var painting_pos := _player.global_position + Vector3(randf_range(-2.0, 2.0), 1.8, randf_range(-2.0, 2.0))
+
+	# Звук падения
+	_play_at("painting_fall", painting_pos, 1.5)
+	_player.add_panic(8.0)
+
+	# Визуал: квад-картина падает вниз
+	var quad := _spawn_quad(Transform3D(), Vector2(1.5, 1.2), TEX_DIR + "painting.png")
+	if quad:
+		quad.position = painting_pos
+		quad.rotation.y = randf_range(-PI, PI)
+		var tween := create_tween()
+		tween.tween_property(quad, "rotation:z", PI / 2.0, 0.35).set_ease(Tween.EASE_IN)
+		tween.parallel().tween_property(quad, "position:y", 0.05, 0.4).set_ease(Tween.EASE_IN)
+		tween.tween_callback(quad.queue_free)
 
 # ---------------------------------------------------------------- ambience
 

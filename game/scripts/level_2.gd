@@ -30,6 +30,7 @@ func _ready() -> void:
 	_spawn_cursed_props()
 	_spawn_events()
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
+	RandomAmbient.register_player(_get_player())
 
 
 func _spawn_note_tables() -> void:

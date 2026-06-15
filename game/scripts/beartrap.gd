@@ -33,6 +33,7 @@ func _ready() -> void:
 		_snap_player.stream = snap
 	_snap_player.unit_size = 6.0
 	add_child(_snap_player)
+	
 
 
 func _build_visuals() -> void:

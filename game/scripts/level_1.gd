@@ -12,12 +12,10 @@ const JUMPSCARE_MAX := 90.0
 const BLACKOUT_DURATION := 1.6
 const KEYCARD_PANIC := 8.0
 
-
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	GameState.current_level = 1
 
-	# Collect all SpotLight3D children into lights array
 	for child in get_children():
 		if child is SpotLight3D:
 			lights.append(child)
@@ -41,6 +39,8 @@ func _ready() -> void:
 	_apply_textures()
 	_spawn_note_tables()
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
+	RandomAmbient.register_player(get_node_or_null("Player") as CharacterBody3D)
+	
 
 
 func _spawn_note_tables() -> void:
