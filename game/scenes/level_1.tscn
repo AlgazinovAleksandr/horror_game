@@ -33,10 +33,16 @@ size = Vector3(0.6, 0.005, 0.4)
 size = Vector3(0.6, 0.005, 0.4)
 
 [sub_resource type="BoxMesh" id="10"]
-size = Vector3(0.1, 0.05, 0.06)
+size = Vector3(0.42, 0.34, 0.08)
 
 [sub_resource type="BoxShape3D" id="11"]
-size = Vector3(0.1, 0.05, 0.06)
+size = Vector3(0.42, 0.34, 0.08)
+
+[sub_resource type="StandardMaterial3D" id="MonitorScreen"]
+albedo_color = Color(0.02, 0.03, 0.04, 1)
+emission_enabled = true
+emission = Color(0.05, 0.12, 0.08, 1)
+emission_energy_multiplier = 0.4
 
 [sub_resource type="BoxMesh" id="BoxMesh_2aecg"]
 size = Vector3(0.1, 0.005, 0.15)
@@ -234,7 +240,7 @@ size = Vector3(1.8, 0.9, 0.6)
 material = ExtResource("6_go7sj")
 
 [node name="Note1" type="StaticBody3D" parent="." unique_id=1223761218]
-transform = Transform3D(-4.371139e-08, -1, 0, 0, 0, -1, 1, -4.371139e-08, 0, 1.5, 1.7, -1.1)
+transform = Transform3D(0, 0, 1, -1, 0, 0, 0, 1, 0, 1.49, 1.5, -1.1)
 script = ExtResource("3")
 note_text = "Subject 46 left something in the first room on the left. It may be useful."
 metadata/_edit_group_ = true
@@ -247,7 +253,7 @@ surface_material_override/0 = ExtResource("8_7gny6")
 shape = SubResource("4")
 
 [node name="Note2" type="StaticBody3D" parent="." unique_id=1255079717]
-transform = Transform3D(-1, -2.3849761e-08, 0, 0, 0, -1, 2.3849761e-08, -1, 0, -1.65, 1.3000001, -1.5)
+transform = Transform3D(0, 0, 1, 1, 0, 0, 0, 1, 0, -1.49, 1.5, -1.0)
 script = ExtResource("3")
 note_text = "Do not look at the tray. Do not look at the monitor.
 
@@ -281,7 +287,7 @@ surface_material_override/0 = ExtResource("8_7gny6")
 shape = SubResource("4")
 
 [node name="SurgicalTray" type="StaticBody3D" parent="." unique_id=1377619202]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.851, -3.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.6, 0.805, -4.55)
 script = ExtResource("4")
 metadata/_edit_group_ = true
 
@@ -292,23 +298,25 @@ mesh = SubResource("5")
 shape = SubResource("6")
 
 [node name="Monitor" type="StaticBody3D" parent="." unique_id=836561688]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.8, 1.3, -4.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.4, 0.97, -4.55)
 script = ExtResource("4")
 metadata/_edit_group_ = true
 
 [node name="MonitorMesh" type="MeshInstance3D" parent="Monitor" unique_id=696304203]
 mesh = SubResource("10")
+surface_material_override/0 = SubResource("MonitorScreen")
 
 [node name="MonitorCol" type="CollisionShape3D" parent="Monitor" unique_id=767232339]
 shape = SubResource("11")
 
 [node name="KeycardCart" type="CSGBox3D" parent="." unique_id=489245241]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.6, 0.4, -4.4)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 0.4, -4.55)
 use_collision = true
-size = Vector3(0.6, 0.8, 0.5)
+size = Vector3(2.8, 0.8, 0.5)
+material = ExtResource("6_go7sj")
 
 [node name="Keycard" type="StaticBody3D" parent="." unique_id=489245240]
-transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3.6, 0.85, -4.4)
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -3.5, 0.82, -4.5)
 script = ExtResource("5")
 metadata/_edit_group_ = true
 

@@ -2,7 +2,7 @@ extends Node
 
 # Persists across scene changes as an Autoload singleton (GameState)
 
-var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=void
+var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=backrooms, 5=void, 6=ending
 var has_keycard: bool = false     # Level 1 unlock item
 var level2_code: String = "472"  # Combination lock answer for Level 2
 var level2_code_correct: bool = false  # Set to true by combination_lock.gd on correct entry
@@ -13,7 +13,8 @@ const SCENE_INTRO   := "res://scenes/intro_room.tscn"
 const SCENE_LEVEL_1 := "res://scenes/level_1.tscn"
 const SCENE_LEVEL_2 := "res://scenes/level_2_1.tscn"
 const SCENE_CORRIDOR := "res://scenes/corridor.tscn"
-const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"
+const SCENE_BACKROOMS := "res://scenes/backrooms.tscn"
+const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"   # The Void
 const SCENE_ENDING  := "res://scenes/ending.tscn"
 const SCENE_MAIN_MENU := "res://scenes/main_menu.tscn"
 
@@ -29,15 +30,16 @@ func start_current_level() -> void:
 		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)
 		2: get_tree().change_scene_to_file(SCENE_LEVEL_2)
 		3: get_tree().change_scene_to_file(SCENE_CORRIDOR)
-		4: get_tree().change_scene_to_file(SCENE_LEVEL_3)
-		5: get_tree().change_scene_to_file(SCENE_ENDING)
+		4: get_tree().change_scene_to_file(SCENE_BACKROOMS)
+		5: get_tree().change_scene_to_file(SCENE_LEVEL_3)
+		6: get_tree().change_scene_to_file(SCENE_ENDING)
 		_: get_tree().change_scene_to_file(SCENE_INTRO)
 
 func advance_level() -> void:
 	current_level += 1
 	start_current_level()
 
-const AUDIO_SUBDIRS := ["shared", "level_1_lab", "level_2_house", "level_3_corridor", "level_4_void"]
+const AUDIO_SUBDIRS := ["shared", "level_1_lab", "level_2_house", "level_3_corridor", "level_backrooms", "level_4_void"]
 
 # Try loading an audio file by base name — searches all audio subdirectories.
 static func load_audio(base_name: String) -> AudioStream:

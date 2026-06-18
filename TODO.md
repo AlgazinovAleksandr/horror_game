@@ -1,4 +1,4 @@
-1) Fix the fix-void skill so that the YAML part shows correctly
+1) Fix Void level, currently the difficulty level is impossible there
 
 **Responsible: Sasha**
 

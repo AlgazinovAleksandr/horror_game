@@ -1,17 +1,28 @@
 extends CanvasLayer
 
 # Autoload singleton: Screamer
-# Call Screamer.trigger() from anywhere to fire the screamer sequence.
+# Call Screamer.trigger() from anywhere to fire the fatal screamer (image +
+# matching sound for the current level, then restart). Call flash_scare() for a
+# survivable scare (fullscreen flash + sound, no restart — the caller adds panic).
 
 var _black_panel: ColorRect
 var _screamer_image: TextureRect
 var _audio: AudioStreamPlayer
-var _screamer_textures: Array[Texture2D] = []
-var _corridor_texture: Texture2D = null  # level-exclusive screamer for the Corridor
+var _screamer_textures: Array[Texture2D] = []  # fallback pool (intro / ending)
 var _is_triggering: bool = false
+var _is_flashing: bool = false
 
-const CORRIDOR_LEVEL := 3
-const CORRIDOR_TEXTURE_PATH := "res://assets/textures/level_3_corridor/screamer_hotel.png"
+# Per-level fatal screamer: current_level -> [image path, audio base name].
+# load_audio() resolves the base name across the audio subdirs (.wav/.ogg).
+const LEVEL_SCREAMERS := {
+	1: ["res://assets/textures/level_1_lab/screamer_lab.png", "screamer_lab"],
+	2: ["res://assets/textures/level_2_house/screamer_house.png", "screamer_house"],
+	3: ["res://assets/textures/level_3_corridor/screamer_hotel.png", "screamer_corridor"],
+	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "jumpscare"],
+	5: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
+}
+
+const FALLBACK_AUDIO := "jumpscare"  # intro / ending levels with no dedicated scream
 
 const RESTART_DELAY := 2.5
 
@@ -35,33 +46,36 @@ func _ready() -> void:
 
 	_black_panel.visible = false
 
-	# Scan screamers/ subfolder for any .png
+	# Fallback pool: every .png in screamers/ (used for intro / ending only).
 	var dir := DirAccess.open("res://assets/textures/screamers")
 	if dir:
 		dir.list_dir_begin()
 		var fname := dir.get_next()
 		while fname != "":
 			if not dir.current_is_dir() and fname.ends_with(".png"):
-				var tex: Texture2D = load("res://assets/textures/screamers/" + fname)  # screamers/ path unchanged
+				var tex: Texture2D = load("res://assets/textures/screamers/" + fname)
 				if tex:
 					_screamer_textures.append(tex)
 			fname = dir.get_next()
 		dir.list_dir_end()
 
-	if ResourceLoader.exists(CORRIDOR_TEXTURE_PATH):
-		_corridor_texture = load(CORRIDOR_TEXTURE_PATH)
 
-	var audio := GameState.load_audio("jumpscare")
-	if audio:
-		_audio.stream = audio
-
-
-func _pick_random_screamer() -> void:
-	if GameState.current_level == CORRIDOR_LEVEL and _corridor_texture:
-		_screamer_image.texture = _corridor_texture
-		return
+# Set both the screamer image and the scream audio for the current level.
+# Falls back to a random screamers/ image + the shared jumpscare for intro/ending.
+func _apply_level_av() -> void:
+	var entry: Variant = LEVEL_SCREAMERS.get(GameState.current_level)
+	if entry != null and ResourceLoader.exists(entry[0]):
+		_screamer_image.texture = load(entry[0])
+		var stream := GameState.load_audio(entry[1])
+		if stream:
+			_audio.stream = stream
+			return
+	# Fallback path.
 	if _screamer_textures.size() > 0:
 		_screamer_image.texture = _screamer_textures[randi() % _screamer_textures.size()]
+	var fallback := GameState.load_audio(FALLBACK_AUDIO)
+	if fallback:
+		_audio.stream = fallback
 
 
 func set_screamer_texture(texture: Texture2D) -> void:
@@ -78,7 +92,7 @@ func trigger() -> void:
 	_is_triggering = true
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	_pick_random_screamer()
+	_apply_level_av()
 	_black_panel.visible = true
 	if _audio.stream:
 		_audio.play()
@@ -94,7 +108,7 @@ func trigger_to_menu() -> void:
 	_is_triggering = true
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	_pick_random_screamer()
+	_apply_level_av()
 	_black_panel.visible = true
 	if _audio.stream:
 		_audio.play()
@@ -102,3 +116,24 @@ func trigger_to_menu() -> void:
 	_black_panel.visible = false
 	_is_triggering = false
 	GameState.go_to_main_menu()
+
+
+# Survivable scare: flash an image fullscreen + play a sound for `hold` seconds,
+# then clear. Does NOT pause or restart — the caller is responsible for any
+# panic spike. Used by the forest (house) and manager (corridor) scares.
+func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> void:
+	if _is_triggering or _is_flashing:
+		return
+	_is_flashing = true
+	if ResourceLoader.exists(image_path):
+		_screamer_image.texture = load(image_path)
+	var stream := GameState.load_audio(audio_base)
+	if stream:
+		_audio.stream = stream
+		_audio.play()
+	_black_panel.visible = true
+	await get_tree().create_timer(hold).timeout
+	# A fatal trigger may have taken over mid-flash — don't yank its panel.
+	if not _is_triggering:
+		_black_panel.visible = false
+	_is_flashing = false

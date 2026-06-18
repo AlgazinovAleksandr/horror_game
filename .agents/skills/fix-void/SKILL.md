@@ -1,6 +1,6 @@
 ---
 name: fix-void
-description: Diagnose and fix black void / open-space holes in Godot CSGBox3D levels. Use when the user reports a black rectangle, visible void, missing wall, floor gap, or sees "outside the level" through geometry. Triggers on: "black void", "open space", "missing wall", "I can see outside", "black rectangle", "can fall through".
+description: 'Diagnose and fix black void / open-space holes in Godot CSGBox3D levels. Use when the user reports a black rectangle, visible void, missing wall, floor gap, or sees "outside the level" through geometry. Triggers on: black void, open space, missing wall, I can see outside, black rectangle, can fall through, floor gap.'
 ---
 
 # Fix-Void: Geometry Void Diagnosis Protocol

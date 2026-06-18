@@ -32,11 +32,28 @@ const TORCHES := [
 const SHATTER_RANGE := Vector2(144.0, 172.0)  # torches extinguished by lights-out
 
 const BEARTRAPS := [  # [distance, lateral offset]
-	[155.0, -0.6], [162.0, 0.55], [168.0, 0.0],
+	[150.0, 0.45], [155.0, -0.6], [162.0, 0.55], [168.0, 0.0], [245.0, -0.5],
 ]
 
 const DARK_ZONES := [Vector2(145.0, 172.0), Vector2(240.0, 318.0)]
 const DREAD_ZONE := Vector2(230.0, 320.0)  # Zone C: weak decay + constant pressure
+
+# The Manager: a survivable scare that strikes once while you walk — a flash, a
+# scream, a panic spike to ride out. Distance-triggered (not wall-time) at a
+# random mid-hall point, so it always fires regardless of walk/run speed.
+const MANAGER_SCARE_PATH := "res://assets/textures/level_3_corridor/screamer_manager.png"
+const MANAGER_PANIC := 25.0
+const MANAGER_DIST := Vector2(80.0, 180.0)  # walked-distance window for the fire point
+
+var _manager_fired: bool = false
+
+# Turn mirrors: walk into the creature in the glass and it flashes back at you.
+# [{pos, fired}] — proximity-tested in _process so each fires once.
+const TURN_MIRROR_SCARE_PATH := "res://assets/textures/level_3_corridor/mirror_with_creature.png"
+const TURN_MIRROR_SCARE_DIST := 2.0
+const TURN_MIRROR_PANIC := 12.0
+
+var _turn_mirrors: Array = []
 
 const NOTE_TEXT := """Hotel Vesper — night audit.
 
@@ -75,9 +92,24 @@ func _ready() -> void:
 	_spawn_doors()
 	_spawn_intro_note()
 	_spawn_events()
+	_spawn_noclip()
 	_start_ambience()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 	RandomAmbient.register_player(_player)
+
+
+func _process(_delta: float) -> void:
+	# Walk into a turn mirror and the creature in the glass flashes at you once.
+	var pp := _player.global_position
+	for m in _turn_mirrors:
+		if m.fired:
+			continue
+		var mp: Vector3 = m.pos
+		if Vector2(pp.x - mp.x, pp.z - mp.z).length() <= TURN_MIRROR_SCARE_DIST:
+			m.fired = true
+			Screamer.flash_scare(TURN_MIRROR_SCARE_PATH, "glass_shatter", 0.6)
+			_player.jolt_camera(0.07, 0.5)
+			_player.add_panic(TURN_MIRROR_PANIC)
 
 
 # ---------------------------------------------------------------- path helpers
@@ -228,18 +260,29 @@ func _spawn_panels() -> void:
 			quad.rotation_degrees.x = -90.0
 
 	# Cursed panels (gaze fills panic): [dist, side, w, h, texture, y_center, intensity]
+	# The plain mirror.png stays a full-height side-wall panel — now one on each
+	# wall in Zone C so the player is flanked by their own reflection.
 	var cursed := [
 		[25.0, -1.0, 1.5, 1.2, "painting.png", 1.8, 0.8],
 		[48.0, 1.0, 2.0, 3.0, "clock.png", 1.5, 1.0],
 		[268.0, 1.0, 1.5, 1.2, "painting.png", 1.8, 1.2],
 		[285.0, -1.0, 2.0, 3.0, "mirror.png", 1.5, 2.5],
+		[288.0, 1.0, 2.0, 3.0, "mirror.png", 1.5, 2.0],
 	]
 	for p in cursed:
 		_spawn_cursed_panel(p[0], p[1], Vector2(p[2], p[3]), TEX_DIR + p[4], p[5], p[6])
 
-	# Locked hotel room doors that knock back
+	# The creature in the glass: an ornate mirror set on the wall the player walks
+	# straight at when reaching a turn — miss the turn and you walk into it.
+	for tm in [[90.0, 1.5], [230.0, 2.0], [275.0, 2.2]]:
+		_spawn_turn_mirror(tm[0], tm[1])
+
+	# Locked hotel room doors that knock back, plus plain decor doors for atmosphere.
 	for fd in [[35.0, -1.0], [130.0, 1.0], [252.0, 1.0]]:
 		_spawn_fake_door(fd[0], fd[1])
+	for dd in [[18.0, 1.0], [72.0, -1.0], [112.0, 1.0], [164.0, -1.0], [210.0, 1.0], [300.0, -1.0]]:
+		_spawn_quad(_panel_transform(dd[0], dd[1], 1.05), Vector2(1.3, 2.1),
+			TEX_DIR + "ordinary_hotel_door.png")
 
 
 # Transform flush against the wall at `dist` on `side`, quad facing inward.
@@ -268,9 +311,38 @@ func _spawn_quad(xform: Transform3D, size: Vector2, tex_path: String) -> MeshIns
 
 func _spawn_cursed_panel(dist: float, side: float, size: Vector2, tex_path: String,
 		y_center: float, intensity: float) -> void:
+	_make_cursed_panel_at(_panel_transform(dist, side, y_center), size, tex_path, intensity)
+
+
+# A turn mirror sits flush on the wall directly ahead at a corner (the wall you
+# face if you fail to turn), so you approach the creature in the glass head-on.
+func _spawn_turn_mirror(corner_dist: float, intensity: float) -> void:
+	var pt := _path_point(corner_dist)
+	var dir_in: Vector3 = pt.dir  # at a corner distance, _path_point returns the incoming segment
+	var pos: Vector3 = pt.pos + dir_in * (W / 2.0 - 0.05) + Vector3(0, 1.5, 0)
+	var face := -dir_in
+	var xform := Transform3D(Basis(Vector3.UP, atan2(face.x, face.z)), pos)
+	_make_cursed_panel_at(xform, Vector2(1.4, 1.95), TURN_MIRROR_SCARE_PATH, intensity)
+	_turn_mirrors.append({ "pos": pos, "fired": false })
+
+
+# Build a gaze-panic panel (StaticBody + textured quad + collision + ScaryObject)
+# at an arbitrary transform.
+func _make_cursed_panel_at(xform: Transform3D, size: Vector2, tex_path: String,
+		intensity: float) -> void:
+	# The ScaryObject must be an ANCESTOR of the collider — player.gd's gaze check
+	# walks UP from the ray-hit StaticBody. Previously it was a child of the body,
+	# so no cursed panel (paintings, clock, mirrors) ever fed gaze panic.
+	# ScaryObject is a plain Node (no transform) and breaks the spatial chain, so
+	# the world transform lives on the StaticBody3D itself (parent non-spatial ->
+	# the body's local transform IS its global transform).
+	var scary := ScaryObject.new()
+	scary.scare_intensity = intensity
+	add_child(scary)
+
 	var body := StaticBody3D.new()
-	body.transform = _panel_transform(dist, side, y_center)
-	add_child(body)
+	body.transform = xform
+	scary.add_child(body)
 
 	var quad := MeshInstance3D.new()
 	var mesh := QuadMesh.new()
@@ -291,23 +363,20 @@ func _spawn_cursed_panel(dist: float, side: float, size: Vector2, tex_path: Stri
 	col.shape = shape
 	body.add_child(col)
 
-	var scary := ScaryObject.new()
-	scary.scare_intensity = intensity
-	body.add_child(scary)
-
 
 func _spawn_fake_door(dist: float, side: float) -> void:
 	var body := FakeDoor.new()
-	body.transform = _panel_transform(dist, side, 1.5)
+	body.transform = _panel_transform(dist, side, 1.05)
 	add_child(body)
 
 	var quad := MeshInstance3D.new()
 	var mesh := QuadMesh.new()
-	mesh.size = Vector2(2.0, 3.0)
+	mesh.size = Vector2(1.4, 2.1)
 	quad.mesh = mesh
 	var mat := StandardMaterial3D.new()
-	if ResourceLoader.exists(TEX_DIR + "door.png"):
-		mat.albedo_texture = load(TEX_DIR + "door.png")
+	var door_tex := TEX_DIR + "ordinary_hotel_door.png"
+	if ResourceLoader.exists(door_tex):
+		mat.albedo_texture = load(door_tex)
 	else:
 		mat.albedo_color = Color(0.15, 0.1, 0.06)
 	mat.roughness = 0.9
@@ -316,7 +385,7 @@ func _spawn_fake_door(dist: float, side: float) -> void:
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(2.0, 3.0, 0.1)
+	shape.size = Vector3(1.4, 2.1, 0.1)
 	col.shape = shape
 	body.add_child(col)
 
@@ -368,7 +437,9 @@ func _spawn_doors() -> void:
 	# Exit: room 217 at the far end. Reaching it IS the win — unlock NONE.
 	var end_pt := _path_point(_total_len)
 	var exit_door: StaticBody3D = _make_door_body("ExitDoor")
-	exit_door.advances_level = true
+	# Room 217 is a lie — you never walk through it. The noclip floor trigger in
+	# front of it drops you into the Backrooms instead (see _spawn_noclip).
+	exit_door.advances_level = false
 	exit_door.position = end_pt.pos + Vector3(end_pt.dir.x, 0, end_pt.dir.z) * -0.08
 	var exit_inward: Vector3 = -(end_pt.dir as Vector3)
 	exit_door.rotation.y = atan2(exit_inward.x, exit_inward.z)
@@ -485,6 +556,63 @@ func _spawn_events() -> void:
 	_spawn_event(205.0, _ev_silhouette)
 	_spawn_event(235.0, _ev_whisper_loop)
 	_spawn_event(250.0, _ev_floor_crack)
+	# The Manager strikes once when you pass a random mid-hall point.
+	_spawn_event(randf_range(MANAGER_DIST.x, MANAGER_DIST.y), _ev_manager)
+
+
+# ---------------------------------------------------------------- the noclip
+
+# The player never reaches room 217. Ten metres out, the corridor plunges black
+# and the flashlight dies; the floor at the door is a trigger that drops them
+# into the Backrooms (GameState level 4). Replaces the old clean door advance.
+var _noclip_armed: bool = false
+var _noclip_fired: bool = false
+
+func _spawn_noclip() -> void:
+	_spawn_event(_total_len - 10.0, _ev_noclip_onset)
+	# Floor trigger right at the door.
+	var pt := _path_point(_total_len - 1.5)
+	var area := CorridorEvent.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(W, H, 2.5)
+	col.shape = shape
+	area.add_child(col)
+	area.position = pt.pos + Vector3(0, H / 2.0, 0)
+	area.rotation.y = atan2(pt.dir.x, pt.dir.z)
+	area.fired.connect(_ev_noclip_fall)
+	add_child(area)
+
+
+func _ev_noclip_onset() -> void:
+	# Pitch black: every torch dies and the flashlight is force-killed (F now
+	# only clicks). The last ten metres are walked blind.
+	_noclip_armed = true
+	for entry in _torch_nodes:
+		entry[1].extinguish()
+	if _player.has_method("kill_flashlight"):
+		_player.kill_flashlight()
+	_play_at("creak", _path_point(_total_len - 6.0).pos + Vector3(0, 1.5, 0), 2.0)
+
+
+func _ev_noclip_fall() -> void:
+	if not _noclip_armed or _noclip_fired:
+		return
+	_noclip_fired = true
+	# Fade to black, a two-second drop, then wake in the Backrooms.
+	var layer := CanvasLayer.new()
+	layer.layer = 80
+	add_child(layer)
+	var fade := ColorRect.new()
+	fade.color = Color(0, 0, 0, 0)
+	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(fade)
+	var tween := create_tween()
+	tween.tween_property(fade, "color:a", 1.0, 1.0)
+	_player.jolt_camera(0.05, 0.4)
+	_play_at("creak", _player.global_position, 3.0)
+	await get_tree().create_timer(2.0).timeout
+	GameState.advance_level()  # -> The Backrooms
 
 
 func _spawn_event(dist: float, callback: Callable) -> void:
@@ -514,6 +642,17 @@ func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 	p.position = pos
 	p.finished.connect(p.queue_free)
 	p.play()
+
+
+func _ev_manager() -> void:
+	# Survivable: a flash, a scream, a panic spike — only fatal if you were
+	# already near the edge. Guarded so it never double-fires.
+	if _manager_fired:
+		return
+	_manager_fired = true
+	Screamer.flash_scare(MANAGER_SCARE_PATH, "screamer_manager", 0.85)
+	_player.jolt_camera(0.09, 0.6)
+	_player.add_panic(MANAGER_PANIC)
 
 
 func _ev_entry_slam() -> void:

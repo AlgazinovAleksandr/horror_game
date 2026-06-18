@@ -153,30 +153,73 @@ func _show_controls_hint() -> void:
 	tween.tween_callback(canvas.queue_free)
 
 
+# Room is 5.6 m square -> walls at +-2.8, ceiling at 3.0. Webs nestle into the
+# top corners (each spanning the two walls + ceiling) with per-web variation in
+# size, tilt, roll and position so they read as grown, not stamped. Seeded for
+# reproducibility.
 func _spawn_cobwebs() -> void:
 	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
 		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
 	if not cobweb_tex:
 		return
-	var positions := [Vector3(-2.5, 2.6, -2.4), Vector3(2.5, 2.6, -2.4)]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 870261 if not GameState.is_ending else 870262
+
+	# Top corners as (x sign, z sign). The opening room only webs the two back
+	# corners; the corrupted ending fills all four, denser.
+	var corners := [Vector2(-1, -1), Vector2(1, -1)]
 	if GameState.is_ending:
-		# Trial 2: the room has been abandoned far longer than you were gone.
-		positions += [Vector3(-2.5, 2.6, 2.4), Vector3(2.5, 2.6, 2.4),
-			Vector3(-2.5, 1.2, -2.4), Vector3(2.5, 1.2, 2.4)]
-	for pos in positions:
-		var mesh_inst := MeshInstance3D.new()
-		mesh_inst.name = "CobwebIntro"
-		var plane := PlaneMesh.new()
-		plane.size = Vector2(1.0, 1.0)
-		mesh_inst.mesh = plane
-		mesh_inst.position = pos
-		mesh_inst.rotation_degrees.x = -45.0
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = cobweb_tex
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		mesh_inst.set_surface_override_material(0, mat)
-		add_child(mesh_inst)
+		corners.append(Vector2(-1, 1))
+		corners.append(Vector2(1, 1))
+
+	for c in corners:
+		var count := rng.randi_range(1, 2) if not GameState.is_ending else rng.randi_range(2, 3)
+		for i in range(count):
+			_make_cobweb(cobweb_tex, c.x, c.y, rng)
+		# In the ending, a few extra webs sag lower down the corner walls.
+		if GameState.is_ending and rng.randf() < 0.7:
+			_make_cobweb(cobweb_tex, c.x, c.y, rng, rng.randf_range(1.2, 1.9))
+
+
+func _make_cobweb(tex: Texture2D, sx: float, sz: float, rng: RandomNumberGenerator,
+		y_anchor: float = 2.95) -> void:
+	var corner := Vector3(sx * 2.7, y_anchor, sz * 2.7)
+	var inward := Vector3(-sx, 0, -sz).normalized()
+	# Pull inward off the exact corner and drop a little, with jitter.
+	var pos: Vector3 = corner + inward * rng.randf_range(0.08, 0.55) \
+		+ Vector3(rng.randf_range(-0.12, 0.12), rng.randf_range(-0.55, -0.05), rng.randf_range(-0.12, 0.12))
+	# Normal faces into the room and downward so the web droops toward the player.
+	var normal := (inward + Vector3(0, -rng.randf_range(0.5, 0.9), 0)).normalized()
+
+	var mesh_inst := MeshInstance3D.new()
+	mesh_inst.name = "CobwebIntro"
+	var quad := QuadMesh.new()
+	var s := rng.randf_range(0.7, 1.3)
+	quad.size = Vector2(s, s * rng.randf_range(0.85, 1.15))
+	mesh_inst.mesh = quad
+
+	var basis := _basis_from_normal(normal)
+	basis = basis.rotated(normal, rng.randf_range(0.0, TAU))  # random roll
+	mesh_inst.transform = Transform3D(basis, pos)
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = tex
+	mat.albedo_color = Color(1, 1, 1, rng.randf_range(0.5, 0.85))  # vary how thick each web reads
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh_inst.set_surface_override_material(0, mat)
+	add_child(mesh_inst)
+
+
+# Orthonormal basis whose local +Z (a QuadMesh's face normal) equals `normal`.
+func _basis_from_normal(normal: Vector3) -> Basis:
+	normal = normal.normalized()
+	var up := Vector3.UP
+	if absf(normal.dot(up)) > 0.99:
+		up = Vector3.RIGHT
+	var x := up.cross(normal).normalized()
+	var y := normal.cross(x).normalized()
+	return Basis(x, y, normal)
 
 
 func _process(delta: float) -> void:

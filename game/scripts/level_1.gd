@@ -37,21 +37,12 @@ func _ready() -> void:
 
 	_reset_jumpscare_timer()
 	_apply_textures()
-	_spawn_note_tables()
+	# Note: the lab's three notes are placed directly — Note1/Note2 wall-mounted
+	# in the corridor, Note3 resting on the exam table — so no note tables are
+	# spawned here (a blind pillar under each note used to clip the exam table).
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 	RandomAmbient.register_player(get_node_or_null("Player") as CharacterBody3D)
 	
-
-
-func _spawn_note_tables() -> void:
-	for child in get_children():
-		if not ("note_text" in child):
-			continue
-		var table := CSGBox3D.new()
-		table.size = Vector3(0.5, 1.2, 0.4)
-		table.use_collision = true
-		table.position = Vector3(child.position.x, 0.6, child.position.z)
-		add_child(table)
 
 
 func _apply_textures() -> void:

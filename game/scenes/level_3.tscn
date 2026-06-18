@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="2_p6vls"]
 [ext_resource type="Script" uid="uid://cq75prfex0038" path="res://scripts/note.gd" id="3"]
 [ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="4"]
-[ext_resource type="Script" uid="uid://6yf473stywqt" path="res://scripts/creature_static.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/creature_stalker.gd" id="5"]
 
 [sub_resource type="CapsuleMesh" id="8"]
 radius = 0.3
@@ -232,7 +232,7 @@ light_energy = 0.25
 omni_range = 4.5
 
 [node name="CreatureA" type="Node3D" parent="." unique_id=934696896]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0, -2)
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0, 1)
 script = ExtResource("5")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="CreatureA" unique_id=1854985599]
