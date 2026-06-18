@@ -18,7 +18,8 @@ const LEVEL_SCREAMERS := {
 	1: ["res://assets/textures/level_1_lab/screamer_lab.png", "screamer_lab"],
 	2: ["res://assets/textures/level_2_house/screamer_house.png", "screamer_house"],
 	3: ["res://assets/textures/level_3_corridor/screamer_hotel.png", "screamer_corridor"],
-	4: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
+	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "jumpscare"],
+	5: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
 }
 
 const FALLBACK_AUDIO := "jumpscare"  # intro / ending levels with no dedicated scream

@@ -92,6 +92,7 @@ func _ready() -> void:
 	_spawn_doors()
 	_spawn_intro_note()
 	_spawn_events()
+	_spawn_noclip()
 	_start_ambience()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 
@@ -435,7 +436,9 @@ func _spawn_doors() -> void:
 	# Exit: room 217 at the far end. Reaching it IS the win — unlock NONE.
 	var end_pt := _path_point(_total_len)
 	var exit_door: StaticBody3D = _make_door_body("ExitDoor")
-	exit_door.advances_level = true
+	# Room 217 is a lie — you never walk through it. The noclip floor trigger in
+	# front of it drops you into the Backrooms instead (see _spawn_noclip).
+	exit_door.advances_level = false
 	exit_door.position = end_pt.pos + Vector3(end_pt.dir.x, 0, end_pt.dir.z) * -0.08
 	var exit_inward: Vector3 = -(end_pt.dir as Vector3)
 	exit_door.rotation.y = atan2(exit_inward.x, exit_inward.z)
@@ -552,6 +555,61 @@ func _spawn_events() -> void:
 	_spawn_event(250.0, _ev_floor_crack)
 	# The Manager strikes once when you pass a random mid-hall point.
 	_spawn_event(randf_range(MANAGER_DIST.x, MANAGER_DIST.y), _ev_manager)
+
+
+# ---------------------------------------------------------------- the noclip
+
+# The player never reaches room 217. Ten metres out, the corridor plunges black
+# and the flashlight dies; the floor at the door is a trigger that drops them
+# into the Backrooms (GameState level 4). Replaces the old clean door advance.
+var _noclip_armed: bool = false
+var _noclip_fired: bool = false
+
+func _spawn_noclip() -> void:
+	_spawn_event(_total_len - 10.0, _ev_noclip_onset)
+	# Floor trigger right at the door.
+	var pt := _path_point(_total_len - 1.5)
+	var area := CorridorEvent.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(W, H, 2.5)
+	col.shape = shape
+	area.add_child(col)
+	area.position = pt.pos + Vector3(0, H / 2.0, 0)
+	area.rotation.y = atan2(pt.dir.x, pt.dir.z)
+	area.fired.connect(_ev_noclip_fall)
+	add_child(area)
+
+
+func _ev_noclip_onset() -> void:
+	# Pitch black: every torch dies and the flashlight is force-killed (F now
+	# only clicks). The last ten metres are walked blind.
+	_noclip_armed = true
+	for entry in _torch_nodes:
+		entry[1].extinguish()
+	if _player.has_method("kill_flashlight"):
+		_player.kill_flashlight()
+	_play_at("creak", _path_point(_total_len - 6.0).pos + Vector3(0, 1.5, 0), 2.0)
+
+
+func _ev_noclip_fall() -> void:
+	if not _noclip_armed or _noclip_fired:
+		return
+	_noclip_fired = true
+	# Fade to black, a two-second drop, then wake in the Backrooms.
+	var layer := CanvasLayer.new()
+	layer.layer = 80
+	add_child(layer)
+	var fade := ColorRect.new()
+	fade.color = Color(0, 0, 0, 0)
+	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(fade)
+	var tween := create_tween()
+	tween.tween_property(fade, "color:a", 1.0, 1.0)
+	_player.jolt_camera(0.05, 0.4)
+	_play_at("creak", _player.global_position, 3.0)
+	await get_tree().create_timer(2.0).timeout
+	GameState.advance_level()  # -> The Backrooms
 
 
 func _spawn_event(dist: float, callback: Callable) -> void:

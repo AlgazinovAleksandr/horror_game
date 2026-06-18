@@ -19,6 +19,12 @@ const DREAD_DECAY_RATE := 2.0    # weakened decay inside a dread zone (Zone C)
 const DREAD_PANIC_RATE := 2.0    # constant pressure inside a dread zone
 const BATTERY_MAX := 240.0       # seconds of flashlight per level
 const BATTERY_FLICKER_BELOW := 48.0
+# Backrooms-only mechanics (opt-in via the methods below; default off so the
+# other four levels behave exactly as before).
+const STANDSTILL_GRACE := 4.0      # seconds still before the maze starts punishing
+const STANDSTILL_PANIC_RATE := 3.0 # panic per second while standing still too long
+const FOOTSTEP_ECHO_DELAY := 0.4   # phantom step plays this long after each real one
+const FOOTSTEP_ECHO_VOLUME_DB := -11.0
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -41,6 +47,14 @@ var _slow_timer: float = 0.0
 var _is_sprinting: bool = false
 var _battery: float = BATTERY_MAX
 var _flash_base_energy: float = 1.0
+# Backrooms-only state
+var _standstill_panic_enabled: bool = false
+var _standstill_timer: float = 0.0
+var _smiler_active: bool = false        # suspends standstill + dark ticks (Smiler runs its own dread)
+var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
+var _footstep_echo_enabled: bool = false
+var _echo_player: AudioStreamPlayer3D = null
+var _dead_click_player: AudioStreamPlayer = null
 const FOOTSTEP_INTERVAL := 0.5
 const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
 const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
@@ -91,8 +105,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_flashlight"):
 		if flashlight.visible:
 			flashlight.visible = false
-		elif _battery > 0.0:
+		elif _battery > 0.0 and not _flashlight_dead:
 			flashlight.visible = true
+		else:
+			_play_dead_click()  # dead battery — only a useless click answers
 
 	if event.is_action_pressed("ui_cancel"):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -160,8 +176,21 @@ func _handle_footsteps(delta: float) -> void:
 			_footstep_timer = SPRINT_FOOTSTEP_INTERVAL if _is_sprinting else FOOTSTEP_INTERVAL
 			if footstep_player.stream:
 				footstep_player.play()
+			if _footstep_echo_enabled and _echo_player:
+				# A phantom step answers a beat later, two paces behind you.
+				get_tree().create_timer(FOOTSTEP_ECHO_DELAY).timeout.connect(_play_echo_step)
 	else:
 		_footstep_timer = 0.0
+
+
+func _play_echo_step() -> void:
+	if _echo_player and _echo_player.stream:
+		_echo_player.play()
+
+
+func _play_dead_click() -> void:
+	if _dead_click_player and _dead_click_player.stream:
+		_dead_click_player.play()
 
 
 func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:
@@ -216,7 +245,8 @@ func _update_panic(delta: float, target: Node) -> void:
 		_panic += delta * intensity * PANIC_BASE_RATE
 	elif _is_sprinting:
 		_panic += delta * SPRINT_PANIC_RATE
-	elif _dark_zones > 0 and not flashlight.visible:
+	elif _dark_zones > 0 and not flashlight.visible and not _smiler_active:
+		# A live Smiler suspends the dark creep — its own dread curve takes over.
 		_panic += delta * DARK_PANIC_RATE
 	else:
 		var base_decay := DREAD_DECAY_RATE if _dread_zones > 0 else PANIC_DECAY_RATE
@@ -226,6 +256,15 @@ func _update_panic(delta: float, target: Node) -> void:
 	# Dread zones (Zone C whispers) press on the mind no matter what else happens.
 	if _dread_zones > 0:
 		_panic += delta * DREAD_PANIC_RATE
+
+	# Backrooms: standing still too long lets panic climb (the maze forbids rest).
+	# Suspended while a Smiler is active — then freezing is the correct, safe move.
+	if _standstill_panic_enabled and not _smiler_active and not _is_moving:
+		_standstill_timer += delta
+		if _standstill_timer >= STANDSTILL_GRACE:
+			_panic += delta * STANDSTILL_PANIC_RATE
+	else:
+		_standstill_timer = 0.0
 
 	if _panic >= PANIC_MAX:
 		_panic = 0.0
@@ -285,6 +324,54 @@ func enter_dread_zone() -> void:
 
 func exit_dread_zone() -> void:
 	_dread_zones = maxi(0, _dread_zones - 1)
+
+
+# ----------------------------------------------------- Backrooms-only opt-ins
+
+# Punish standing still (the maze forbids rest). Off by default everywhere else.
+func enable_standstill_panic() -> void:
+	_standstill_panic_enabled = true
+
+
+# Phantom footsteps two paces behind. Builds a quiet echo player behind the head.
+func enable_footstep_echo() -> void:
+	if _footstep_echo_enabled:
+		return
+	_footstep_echo_enabled = true
+	_echo_player = AudioStreamPlayer3D.new()
+	if footstep_player.stream:
+		_echo_player.stream = footstep_player.stream
+	_echo_player.volume_db = FOOTSTEP_ECHO_VOLUME_DB
+	_echo_player.position = Vector3(0, 0, 1.4)  # +z is behind (forward is -z)
+	add_child(_echo_player)
+
+
+# Force the flashlight off for the rest of the scene; F now only clicks uselessly.
+func kill_flashlight() -> void:
+	_flashlight_dead = true
+	_battery = 0.0
+	flashlight.visible = false
+	if not _dead_click_player:
+		_dead_click_player = AudioStreamPlayer.new()
+		var click := GameState.load_audio("light_pop")
+		if click:
+			_dead_click_player.stream = click
+		_dead_click_player.volume_db = -14.0
+		add_child(_dead_click_player)
+
+
+# The Smiler toggles this: while active, standstill + dark ticks pause and the
+# creature drives panic itself (see Q2 of the Backrooms design).
+func set_smiler_active(active: bool) -> void:
+	_smiler_active = active
+
+
+func is_flashlight_on() -> bool:
+	return flashlight.visible
+
+
+func is_sprinting() -> bool:
+	return _is_sprinting
 
 
 func _update_heartbeat() -> void:

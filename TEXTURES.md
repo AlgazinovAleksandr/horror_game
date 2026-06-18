@@ -56,12 +56,22 @@ Columns:
 | `level_3_corridor/blood_corridor.png` | Dried blood hand-drag smear on the hotel wallpaper (style-matched to `wall.png`) | Level 3 (The Corridor) — 6 wall quads in Zones B/C | done |
 | `level_3_corridor/floor_crack.png` | Carpet torn open over splintered floorboards, black void beneath | Level 3 (The Corridor) — 2 static floor decals + spawned under player by floor-crack event | done |
 
-### level_4_void/
+### level_backrooms/  (Level 4 — The Backrooms)
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
-| `level_4_void/wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 4 (The Void) — all wall CSGBox3D nodes | done |
-| `level_4_void/floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 4 (The Void) — all floor CSGBox3D nodes | done |
-| `level_4_void/screamer_void.png` | Void-specific fatal screamer face | Level 4 (The Void) — fatal screamer (creature lunge / void-fall / panic max); `screamer.gd` `LEVEL_SCREAMERS[4]` | done |
+| `level_backrooms/backrooms_wallpaper_albedo.png` | Pale, repeating, retro mono-yellow wallpaper | Level 4 (The Backrooms) — all wall CSGBox3D nodes + arrow columns (triplanar, negative-V like the corridor) | done |
+| `level_backrooms/backrooms_carpet_albedo.png` | Dirty, water-stained low-pile commercial carpet | Level 4 (The Backrooms) — all floor CSGBox3D nodes | done |
+| `level_backrooms/arrow_decal.png` | Faded stencilled industrial arrow (up/down navigation cue) | Level 4 (The Backrooms) — quad on each hub arrow column; rotated 180° = the down arrow marking the correct arm | done |
+| `level_backrooms/screamer_smiler.png` | Glowing wide-toothed smile + unblinking eyes on alpha | Level 4 (The Backrooms) — the Smiler billboard (`creature_smiler.gd`) AND the fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[4]` | done |
+
+Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — the exit utility room's seam-tearing wall (screen-space vertex jitter + RGB split), built in `backrooms.gd` `_build_glitch_wall()`.
+
+### level_4_void/  (now Level 5 — The Void)
+| file_name | texture_description | where_used | status |
+|-----------|---------------------|------------|--------|
+| `level_4_void/wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 5 (The Void) — all wall CSGBox3D nodes | done |
+| `level_4_void/floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 5 (The Void) — all floor CSGBox3D nodes | done |
+| `level_4_void/screamer_void.png` | Void-specific fatal screamer face | Level 5 (The Void) — fatal screamer (creature lunge / void-fall / panic max); `screamer.gd` `LEVEL_SCREAMERS[5]` | done |
 
 ### screamers/
 | file_name | texture_description | where_used | status |
@@ -94,7 +104,7 @@ The `.tres` materials in `assets/materials/level_layout/` and `assets/materials/
 Intentionally omitted — the Void's extreme vignette (strength 2.0, blue-purple) makes ceilings nearly invisible. Add if visibility is confirmed in testing.
 
 ### Screamer subfolder & per-level screamers
-Images in `game/assets/textures/screamers/` are auto-loaded at startup via `DirAccess` in `screamer.gd` — but they are now only the **fallback pool for the intro room and ending** (random pick). Levels 1–4 each have a dedicated fatal screamer mapped in `screamer.gd`'s `LEVEL_SCREAMERS` table (`level_1_lab/screamer_lab.png`, `level_2_house/screamer_house.png`, `level_3_corridor/screamer_hotel.png`, `level_4_void/screamer_void.png`), each kept in its own level folder and deliberately out of `screamers/` so it only appears in its level.
+Images in `game/assets/textures/screamers/` are auto-loaded at startup via `DirAccess` in `screamer.gd` — but they are now only the **fallback pool for the intro room and ending** (random pick). Levels 1–5 each have a dedicated fatal screamer mapped in `screamer.gd`'s `LEVEL_SCREAMERS` table (`level_1_lab/screamer_lab.png`, `level_2_house/screamer_house.png`, `level_3_corridor/screamer_hotel.png`, `level_backrooms/screamer_smiler.png`, `level_4_void/screamer_void.png`), each kept in its own level folder and deliberately out of `screamers/` so it only appears in its level. (The Backrooms reuses the shared `jumpscare` audio with the smiler image.)
 Separately, **survivable** flash scares (`Screamer.flash_scare()`, no restart) use their own images: `level_2_house/screamer_forest.png` (House window), `level_3_corridor/screamer_manager.png` (corridor Manager), `level_3_corridor/mirror_with_creature.png` (corridor turn mirrors).
 
 ### Note paper textures
