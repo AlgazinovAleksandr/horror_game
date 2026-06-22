@@ -26,21 +26,22 @@ Each level: explore the environment, find clues/items, unlock the exit door. Fai
 Small dark room. Candle on a table with the opening note. Single glowing exit door.
 Note text: *"You are Subject 47. This is a psychological experiment... Stay calm. Do not touch what you are not meant to touch. The door ahead is your first test. We are watching."*
 
-**Level 1 — The Lab (institutional corridor)**
-- Sterile hallway + 3 examination rooms, flickering fluorescent lights
-- 3 safe notes (reveal keycard location), 2 trigger objects (surgical tray, monitor with face)
-- **Guarded keycard**: the keycard sits on a cart in Room 1 *between* the tray and the monitor — retrieving it means navigating your own gaze. Taking it fires `on_keycard_taken()` in `level_1.gd`: 1.6 s light-blackout stutter + creak + 8 panic
-- Win: collect keycard → use on exit door
-- Fail: touch/stare at a trigger object for 3+ seconds → screamer → restart
+**Level 1 — The Lab (institutional wing)** — rebuilt procedurally (Session 10)
+- Built at runtime in `level_1.gd` via `RoomBuilder` from a 10-room graph (`ROOMS`/`DOORS`): reception → main corridor with 2 exam rooms → a cross-junction onto the records room and a **sealed morgue** → observation room → exit vestibule. The `.tscn` keeps only `Player`/`Environment`/audio/`HUDCanvas`; `_clear_old_scene()` frees the old hand-built nodes via a `PRESERVE` whitelist
+- **Power-restore quest**: 3 `Breaker`s (`breaker.gd`) in the exam rooms + records. Each `flipped` → `_on_breaker_flipped()`; the third → `_restore_power()` lifts the lamps to full and drops the `MorgueShutter` (a `CSGBox3D` gating the morgue doorway)
+- **Guarded keycard** in the dark morgue (a `DarkZone` + a `Beartrap`): the card sits on a cart *between* the surgical tray and the face-monitor (both `trigger_object.gd` — instant fail on E or 3 s gaze), with a cursed poster (`poster_lab.png`, gaze panic) on the wall. Taking it fires `on_keycard_taken()`: 1.6 s light-blackout stutter + creak + 8 panic
+- **Observation room**: a one-way mirror (`living_mirror.gd`) — a figure appears in the glass only when you are NOT looking head-on
+- **Scares**: random blackouts (all lamps stutter dark ~1.5 s) and pipe groans (`pipe_groan.wav`) on timers; a taught **HOLD apparition** (`apparition.gd`, `teach=true`) armed by a `CorridorEvent` in the main corridor
+- Win: restore power → take keycard from the morgue → exit door (`KEYCARD`). Fail: trigger object, apparition rush (if you sprint), or panic bar fills
 
-**Level 2 — The House (abandoned domestic interior)**
-- Hallway, living room, bedroom (geometry in `level_2_1.tscn`)
-- 3 safe notes (each contains one digit of a 3-digit code), 2 trap notes
-- Win: read 3 safe notes, enter code on combination lock on exit door
-- Fail: read a trap note **fully** → screamer → restart. Read-to-die: trap notes open normally but feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); the text bleeds red as panic climbs; closing early saves you with a part-full bar
-- Trap note cues: desperate tone, fragmented writing, red-tinted paper texture
-- **The window + Forest scare** (`_spawn_window()` in `level_2.gd`): a moonlit forest (`forest.png`) sits behind the glass, faintly self-lit so it reads in the dark. Press up to it (≤1.5 m) and the **Forest scare** fires once — a SURVIVABLE `flash_scare(screamer_forest.png, "screamer_forest")` + camera jolt + 25 panic (`_forest_fired` guards it; re-arms on restart). No instant fail — only the panic spike can finish you
-- **Pressure package** (built at runtime in `level_2.gd`): cursed props (bedroom painting 0.8, living-room mirror 1.2) feed gaze panic; 3 `CorridorEvent` triggers — front door slam (+8), footsteps overhead (+6, `footsteps_above.wav`), bedroom light dies (+6, bedroom becomes a `DarkZone`)
+**Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- Built at runtime in `level_2.gd` via `RoomBuilder` from an 8-room ground floor (entry hall, hallway, living room, kitchen, landing, bedroom, bathroom, child's room) **plus a gently-lowered CELLAR** (`_build_cellar()`, floor at y=−1.5) reached by a walkable ramp. Same `.tscn`-minimal / `PRESERVE`-whitelist pattern as the Lab
+- **Cellar key sub-quest**: a glowing `KeyItem` (`key_item.gd`) in the kitchen → `picked_up` → `_open_cellar_gate()` raises the `CellarGate` blocking the ramp. ⚠️ The ramp/shaft/ceiling use `rotation.x = -angle` (a +angle inverts the slope and drops the ceiling to knee height); the key sits clear of its (collision-less) stand so the interaction ray reaches it
+- 3 safe notes (one digit each — **the third is in the cellar**, forcing the descent), 2 trap notes (`is_trap`, read-to-die)
+- Win: read the 3 safe notes, enter code **472** on the combination lock by the child's-room exit (`CODE_ENTERED`)
+- Fail: read a trap note **fully**; the apparition rush; or panic bar fills. Read-to-die: trap notes feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); text bleeds red; close early to survive
+- **The window + Forest scare** (`_spawn_window()`): a moonlit forest (`forest.png`) behind glass on the living-room north wall (quads rotated PI to face the room, inset 0.25 to sit proud of the wall, culling disabled). Press up (≤1.5 m) → SURVIVABLE `flash_scare(screamer_forest.png)` + jolt + 25 panic
+- **Scares**: cursed props (bedroom painting 0.8, living-room mirror 1.2) + a TV-static gaze panel (`tv_static_face.png`); a one-way mirror (`living_mirror.gd`) in the bathroom; a music box (`music_box.wav`) in the child's room; the cellar is a `DreadZone`+`DarkZone` with water drips, a beartrap, and a non-teach HOLD apparition; pipe groans + random blackouts on timers; 3 `CorridorEvent` triggers (door slam +8, footsteps overhead +6, bedroom light dies +6 → `DarkZone`)
 - **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
 
 **Level 3 — The Corridor (haunted hotel hallway)** — inspired by *The Corridor* (2012)
@@ -77,6 +78,22 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 
 **Twist Ending**
 Final door loads back to the intro room — **corrupted** (`_corrupt_room()` in `intro_room.gd`, fires when `GameState.is_ending`): candle dead, slow blood-red throb light, exit door replaced by planks (no way forward), harsh cold spotlight pinning the new note to the table, extra cobwebs, low whisper loop. Reading the note → 2 s → `Screamer.trigger_to_menu()`.
+
+### Random Apparition (the "monster" — `apparition.gd`, Session 10)
+A reusable figure that materialises at a scripted-but-randomised moment and tests the player's
+**response**, not their reflexes. `Apparition.spawn(parent, rule, pos, teach)` returns the right
+node for one of three rules:
+- `RULE_HOLD` (the new flagship): on `appear()` it fades in ~7 m ahead, where the player is
+  already looking, with a low drone, and adds steady dread. **Survive by NOT sprinting** for
+  `HOLD_TIME` (4 s) → it fades; **sprint and it rushes** → fatal `Screamer.trigger()` (or, in
+  teach mode, a survivable `flash_scare`). Enforces "Walk. Do not run." via the only fair signal
+  (`is_sprinting()`), never an un-telegraphable "did you turn your head"
+- `RULE_STARE` / `RULE_LOOKAWAY` just spawn the existing `CreatureStalker` / `CreatureSmiler`
+- **Fairness rule:** each rule's first encounter is `teach=true` (survivable) so the player learns
+  the tell before it can kill — same philosophy as the Void's `CreatureA` + `START_GRACE`. The Lab
+  hosts the taught HOLD apparition; the House reuses a non-teach one in the cellar
+- ⚠️ `apparition_figure` must be a **transparent PNG** (a `.jpg` has no alpha → the billboard shows
+  as a solid rectangle). Code prefers `.png` then `.jpg` via `Apparition._resolve_tex`
 
 ### Trigger Object Rules
 - Trigger objects are **instant fail** on interaction (press E) OR after 3 continuous seconds of direct gaze; trap notes are **read-to-die** (panic +12/s while open — see Level 2)
@@ -138,6 +155,11 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `creature_smiler.gd` | `class_name CreatureSmiler` — the Backrooms darkness entity. Billboard `screamer_smiler.png` at a dark arm's end. Flashlight-on-it or sprint → `Screamer.trigger()`; light off + hold still → fades. Suspends the maze's standstill/dark ticks (`player.set_smiler_active`) and drives its own +2.5/s dread |
 | `mirage_door.gd` | `class_name MirageDoor` — blood-red back-door lookalike; `interact()` swings it open onto blank wallpaper + 10 panic. Self-building mesh |
 | `rotary_phone.gd` | `class_name RotaryPhone` — rings (`rotary_ring`) on a timer; `interact()` answers → `phone_whisper` + a read-to-die trap note via `NoteUI.show_note(text, 11.0)`. Self-building primitive mesh |
+| `room_builder.gd` | `class_name RoomBuilder` (Session 10) — procedural room-graph: `build(rooms, doorways)` where room=`{name,pos:Vector2,size:Vector2,h?}` and doorway=`{pos,width,dir:"x"\|"z",h?}` → CSG floor/ceiling/walls, **floors auto-bridged under every doorway** (kills the Issue-5 void-fall class). Applies its own materials. Helpers: `room_center/size/height`, `wall_point(room,side,y,inset)`, static `make_material()`. Doorways open EVERY wall on their plane, so connected rooms must ABUT (share a wall plane). Used by `level_1.gd` + `level_2.gd` |
+| `apparition.gd` | `class_name Apparition` (Session 10) — the random monster. `Apparition.spawn(parent, rule, pos, teach)`; `RULE_HOLD` = appear-ahead, survive by not sprinting; `RULE_STARE`/`RULE_LOOKAWAY` reuse stalker/smiler. See "Random Apparition" above |
+| `breaker.gd` | `class_name Breaker` (Session 10) — Lab power switch; `interact()` flips once + emits `flipped` + clunk (`breaker_throw`) |
+| `living_mirror.gd` | `class_name LivingMirror` (Session 10) — one-way mirror; a figure shows in the glass only when the player is NOT looking head-on (`LOOK_DOT=0.8`) + gaze panic (ScaryObject). **Seeds `body.global_transform = global_transform`** — without it the ScaryObject-chained collider sits at the world origin (an invisible wall; the bug fixed in Session 10) |
+| `key_item.gd` | `class_name KeyItem` (Session 10) — generic pickup; `interact()` emits `picked_up` + label + frees itself. House cellar gate uses it |
 
 ### Level scenes
 | Scene | Unlock condition | Notes |
