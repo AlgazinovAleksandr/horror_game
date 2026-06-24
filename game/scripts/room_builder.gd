@@ -17,7 +17,11 @@ class_name RoomBuilder
 # plane, so a passage between two abutting rooms opens regardless of build order.
 #
 # Data formats (plain Dictionaries):
-#   room    = { "name": String, "pos": Vector2(x,z), "size": Vector2(w,d), "h": float? }
+#   room    = { "name": String, "pos": Vector2(x,z), "size": Vector2(w,d), "h": float?,
+#               "wall_mat": Material?, "floor_mat": Material?, "ceil_mat": Material? }
+#       the optional *_mat keys override the builder-wide materials for THIS room, so
+#       a morgue / kitchen / bathroom can read as a distinct place. Shared interior
+#       walls keep whichever room builds them first (dedup); perimeter walls are unique.
 #   doorway = { "pos": Vector2(x,z), "width": float, "dir": "x"|"z", "h": float? }
 #       dir is the axis you WALK THROUGH the opening. dir "z" sits in a wall that
 #       runs along X (constant z); dir "x" sits in a wall that runs along Z.
@@ -41,7 +45,11 @@ func build(rooms: Array, doorways: Array) -> void:
 	for r in rooms:
 		var h: float = r.get("h", wall_height)
 		_rooms[r["name"]] = { "pos": r["pos"], "size": r["size"], "h": h }
-		_emit_floor_ceiling(r["name"], r["pos"], r["size"], h)
+		# Per-room material overrides fall back to the builder-wide defaults. A room
+		# can carry "wall_mat"/"floor_mat"/"ceil_mat" to read as a distinct place.
+		var fmat: Material = r.get("floor_mat", floor_mat)
+		var cmat: Material = r.get("ceil_mat", ceil_mat)
+		_emit_floor_ceiling(r["name"], r["pos"], r["size"], h, fmat, cmat)
 	# Floor bridges first (guarantee no gap under doorways), then walls with the
 	# openings cut out of them.
 	for d in doorways:
@@ -102,11 +110,12 @@ static func make_material(tex_path: String, uv_scale: Vector3, fallback: Color) 
 
 # ---------------------------------------------------------------- geometry
 
-func _emit_floor_ceiling(room_name: String, pos: Vector2, size: Vector2, h: float) -> void:
+func _emit_floor_ceiling(room_name: String, pos: Vector2, size: Vector2, h: float,
+		fmat: Material, cmat: Material) -> void:
 	_box("%s_Floor" % room_name, Vector3(pos.x, -T / 2.0, pos.y),
-		Vector3(size.x, T, size.y), floor_mat)
+		Vector3(size.x, T, size.y), fmat)
 	_box("%s_Ceiling" % room_name, Vector3(pos.x, h + T / 2.0, pos.y),
-		Vector3(size.x, T, size.y), ceil_mat)
+		Vector3(size.x, T, size.y), cmat)
 
 
 func _emit_floor_bridge(d: Dictionary) -> void:
@@ -125,22 +134,23 @@ func _emit_room_walls(r: Dictionary, doorways: Array) -> void:
 	var pos: Vector2 = r["pos"]
 	var size: Vector2 = r["size"]
 	var h: float = r.get("h", wall_height)
+	var wmat: Material = r.get("wall_mat", wall_mat)
 	var x0 := pos.x - size.x / 2.0
 	var x1 := pos.x + size.x / 2.0
 	var z0 := pos.y - size.y / 2.0
 	var z1 := pos.y + size.y / 2.0
 	# Walls running along X (constant z): traversed along z.
-	_emit_wall_run("z", z0, x0, x1, h, doorways)
-	_emit_wall_run("z", z1, x0, x1, h, doorways)
+	_emit_wall_run("z", z0, x0, x1, h, doorways, wmat)
+	_emit_wall_run("z", z1, x0, x1, h, doorways, wmat)
 	# Walls running along Z (constant x): traversed along x.
-	_emit_wall_run("x", x0, z0, z1, h, doorways)
-	_emit_wall_run("x", x1, z0, z1, h, doorways)
+	_emit_wall_run("x", x0, z0, z1, h, doorways, wmat)
+	_emit_wall_run("x", x1, z0, z1, h, doorways, wmat)
 
 
 # Emit the solid sub-segments of one wall, leaving an archway gap wherever a
 # doorway on this plane overlaps the run.
 func _emit_wall_run(axis: String, fixed: float, span_min: float, span_max: float,
-		h: float, doorways: Array) -> void:
+		h: float, doorways: Array, wmat: Material) -> void:
 	var gaps: Array = []
 	for d in doorways:
 		if d.get("dir", "z") != axis:
@@ -160,13 +170,14 @@ func _emit_wall_run(axis: String, fixed: float, span_min: float, span_max: float
 	var cursor := span_min
 	for g in gaps:
 		if g[0] - cursor > SEG_MIN:
-			_emit_wall_segment(axis, fixed, cursor, g[0], h)
+			_emit_wall_segment(axis, fixed, cursor, g[0], h, wmat)
 		cursor = maxf(cursor, g[1])
 	if span_max - cursor > SEG_MIN:
-		_emit_wall_segment(axis, fixed, cursor, span_max, h)
+		_emit_wall_segment(axis, fixed, cursor, span_max, h, wmat)
 
 
-func _emit_wall_segment(axis: String, fixed: float, a: float, b: float, h: float) -> void:
+func _emit_wall_segment(axis: String, fixed: float, a: float, b: float, h: float,
+		wmat: Material) -> void:
 	var key := "%s|%.1f|%.1f|%.1f|%.1f" % [axis, fixed, a, b, h]
 	if _built_walls.has(key):
 		return
@@ -181,7 +192,7 @@ func _emit_wall_segment(axis: String, fixed: float, a: float, b: float, h: float
 	else:             # runs along Z at constant x
 		pos = Vector3(fixed, h / 2.0, center)
 		size = Vector3(T, h, length)
-	_box("Wall", pos, size, wall_mat)
+	_box("Wall", pos, size, wmat)
 
 
 func _box(box_name: String, pos: Vector3, size: Vector3, mat: Material) -> void:

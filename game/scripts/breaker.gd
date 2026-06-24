@@ -19,19 +19,29 @@ func _ready() -> void:
 	_build()
 
 
+const PANEL_TEX := "res://assets/textures/level_1_lab/lab_breaker_panel.png"
+
+
 func _build() -> void:
 	var panel := CSGBox3D.new()
-	panel.size = Vector3(0.5, 0.7, 0.12)
+	panel.size = Vector3(0.7, 1.0, 0.12)
 	var pm := StandardMaterial3D.new()
-	pm.albedo_color = Color(0.18, 0.18, 0.2)
-	pm.metallic = 0.6
-	pm.roughness = 0.5
+	if ResourceLoader.exists(PANEL_TEX):
+		# The fuse-box art reads as a real electrical panel instead of a grey box.
+		pm.albedo_texture = load(PANEL_TEX)
+		pm.emission_enabled = true
+		pm.emission_texture = load(PANEL_TEX)
+		pm.emission_energy_multiplier = 0.25
+	else:
+		pm.albedo_color = Color(0.18, 0.18, 0.2)
+		pm.metallic = 0.6
+		pm.roughness = 0.5
 	panel.material = pm
 	add_child(panel)
 
 	_lever = CSGBox3D.new()
 	_lever.size = Vector3(0.12, 0.26, 0.12)
-	_lever.position = Vector3(0, 0.14, 0.1)
+	_lever.position = Vector3(0.22, 0.0, 0.1)
 	_lever_mat = StandardMaterial3D.new()
 	_lever_mat.albedo_color = Color(0.8, 0.1, 0.05)
 	_lever_mat.emission_enabled = true
@@ -42,7 +52,7 @@ func _build() -> void:
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.6, 0.85, 0.3)
+	shape.size = Vector3(0.8, 1.1, 0.3)
 	col.shape = shape
 	add_child(col)
 

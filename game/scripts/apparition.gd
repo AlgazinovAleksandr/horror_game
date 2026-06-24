@@ -38,6 +38,7 @@ var _camera: Camera3D
 var _engaged: bool = false
 var _hold: float = 0.0
 var _done: bool = false
+var _spawn_dist: float = 0.0   # horizontal player↔figure distance at appear()
 var _quad: MeshInstance3D
 var _mat: StandardMaterial3D
 
@@ -105,7 +106,14 @@ func _build_figure() -> void:
 	add_child(_quad)
 
 
-# Materialise in front of the player, where they're already looking.
+const MIN_DIST := 2.5        # never closer than this
+const WALL_MARGIN := 0.6     # stop short of a wall by this much
+const FLEE_MARGIN := 1.2     # backing this far away from it counts as fleeing
+
+
+# Materialise in front of the player, where they're already looking. The spawn
+# distance is raycast-clamped to land in OPEN view: in the tight 3 m halls a fixed
+# 7 m would drop the figure inside/behind a wall, so it was never actually seen.
 func appear() -> void:
 	if _engaged or _done:
 		return
@@ -117,7 +125,22 @@ func appear() -> void:
 	if fwd.length() < 0.01:
 		fwd = Vector3(0, 0, -1)
 	fwd = fwd.normalized()
-	global_position = _player.global_position + fwd * APPEAR_DIST
+
+	var eye := _player.global_position + Vector3(0, 1.2, 0)
+	var dist := APPEAR_DIST
+	var space := _player.get_world_3d().direct_space_state
+	var q := PhysicsRayQueryParameters3D.create(eye, eye + fwd * APPEAR_DIST)
+	q.exclude = [_player.get_rid()]
+	var hit := space.intersect_ray(q)
+	if not hit.is_empty():
+		dist = clampf(eye.distance_to(hit.position) - WALL_MARGIN, MIN_DIST, APPEAR_DIST)
+
+	global_position = _player.global_position + fwd * dist
+	_spawn_dist = _horiz_dist_to_player()
+	# Reset for re-arm (debug repeat) so a recycled instance fades in cleanly.
+	_hold = 0.0
+	_done = false
+	_mat.albedo_color.a = 0.0
 	visible = true
 	_engaged = true
 	_play_drone()
@@ -132,13 +155,29 @@ func _process(delta: float) -> void:
 	if not _player:
 		return
 	_player.add_panic(DREAD_RATE * delta)
-	# The one rule: do not run. Sprinting near it makes it rush.
-	if _player.is_sprinting():
+	# The one rule: do not run. Sprinting OR backing away from it (fleeing) makes it
+	# rush. Turning the camera while standing your ground never trips it — fair, and
+	# it matches "stand still until it fades".
+	if _is_fleeing():
 		_rush()
 		return
 	_hold += delta
 	if _hold >= HOLD_TIME:
 		_survive()
+
+
+func _is_fleeing() -> bool:
+	if _player.is_sprinting():
+		return true
+	return _horiz_dist_to_player() > _spawn_dist + FLEE_MARGIN
+
+
+func _horiz_dist_to_player() -> float:
+	if not _player:
+		return 0.0
+	var a := global_position
+	var b := _player.global_position
+	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
 func _rush() -> void:

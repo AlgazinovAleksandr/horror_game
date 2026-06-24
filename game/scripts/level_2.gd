@@ -16,6 +16,11 @@ const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _LOCK_SCRIPT := preload("res://scripts/combination_lock.gd")
 
+# DEBUG: see level_1.gd — a survivable apparition re-appears in front of the player
+# every DEBUG_APPAR_INTERVAL seconds while true. Flip false for release.
+const DEBUG_APPARITION := true
+const DEBUG_APPAR_INTERVAL := 45.0
+
 const CREAK_MIN := 15.0
 const CREAK_MAX := 40.0
 const PIPE_MIN := 14.0
@@ -39,6 +44,7 @@ var _blackout_timer: float = 0.0
 var _cellar_gate: CSGBox3D
 var _apparition: Apparition
 var _apparition_fired: bool = false
+var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 
 func _ready() -> void:
@@ -57,9 +63,11 @@ func _ready() -> void:
 	_spawn_bathroom_mirror()
 	_spawn_cellar_contents()
 	_spawn_music_box()
+	_spawn_room_props()
 	_spawn_events()
 	_spawn_apparition()
 	_start_ambience()
+	_boost_ambient(0.35)
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
@@ -112,8 +120,29 @@ func _build_geometry() -> void:
 	_builder.ceil_mat = RoomBuilder.make_material(
 		TEX + "house_ceiling.png", Vector3(0.35, 0.35, 0.35), Color(0.2, 0.16, 0.13))
 	add_child(_builder)
-	_builder.build(ROOMS, DOORS)
+	_builder.build(_rooms_with_skins(), DOORS)
 	_build_cellar()
+
+
+# Mutable copy of ROOMS with per-room skins so the kitchen and bathroom read as
+# their own rooms rather than more of the same wallpaper.
+func _rooms_with_skins() -> Array:
+	var skins := {}
+	var kw := TEX + "house_kitchen_wall.png"
+	if ResourceLoader.exists(kw):
+		skins["Kitchen"] = { "wall_mat": RoomBuilder.make_material(
+			kw, Vector3(0.4, 0.4, 0.4), Color(0.4, 0.36, 0.28)) }
+	var bw := TEX + "house_bathroom_tile.png"
+	if ResourceLoader.exists(bw):
+		skins["Bathroom"] = { "wall_mat": RoomBuilder.make_material(
+			bw, Vector3(0.5, 0.5, 0.5), Color(0.5, 0.52, 0.5)) }
+	var out: Array = []
+	for r in ROOMS:
+		var room: Dictionary = r.duplicate()
+		if skins.has(room["name"]):
+			room.merge(skins[room["name"]])
+		out.append(room)
+	return out
 
 
 func _place_player() -> void:
@@ -155,42 +184,66 @@ func _build_cellar() -> void:
 	_box("CellarWallN_A", Vector3(2.7, CELLAR_Y + CELLAR_H / 2.0, z1), Vector3(2.4, CELLAR_H, 0.2), _cellar_mat)
 	_box("CellarWallN_B", Vector3(7.3, CELLAR_Y + CELLAR_H / 2.0, z1), Vector3(2.4, CELLAR_H, 0.2), _cellar_mat)
 
-	# The ramp: from ground (y=0, z=2.6) down to the cellar floor (y=-1.5, z=-2.4).
-	# A gentle ~18° slope, walls on both sides of the shaft so you can't fall off.
-	var top := Vector3(5, 0, 2.6)
-	var bottom := Vector3(5, CELLAR_Y, -2.4)
-	var mid := (top + bottom) / 2.0
-	var run := top.z - bottom.z          # 5.0 m
-	var drop := top.y - bottom.y         # 1.5 m
-	var length := sqrt(run * run + drop * drop)
-	var angle := atan2(drop, run)        # slope
+	# The descent ramp. Its top surface MUST be continuous with the floors at both ends
+	# or the player can't walk it: a tilted box pokes an end-lip above the floor where
+	# it meets it, and Godot's move_and_slide does not climb steps (the real "can't
+	# enter the cellar" bug — the player jammed against the top lip). So:
+	#   • the top starts at z=1.7, exactly where RoomBuilder's doorway floor-bridge ends
+	#     (both at y=0) — the walker crosses bridge→ramp on one flush plane;
+	#   • the bottom meets the cellar floor at y=-1.5 and is extended 0.6 m further south
+	#     so its lower end-lip is buried under the cellar floor.
+	const RAMP_T := 0.3
+	var p_top := Vector3(5, 0.0, 1.7)
+	var p_bot := Vector3(5, CELLAR_Y, z1)               # cellar near wall, floor level
+	var along := (p_bot - p_top).normalized()
+	var ang := atan2(-along.y, -along.z)                # slope below horizontal (>0)
+	var up_n := Vector3(0, cos(ang), sin(ang))          # ramp top-face normal (points up)
+	var s_bot := p_bot + along * 0.6                    # bury the bottom end under the floor
+	var surf_mid := (p_top + s_bot) * 0.5
+	var ramp_len := (s_bot - p_top).length()
+
+	var stairs_tex: String = TEX + "house_wood_stairs.png"
+	var ramp_mat: Material = _cellar_mat
+	if ResourceLoader.exists(stairs_tex):
+		ramp_mat = RoomBuilder.make_material(stairs_tex, Vector3(0.5, 0.5, 0.5), Color(0.25, 0.17, 0.1))
 	var ramp := CSGBox3D.new()
 	ramp.name = "CellarRamp"
-	ramp.size = Vector3(1.6, 0.3, length)
-	ramp.position = mid
-	ramp.rotation.x = -angle             # descend toward -z (cellar); +angle inverts it
+	ramp.size = Vector3(2.2, RAMP_T, ramp_len)
+	ramp.position = surf_mid - up_n * (RAMP_T * 0.5)    # drop centre so the TOP face is the surface line
+	ramp.rotation.x = -ang
 	ramp.use_collision = true
-	ramp.material = _cellar_mat
+	ramp.material = ramp_mat
 	add_child(ramp)
-	# Shaft side walls following the ramp.
+	# Shaft side walls — parallel to the ramp, offset ±1.2 m in x, raised to seal the
+	# sides from the ramp up past the cap.
 	for sx in [-1.0, 1.0]:
 		var w := CSGBox3D.new()
-		w.size = Vector3(0.2, 2.2, length + 0.6)
-		w.position = mid + Vector3(sx * 0.9, 1.0, 0)
-		w.rotation.x = -angle
+		w.size = Vector3(0.2, 3.6, ramp_len + 0.4)
+		w.position = surf_mid + Vector3(sx * 1.2, 1.4, 0)
+		w.rotation.x = -ang
 		w.use_collision = true
 		w.material = _cellar_mat
 		add_child(w)
-	# Sloped ceiling over the shaft (2.1 m headroom), so the open top of the stair
-	# never shows the sky through the gap above the cellar gate.
+	# Sloped ceiling, offset a CONSTANT 2.6 m along the ramp normal so headroom is
+	# uniform (~2.45 m vertical over the 1.8 m player) the whole way down.
 	var shaft_ceil := CSGBox3D.new()
 	shaft_ceil.name = "CellarShaftCeiling"
-	shaft_ceil.size = Vector3(2.0, 0.3, length + 1.2)
-	shaft_ceil.position = mid + Vector3(0, 2.1, 0)
-	shaft_ceil.rotation.x = -angle
+	shaft_ceil.size = Vector3(2.6, 0.3, ramp_len)
+	shaft_ceil.position = surf_mid + up_n * 2.6
+	shaft_ceil.rotation.x = -ang
 	shaft_ceil.use_collision = true
 	shaft_ceil.material = _cellar_mat
 	add_child(shaft_ceil)
+	# Flat cap at kitchen-ceiling height (y=3) over the shaft mouth: seals the wedge
+	# above the sloped ceiling (the background is black now, so any residual gap reads
+	# as darkness rather than sky).
+	var cap := CSGBox3D.new()
+	cap.name = "CellarShaftCap"
+	cap.size = Vector3(3.0, 0.3, 7.0)
+	cap.position = Vector3(5, 3.0, -0.15)
+	cap.use_collision = true
+	cap.material = _cellar_mat
+	add_child(cap)
 
 
 # ---------------------------------------------------------------- lighting
@@ -198,12 +251,12 @@ func _build_cellar() -> void:
 func _spawn_lights() -> void:
 	for r in ROOMS:
 		var c: Vector3 = _builder.room_center(r["name"])
-		var warm := 0.55
+		var warm := 0.9
 		if r["name"] == "Bedroom" or r["name"] == "ChildRoom":
-			warm = 0.45
-		_add_lamp(r["name"], Vector3(c.x, 2.6, c.z), warm, Color(0.9, 0.75, 0.55))
+			warm = 0.75   # bedrooms a touch dimmer / moodier
+		_add_lamp(r["name"], Vector3(c.x, 2.6, c.z), warm, Color(0.95, 0.8, 0.6))
 	# A dim, cold bulb in the cellar.
-	_add_lamp("Cellar", Vector3(CELLAR_CENTER.x, CELLAR_Y + 2.2, CELLAR_CENTER.y), 0.22, Color(0.6, 0.65, 0.7))
+	_add_lamp("Cellar", Vector3(CELLAR_CENTER.x, CELLAR_Y + 2.2, CELLAR_CENTER.y), 0.5, Color(0.6, 0.65, 0.7))
 
 
 func _add_lamp(lamp_name: String, pos: Vector3, energy: float, color: Color) -> void:
@@ -212,7 +265,7 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float, color: Color) -> 
 	lamp.position = pos
 	lamp.light_energy = energy
 	lamp.light_color = color
-	lamp.omni_range = 8.0
+	lamp.omni_range = 10.0
 	add_child(lamp)
 	_lights.append([lamp, energy])
 
@@ -378,9 +431,12 @@ func _spawn_window() -> void:
 # ---------------------------------------------------------------- cursed props
 
 func _spawn_cursed_props() -> void:
-	# Family painting in the bedroom; tarnished mirror in the living room.
-	_make_cursed_body(_builder.wall_point("Bedroom", Vector2(1, 0), 1.5, 0.08),
-		Vector2(0.8, 1.0), -PI / 2.0, 0.8, Color(0.1, 0.08, 0.07), TEX + "painting_house.png")
+	# Family painting on the bedroom's SOUTH wall; tarnished mirror in the living room.
+	# (The east wall is the bedroom's only doorway — a collider/ScaryObject there both
+	# blocks entry AND spikes panic as you push against it. The note with digit 2 is on
+	# the north wall, the bed on the west, so the south wall is clear.)
+	_make_cursed_body(_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.08),
+		Vector2(0.8, 1.0), 0.0, 0.8, Color(0.1, 0.08, 0.07), TEX + "painting_house.png")
 	_make_cursed_body(_builder.wall_point("LivingRoom", Vector2(0, -1), 1.5, 0.08),
 		Vector2(0.7, 1.1), 0.0, 1.2, Color(0.05, 0.07, 0.08), "")
 
@@ -430,8 +486,10 @@ func _spawn_tv() -> void:
 	sm.size = Vector3(0.8, 0.55, 0.08)
 	screen.mesh = sm
 	var mat := StandardMaterial3D.new()
-	var tv_tex := TEX + "tv_static_face.png"
-	if ResourceLoader.exists(tv_tex):
+	# The face art is a .jpg on disk; resolve .png then .jpg (it was looking only for
+	# .png, so the TV silently fell back to a grey screen).
+	var tv_tex := Apparition._resolve_tex(TEX + "tv_static_face")
+	if tv_tex != "":
 		mat.albedo_texture = load(tv_tex)
 		mat.emission_enabled = true
 		mat.emission_texture = load(tv_tex)
@@ -453,15 +511,52 @@ func _spawn_tv() -> void:
 
 
 func _spawn_bathroom_mirror() -> void:
-	var pos: Vector3 = _builder.wall_point("Bathroom", Vector2(-1, 0), 1.5, 0.1)
+	# North wall — the west wall (Vector2(-1,0)) is the bathroom's only doorway, and the
+	# mirror's collider there blocks the entrance.
+	var pos: Vector3 = _builder.wall_point("Bathroom", Vector2(0, 1), 1.5, 0.1)
 	var mirror := LivingMirror.new()
 	mirror.position = pos
-	mirror.rotation.y = PI / 2.0   # face +x into the bathroom
+	mirror.rotation.y = 0.0   # LivingMirror faces local -Z → into the room (-z)
 	add_child(mirror)
 
 
 func _spawn_music_box() -> void:
 	_loop_audio("music_box", _builder.room_center("ChildRoom") + Vector3(0, 0.6, 0), -12.0)
+
+
+# Solid furniture so each room reads as a place. No panic — these are just props.
+func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void:
+	var b := CSGBox3D.new()
+	b.size = size
+	b.position = pos
+	b.rotation.y = y_rot
+	b.use_collision = true
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.roughness = 0.8
+	b.material = m
+	add_child(b)
+
+
+func _spawn_room_props() -> void:
+	# Kitchen: a counter along the NORTH wall (z-2.4 would sit across the cellar-ramp
+	# doorway at z=3 and re-block the descent).
+	var kc: Vector3 = _builder.room_center("Kitchen")
+	_make_prop(Vector3(kc.x, 0.45, kc.z + 2.4), Vector3(4.0, 0.9, 0.7), Color(0.35, 0.3, 0.24))
+	# Bathroom: a bathtub.
+	var bc: Vector3 = _builder.room_center("Bathroom")
+	_make_prop(Vector3(bc.x + 1.4, 0.3, bc.z), Vector3(0.9, 0.6, 2.2), Color(0.7, 0.72, 0.72))
+	# Bedroom: a bed (the cursed painting is already here).
+	var bd: Vector3 = _builder.room_center("Bedroom")
+	_make_prop(Vector3(bd.x - 1.6, 0.3, bd.z), Vector3(2.2, 0.5, 1.5), Color(0.3, 0.22, 0.2))
+	# Child's room: a small bed + an unsettling crayon drawing on the wall.
+	var cc: Vector3 = _builder.room_center("ChildRoom")
+	_make_prop(Vector3(cc.x + 1.5, 0.25, cc.z), Vector3(1.6, 0.4, 1.0), Color(0.32, 0.24, 0.26))
+	var drawing := TEX + "child_drawing.png"
+	if ResourceLoader.exists(drawing):
+		# East wall (the north wall holds the exit lock/door; the west holds a note).
+		_make_cursed_body(_builder.wall_point("ChildRoom", Vector2(1, 0), 1.5, 0.06),
+			Vector2(0.7, 0.7), -PI / 2.0, 0.6, Color(0.6, 0.55, 0.5), drawing)
 
 
 func _spawn_cellar_contents() -> void:
@@ -621,6 +716,23 @@ func _ev_bedroom_dark() -> void:
 
 # ---------------------------------------------------------------- ambience / ticks
 
+# See level_1.gd: duplicate the SHARED Environment resource before retuning it, so
+# the changes don't bleed into the other levels.
+func _boost_ambient(energy: float) -> void:
+	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
+	if not we or not we.environment:
+		return
+	var env: Environment = we.environment.duplicate()
+	env.ambient_light_energy = energy
+	env.ambient_light_color = Color(0.12, 0.1, 0.09)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	# Black background instead of the procedural sky: any geometry gap (e.g. above the
+	# cellar) reads as darkness, not jarring blue sky — the right call for an interior.
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0, 0, 0)
+	we.environment = env
+
+
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
@@ -641,6 +753,20 @@ func _process(delta: float) -> void:
 	_tick_forest()
 	_tick_timers(delta)
 	_drive_lights()
+	_tick_debug_apparition(delta)
+
+
+func _tick_debug_apparition(delta: float) -> void:
+	if not DEBUG_APPARITION:
+		return
+	_dbg_appar_timer -= delta
+	if _dbg_appar_timer > 0.0:
+		return
+	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
+	# Fatal (teach=false): hold still to survive, flee → screamer + restart.
+	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
+	if a:
+		a.appear()
 
 
 func _tick_forest() -> void:

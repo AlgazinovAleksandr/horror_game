@@ -17,6 +17,12 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _TRIGGER_SCRIPT := preload("res://scripts/trigger_object.gd")
 const _KEYCARD_SCRIPT := preload("res://scripts/keycard.gd")
 
+# DEBUG: while true, a survivable apparition re-appears in front of the player every
+# DEBUG_APPAR_INTERVAL seconds so it's easy to encounter and tune. Flip false for
+# release (the scripted, fires-once taught encounter below still stands).
+const DEBUG_APPARITION := true
+const DEBUG_APPAR_INTERVAL := 45.0
+
 const BLACKOUT_DURATION := 1.6
 const KEYCARD_PANIC := 8.0
 const PIPE_MIN := 12.0
@@ -34,6 +40,7 @@ var _power_on: bool = false
 var _morgue_shutter: CSGBox3D
 var _apparition: Apparition
 var _apparition_fired: bool = false
+var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 
 func _ready() -> void:
@@ -48,9 +55,11 @@ func _ready() -> void:
 	_spawn_power_quest()
 	_spawn_morgue_keycard()
 	_spawn_observation_mirror()
+	_spawn_room_props()
 	_spawn_doors()
 	_spawn_apparition()
 	_start_ambience()
+	_boost_ambient(0.35)
 
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 	RandomAmbient.register_player(_player())
@@ -105,7 +114,26 @@ func _build_geometry() -> void:
 	_builder.ceil_mat = RoomBuilder.make_material(
 		TEX + "lab_ceiling.png", Vector3(0.4, 0.4, 0.4), Color(0.22, 0.24, 0.23))
 	add_child(_builder)
-	_builder.build(ROOMS, DOORS)
+	_builder.build(_rooms_with_skins(), DOORS)
+
+
+# A mutable copy of ROOMS carrying per-room material overrides so key rooms read as
+# distinct places: the morgue gets stainless lockers + a wet floor.
+func _rooms_with_skins() -> Array:
+	var morgue_wall := RoomBuilder.make_material(
+		TEX + "lab_morgue_wall.png", Vector3(0.5, 0.5, 0.5), Color(0.32, 0.34, 0.36))
+	var morgue_floor := RoomBuilder.make_material(
+		TEX + "lab_floor_wet.png", Vector3(0.45, 0.45, 0.45), Color(0.18, 0.2, 0.22))
+	var skins := {
+		"Morgue": { "wall_mat": morgue_wall, "floor_mat": morgue_floor },
+	}
+	var out: Array = []
+	for r in ROOMS:
+		var room: Dictionary = r.duplicate()
+		if skins.has(room["name"]):
+			room.merge(skins[room["name"]])
+		out.append(room)
+	return out
 
 
 func _place_player() -> void:
@@ -118,13 +146,17 @@ func _place_player() -> void:
 
 # ---------------------------------------------------------------- lighting
 
+const EMERGENCY_ENERGY := 0.45   # dim emergency power before the breakers are thrown
+const RESTORED_ENERGY := 1.0     # full institutional light once power is restored
+
+
 func _spawn_lights() -> void:
 	# One ceiling lamp per room. They start dim (emergency power); restoring power
 	# brightens them. The morgue's lamp stays dark until the shutter opens.
 	for r in ROOMS:
 		var c: Vector3 = _builder.room_center(r["name"])
 		var emergency: bool = r["name"] != "Morgue"
-		_add_lamp(r["name"], Vector3(c.x, 2.7, c.z), 0.22 if emergency else 0.0)
+		_add_lamp(r["name"], Vector3(c.x, 2.7, c.z), EMERGENCY_ENERGY if emergency else 0.0)
 
 
 func _add_lamp(lamp_name: String, pos: Vector3, energy: float) -> void:
@@ -132,9 +164,9 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float) -> void:
 	lamp.name = "Lamp_" + lamp_name
 	lamp.position = pos
 	lamp.light_energy = energy
-	lamp.light_color = Color(0.75, 0.85, 0.95)  # cold institutional
-	lamp.omni_range = 9.0
-	lamp.omni_attenuation = 1.2
+	lamp.light_color = Color(0.8, 0.88, 0.96)  # cold institutional
+	lamp.omni_range = 11.0
+	lamp.omni_attenuation = 1.0
 	add_child(lamp)
 	_lights.append([lamp, energy])
 
@@ -143,7 +175,7 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float) -> void:
 
 func _spawn_notes() -> void:
 	_make_note(Vector3(2.4, 1.4, -2.6), -PI / 2.0,
-		"Subject 47.\n\nThe power is down. Three breakers will bring it back — one in each lab room, one in records. The morgue door stays sealed until all three are thrown.\n\nThe keycard is inside the morgue. You will need it for the exit.")
+		"Subject 47.\n\nThe power is down. Three breakers will bring it back — one in each lab room, one in records. The morgue door stays sealed until all three are thrown.\n\nThe keycard is inside the morgue. You will need it for the exit.\n\nAnd if the figure comes — DO NOT RUN. Do not turn and flee. Stand still until it fades. Running is how it reaches you.")
 	_make_note(_builder.wall_point("Exam2", Vector2(0, -1), 1.4, 0.1), 0.0,
 		"Do not look at the tray. Do not look at the monitor.\n\nThey are not what they appear. When you take the card, keep your eyes on the floor.")
 	_make_note(_builder.wall_point("Records", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
@@ -213,7 +245,7 @@ func _on_breaker_flipped() -> void:
 	# Each throw lifts the emergency glow a little.
 	for entry in _lights:
 		if entry[1] > 0.0:
-			entry[1] = minf(0.7, entry[1] + 0.12)
+			entry[1] = minf(RESTORED_ENERGY, entry[1] + 0.18)
 	if _breakers_flipped >= 3 and not _power_on:
 		_restore_power()
 
@@ -222,10 +254,10 @@ func _restore_power() -> void:
 	_power_on = true
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
-		entry[1] = 0.7
-		lamp.light_color = Color(0.85, 0.9, 0.85)
+		entry[1] = RESTORED_ENERGY
+		lamp.light_color = Color(0.9, 0.94, 0.9)
 		var t := create_tween()
-		t.tween_property(lamp, "light_energy", 0.7, 0.5)
+		t.tween_property(lamp, "light_energy", RESTORED_ENERGY, 0.5)
 	# Open the morgue shutter (drops into the floor).
 	var t2 := create_tween()
 	t2.tween_property(_morgue_shutter, "position:y", -1.5, 0.9).set_trans(Tween.TRANS_QUAD)
@@ -355,6 +387,54 @@ func _make_cursed_panel(pos: Vector3, size: Vector2, y_rot: float, intensity: fl
 	body.add_child(col)
 
 
+# ---------------------------------------------------------------- room props
+
+# A plain solid CSG prop (no panic), so each room reads as a place, not an empty box.
+func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void:
+	var b := CSGBox3D.new()
+	b.size = size
+	b.position = pos
+	b.rotation.y = y_rot
+	b.use_collision = true
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.metallic = 0.3
+	m.roughness = 0.7
+	b.material = m
+	add_child(b)
+
+
+func _accent_lamp(pos: Vector3, color: Color, energy: float, lrange := 6.0) -> void:
+	var lamp := OmniLight3D.new()
+	lamp.position = pos
+	lamp.light_color = color
+	lamp.light_energy = energy
+	lamp.omni_range = lrange
+	add_child(lamp)
+
+
+func _spawn_room_props() -> void:
+	# Exam rooms: a surgical table each.
+	for room in ["Exam1", "Exam2"]:
+		var c: Vector3 = _builder.room_center(room)
+		_make_prop(Vector3(c.x, 0.45, c.z), Vector3(0.9, 0.9, 2.0), Color(0.6, 0.62, 0.64))
+	# Records: a bank of filing cabinets along the back wall + a warning sign.
+	var rc: Vector3 = _builder.room_center("Records")
+	for i in range(3):
+		_make_prop(Vector3(rc.x - 2.0 + i * 0.8, 0.65, rc.z - 2.4),
+			Vector3(0.7, 1.3, 0.6), Color(0.28, 0.3, 0.27))
+	# Warning sign on the WEST wall — the east wall is the only doorway into Records,
+	# and a wall panel there blocks the entrance (it has a collider).
+	_make_cursed_panel(_builder.wall_point("Records", Vector2(-1, 0), 1.8, 0.06),
+		Vector2(0.8, 0.6), PI / 2.0, 0.0, TEX + "lab_warning_sign.png")
+	_accent_lamp(Vector3(rc.x, 1.9, rc.z), Color(0.7, 0.85, 0.6), 0.5)
+	# Observation: a monitoring desk in front of the one-way mirror (east wall), with a
+	# screen glow — kept clear of the west (x=1.5) doorway.
+	var oc: Vector3 = _builder.room_center("Observation")
+	_make_prop(Vector3(oc.x + 1.0, 0.5, oc.z), Vector3(1.6, 1.0, 0.7), Color(0.22, 0.23, 0.25))
+	_accent_lamp(Vector3(oc.x + 1.0, 1.3, oc.z), Color(0.4, 0.7, 0.9), 0.4, 3.5)
+
+
 # ---------------------------------------------------------------- observation
 
 func _spawn_observation_mirror() -> void:
@@ -441,6 +521,24 @@ func _spawn_event(pos: Vector3, size: Vector3, callback: Callable) -> void:
 
 # ---------------------------------------------------------------- ambience / ticks
 
+# Lift this scene's ambient light so textures read a few metres out (corners stay
+# dark). environment.tscn's Environment resource is SHARED across every level, so we
+# DUPLICATE it first — mutating it in place would bleed into the corridor/void.
+func _boost_ambient(energy: float) -> void:
+	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
+	if not we or not we.environment:
+		return
+	var env: Environment = we.environment.duplicate()
+	env.ambient_light_energy = energy
+	env.ambient_light_color = Color(0.1, 0.11, 0.12)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	# Black background instead of the procedural sky, so any geometry gap reads as
+	# darkness rather than blue sky (see level_2.gd cellar).
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0, 0, 0)
+	we.environment = env
+
+
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
@@ -456,6 +554,22 @@ func _process(delta: float) -> void:
 	_tick_blackout(delta)
 	_tick_pipes(delta)
 	_drive_lights(delta)
+	_tick_debug_apparition(delta)
+
+
+func _tick_debug_apparition(delta: float) -> void:
+	if not DEBUG_APPARITION:
+		return
+	_dbg_appar_timer -= delta
+	if _dbg_appar_timer > 0.0:
+		return
+	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
+	# A fresh FATAL apparition each cycle (teach=false): hold still and it fades, but
+	# sprint or back away and it rushes → the real screamer + restart. The scripted
+	# first encounter below stays taught/survivable so the rule is learned first.
+	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
+	if a:
+		a.appear()
 
 
 func _tick_blackout(delta: float) -> void:

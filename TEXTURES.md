@@ -25,12 +25,12 @@ Columns:
 | `level_1_lab/lab_ceiling.png` | Fluorescent drop-ceiling tiles — rectangular grid, yellowed, one tile displaced | Level 1 (The Lab) — ceiling CSGBox3D nodes | done |
 | `level_1_lab/poster_lab.png` | Medical anatomy diagram — torso cross-section with handwritten annotations in red; unnerving scrawl | Level 1 (The Lab) — cursed poster (gaze panic) on the morgue wall, built in `level_1.gd` | done |
 | `level_1_lab/blood_lab.png` | Dried blood smear — dark brownish-red, irregular shape, worn at edges | Level 1 (The Lab) — decal quad (on disk; not currently wired into the procedural build) | requires_review |
-| `level_1_lab/lab_morgue_wall.png` | Cold-storage stainless-steel lockers, scuffed; seamless | Level 1 (The Lab) — intended for the morgue walls; on disk, **not yet wired** into `level_1.gd` | requires_review |
-| `level_1_lab/lab_floor_wet.png` | Institutional tile with a dark water sheen; seamless | Level 1 (The Lab) — intended for the morgue/dark floors; on disk, **not yet wired** | requires_review |
-| `level_1_lab/lab_oneway_mirror.png` | Dark observation glass with a faint reflection; panel | Level 1 (The Lab) — observation room mirror. **Note:** `living_mirror.gd` currently builds its glass from a `StandardMaterial3D` (metallic dark), not this texture; on disk, **not yet wired** | requires_review |
-| `level_1_lab/lab_breaker_panel.png` | Grey electrical fuse box, open; panel/decal | Level 1 (The Lab) — intended for the 3 `Breaker`s; `breaker.gd` self-builds its mesh from primitives, **not yet wired** | requires_review |
-| `level_1_lab/lab_warning_sign.png` | Faded "QUARANTINE / DO NOT ENTER" sign; decal | Level 1 (The Lab) — intended morgue/corridor signage; on disk, **not yet wired** | requires_review |
-| `level_1_lab/apparition_figure.jpg` | Tall pale gaunt humanoid, front-on (billboard cutout) | Levels 1–2 — the `Apparition` figure (`apparition.gd`) AND the `LivingMirror` figure. ⚠️ **JPEG has no alpha → the billboard renders as a solid rectangle. A transparent `apparition_figure.png` is required** (code prefers `.png` over `.jpg` via `Apparition._resolve_tex`) | requires_review |
+| `level_1_lab/lab_morgue_wall.png` | Cold-storage stainless-steel lockers, scuffed; seamless | Level 1 (The Lab) — the Morgue room's walls (per-room `wall_mat` override in `level_1.gd:_rooms_with_skins()`) | done |
+| `level_1_lab/lab_floor_wet.png` | Institutional tile with a dark water sheen; seamless | Level 1 (The Lab) — the Morgue room's floor (per-room `floor_mat` override) | done |
+| `level_1_lab/lab_oneway_mirror.png` | Dark observation glass with a faint reflection; panel | Level 1 (The Lab) — observation room mirror. **Note:** `living_mirror.gd` builds its glass from a `StandardMaterial3D` (metallic dark), not this texture; on disk, **not yet wired** | requires_review |
+| `level_1_lab/lab_breaker_panel.png` | Grey electrical fuse box, open; panel/decal | Level 1 (The Lab) — applied to the 3 `Breaker` panel meshes (`breaker.gd` `PANEL_TEX`) so switches read as real load-centres | done |
+| `level_1_lab/lab_warning_sign.png` | Faded "QUARANTINE / DO NOT ENTER" sign; decal | Level 1 (The Lab) — decal panel on the Records room wall (`level_1.gd:_spawn_room_props()`) | done |
+| `level_1_lab/apparition_figure.png` | Tall pale gaunt skeletal wraith, front-on, on a TRANSPARENT background (billboard cutout) | Levels 1–2 — the `Apparition` figure (`apparition.gd`) AND the `LivingMirror` figure. 1024×1536 RGBA, real alpha (corners α=0); renders as a clean cutout in-game. The old white-background `.jpg` is superseded (`Apparition._resolve_tex` prefers `.png`) | done |
 | `level_1_lab/screamer_apparition.jpg` | Close-up screaming face for the apparition's fatal rush (fullscreen) | Levels 1–2 — `Apparition._rush()` fatal `Screamer.trigger()` AV (`RUSH_BASE`). Fullscreen overlay (no alpha needed); a `.png` is still preferred for consistency | done |
 | `level_1_lab/screamer_lab.png` | Lab-specific fatal screamer face | Level 1 (The Lab) — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[1]` | done |
 
@@ -42,11 +42,11 @@ Columns:
 | `level_2_house/house_ceiling.png` | Yellowed domestic ceiling — faint water damage ring stain, flaking paint patches | Level 2 (The House) — ceiling CSGBox3D nodes | done |
 | `level_2_house/painting_house.png` | Unnerving portrait — formal Victorian-style figure, eyes slightly wrong, dark background | Level 2 (The House) — cursed bedroom painting (gaze panic), built in `level_2.gd` | done |
 | `level_2_house/house_basement_concrete.png` | Damp stained concrete wall; seamless | Level 2 (The House) — the lowered cellar walls (`_build_cellar()` in `level_2.gd`) | done |
-| `level_2_house/tv_static_face.jpg` | CRT static with a faint face emerging; panel/emissive | Level 2 (The House) — living-room TV-static gaze panel, built in `level_2.gd` | done |
-| `level_2_house/house_kitchen_wall.png` | Greasy floral-tile kitchen wall; seamless | Level 2 (The House) — intended for the kitchen walls; on disk, **not yet wired** into `level_2.gd` | requires_review |
-| `level_2_house/house_bathroom_tile.png` | Cracked white bathroom tile, mildew; seamless | Level 2 (The House) — intended for the bathroom walls; on disk, **not yet wired** | requires_review |
-| `level_2_house/house_wood_stairs.png` | Worn wooden staircase texture; seamless | Level 2 (The House) — intended for the cellar ramp; on disk, **not yet wired** | requires_review |
-| `level_2_house/child_drawing.png` | Unsettling crayon child's drawing (a figure with too many limbs); decal | Level 2 (The House) — intended for the child's room; on disk, **not yet wired** | requires_review |
+| `level_2_house/tv_static_face.jpg` | CRT static with a faint face emerging; panel/emissive | Level 2 (The House) — living-room TV-static gaze panel, built in `level_2.gd:_spawn_tv()` (resolved via `Apparition._resolve_tex` — the `.png`/`.jpg` path fix) | done |
+| `level_2_house/house_kitchen_wall.png` | Greasy floral-tile kitchen wall; seamless | Level 2 (The House) — the Kitchen room's walls (per-room `wall_mat` override in `level_2.gd:_rooms_with_skins()`) | done |
+| `level_2_house/house_bathroom_tile.png` | Cracked white bathroom tile, mildew; seamless | Level 2 (The House) — the Bathroom room's walls (per-room `wall_mat` override) | done |
+| `level_2_house/house_wood_stairs.png` | Worn wooden staircase texture; seamless | Level 2 (The House) — the cellar ramp surface (`level_2.gd:_build_cellar()`) | done |
+| `level_2_house/child_drawing.png` | Unsettling crayon child's drawing (a figure with too many limbs); decal | Level 2 (The House) — cursed decal on the child's-room east wall (`level_2.gd:_spawn_room_props()`) | done |
 | `level_2_house/lock_face.png` | Combination lock face — digits/dial for the exit lock UI | Level 2 (The House) — combination lock mesh in `level_2_1.tscn` | done |
 | `level_2_house/forest.png` | Moonlit treeline behind the window glass — faint, self-illuminated so it reads in the dark room | Level 2 (The House) — `WindowForest` quad built in `level_2.gd` `_spawn_window()` | done |
 | `level_2_house/screamer_forest.png` | Forest-creature close-up (survivable Forest scare) | Level 2 (The House) — `flash_scare()` fired on close approach to the window (`level_2.gd`) | done |
@@ -126,8 +126,14 @@ Separately, **survivable** flash scares (`Screamer.flash_scare()`, no restart) u
 ### Procedural (untextured) Level 2 props — candidates for future textures
 The pressure package builds several props in `level_2.gd` from plain `StandardMaterial3D` colors, no texture files: the living-room **window** frame (dark glass + wooden crossbars — note the pane now shows `forest.png` behind it) and the **tarnished mirror** (dark metallic quad). If texture budget allows, a `mirror_house.png` would upgrade the mirror — add a row above when generated. (The old window-glimpse silhouette capsule was removed; only the Forest scare remains at the window.)
 
-### Session 10 textures present-but-not-wired (`requires_review`)
-The Lab/House expansion (Session 10) generated a batch of surface/decal textures that are on disk but **not yet referenced** by the procedural builders, because both levels currently let `RoomBuilder.make_material()` apply the base `lab_wall`/`lab_floor`/`house_wall`/`house_floor` per room rather than per-room-specific art: `lab_morgue_wall`, `lab_floor_wet`, `lab_oneway_mirror`, `lab_breaker_panel`, `lab_warning_sign`, `blood_lab`, `house_kitchen_wall`, `house_bathroom_tile`, `house_wood_stairs`, `child_drawing`. Wiring these per-room/per-prop is the next polish pass — feed them to `RoomBuilder` per-room (or to the `Breaker`/`LivingMirror`/cellar-ramp builders) behind the existing `ResourceLoader.exists()` guards.
+### Session 11 — most expansion textures now wired
+The Session-10 surface/decal batch was wired in Session 11 via `RoomBuilder`'s new per-room
+`wall_mat`/`floor_mat` overrides (`level_*.gd:_rooms_with_skins()`) plus `_spawn_room_props()` and
+the `Breaker`/cellar-ramp builders: `lab_morgue_wall`, `lab_floor_wet`, `lab_breaker_panel`,
+`lab_warning_sign`, `house_kitchen_wall`, `house_bathroom_tile`, `house_wood_stairs`, `child_drawing`,
+and the `tv_static_face` path fix are all live now. **Still `requires_review`:** `lab_oneway_mirror`
+(the `LivingMirror` glass is a metallic `StandardMaterial3D`, not this texture) and `blood_lab` (no
+decal placed yet).
 
 ### ⚠️ `apparition_figure` must be a transparent PNG
 `apparition.gd` and `living_mirror.gd` both billboard `apparition_figure`. The file on disk is a **`.jpg` (no alpha)**, so the cutout renders as a solid rectangle. Provide a transparent `level_1_lab/apparition_figure.png` — `Apparition._resolve_tex()` already prefers `.png` over `.jpg`, so dropping the PNG in is the only step. Same JPEG-as-cutout caveat applies to any future billboard art.
