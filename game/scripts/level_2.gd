@@ -71,6 +71,7 @@ func _ready() -> void:
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
+	GameState.set_objective("Find the cellar key, hidden in the kitchen")
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_blackout_clock = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
@@ -638,6 +639,7 @@ func _open_cellar_gate() -> void:
 	t.tween_property(_cellar_gate, "position:y", 4.6, 0.9).set_trans(Tween.TRANS_QUAD)
 	t.tween_callback(func() -> void: _cellar_gate.use_collision = false)
 	_play_at("creak", Vector3(5, 1.2, 3), 2.0)
+	GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
 
 
 # ---------------------------------------------------------------- apparition

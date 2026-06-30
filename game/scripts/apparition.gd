@@ -21,11 +21,16 @@ class_name Apparition
 
 enum Rule { HOLD, STARE, LOOKAWAY }
 
+signal rushed    # emitted when it lunges (flee detected) — for tests / hooks
+signal survived  # emitted when the player held their nerve and it faded
+
 const APPEAR_DIST := 7.0     # metres ahead of the player it materialises
-const HOLD_TIME := 4.0       # seconds of nerve (no sprint) before it fades
+const HOLD_TIME := 6.0       # seconds of nerve (no flee) before it fades — long enough to read
 const DREAD_RATE := 3.0      # panic/s while it stands there — the climb to endure
 const FADE_IN := 0.6
 const TEACH_PANIC := 18.0    # panic spike when the taught version "rushes"
+const TELEGRAPH_TIME := 0.22 # the lurch-forward warning before the rush lands
+const TELEGRAPH_LUNGE := 0.35 # metres the figure jerks toward you as the tell
 
 const FIG_BASE := "res://assets/textures/level_1_lab/apparition_figure"
 const RUSH_BASE := "res://assets/textures/level_1_lab/screamer_apparition"
@@ -39,6 +44,7 @@ var _engaged: bool = false
 var _hold: float = 0.0
 var _done: bool = false
 var _spawn_dist: float = 0.0   # horizontal player↔figure distance at appear()
+var _telegraphing: bool = false  # the brief lurch-warning is playing; rush lands after
 var _quad: MeshInstance3D
 var _mat: StandardMaterial3D
 
@@ -81,7 +87,7 @@ func _ready() -> void:
 func _build_figure() -> void:
 	_quad = MeshInstance3D.new()
 	var mesh := QuadMesh.new()
-	mesh.size = Vector2(1.4, 2.2)
+	mesh.size = Vector2(1.6, 2.4)  # a touch larger so it reads clearly in the dark
 	_quad.mesh = mesh
 	_mat = StandardMaterial3D.new()
 	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -93,7 +99,7 @@ func _build_figure() -> void:
 		_mat.albedo_texture = tex
 		_mat.emission_enabled = true
 		_mat.emission_texture = tex
-		_mat.emission_energy_multiplier = 0.8
+		_mat.emission_energy_multiplier = 1.6  # brighter — unmistakably there
 		_mat.albedo_color = Color(1, 1, 1, 0)  # alpha tweened in on appear
 	else:
 		# Procedural pale silhouette if no art is present.
@@ -106,9 +112,9 @@ func _build_figure() -> void:
 	add_child(_quad)
 
 
-const MIN_DIST := 2.5        # never closer than this
-const WALL_MARGIN := 0.6     # stop short of a wall by this much
-const FLEE_MARGIN := 1.2     # backing this far away from it counts as fleeing
+const MIN_DIST := 2.0        # never closer than this — spawns a step nearer now
+const WALL_MARGIN := 0.5     # stop short of a wall by this much
+const FLEE_MARGIN := 0.4     # any meaningful move away from it counts as fleeing
 
 
 # Materialise in front of the player, where they're already looking. The spawn
@@ -149,17 +155,17 @@ func appear() -> void:
 
 
 func _process(delta: float) -> void:
-	if _done or not _engaged:
+	if _done or _telegraphing or not _engaged:
 		return
 	_resolve_player()
 	if not _player:
 		return
 	_player.add_panic(DREAD_RATE * delta)
-	# The one rule: do not run. Sprinting OR backing away from it (fleeing) makes it
+	# The one rule: do not run. Sprinting OR moving away from it (fleeing) makes it
 	# rush. Turning the camera while standing your ground never trips it — fair, and
 	# it matches "stand still until it fades".
 	if _is_fleeing():
-		_rush()
+		_telegraph_then_rush()
 		return
 	_hold += delta
 	if _hold >= HOLD_TIME:
@@ -180,8 +186,30 @@ func _horiz_dist_to_player() -> float:
 	return Vector2(a.x - b.x, a.z - b.z).length()
 
 
+# Fleeing is detected → give a fast, unmistakable tell (sting + lurch toward you)
+# before the rush lands, so the kill is telegraphed rather than instant.
+func _telegraph_then_rush() -> void:
+	if _telegraphing or _done:
+		return
+	_telegraphing = true
+	_play_sting()
+	if _player:
+		_player.jolt_camera(0.06, TELEGRAPH_TIME)
+		# Jerk the whole figure a step toward the player — the visual half of the tell.
+		var to := _player.global_position - global_position
+		to.y = 0.0
+		if to.length() > 0.01:
+			var target := global_position + to.normalized() * TELEGRAPH_LUNGE
+			var t := create_tween()
+			t.tween_property(self, "global_position", target, TELEGRAPH_TIME)
+	get_tree().create_timer(TELEGRAPH_TIME).timeout.connect(_rush)
+
+
 func _rush() -> void:
+	if _done:
+		return
 	_done = true
+	rushed.emit()
 	if teach:
 		# A survivable lesson: it lunges, you flinch, you live — learn not to run.
 		var img := _resolve_tex(RUSH_BASE)
@@ -200,6 +228,7 @@ func _rush() -> void:
 
 func _survive() -> void:
 	_done = true
+	survived.emit()
 	_fade_out()
 
 
@@ -221,6 +250,24 @@ func _play_drone() -> void:
 	p.stream = stream
 	p.volume_db = -2.0
 	p.unit_size = 10.0
+	add_child(p)
+	p.position = Vector3(0, 1.2, 0)
+	p.finished.connect(p.queue_free)
+	p.play()
+
+
+# A short sharp sting the instant it decides to rush — the audio half of the tell.
+func _play_sting() -> void:
+	var stream := GameState.load_audio("creak")
+	if not stream:
+		stream = GameState.load_audio("apparition_drone")
+	if not stream:
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = stream
+	p.volume_db = 2.0
+	p.pitch_scale = 1.4
+	p.unit_size = 12.0
 	add_child(p)
 	p.position = Vector3(0, 1.2, 0)
 	p.finished.connect(p.queue_free)

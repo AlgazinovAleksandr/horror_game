@@ -96,6 +96,7 @@ func _ready() -> void:
 	_start_ambience()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 	RandomAmbient.register_player(_player)
+	GameState.set_objective("Find room 217 — keep walking, do not run")
 
 
 func _process(_delta: float) -> void:

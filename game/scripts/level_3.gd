@@ -28,6 +28,7 @@ func _ready() -> void:
 	_spawn_void_zones()
 	Vignette.spawn(self, Color(0.65, 0.55, 1.0, 1.0), 2.0)
 	RandomAmbient.register_player(get_node_or_null("Player") as CharacterBody3D)
+	GameState.set_objective("Find the truth — read the note that doesn't belong")
 
 
 # Room C's floor gives way to the void around its centre — a 1.6 m hole ringed

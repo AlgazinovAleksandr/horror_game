@@ -74,6 +74,36 @@ func _build_visual_glb() -> void:
 	var cube := instance.get_node_or_null("Cube")
 	if cube:
 		cube.queue_free()
+	_pose_arms_down(instance)
+
+
+# The Mixamo GLB ships in its bind T-pose (arms straight out) and carries no
+# animation track, so nothing lowers the arms — it reads as a broken scarecrow.
+# Override the upper-arm bone poses to drop the arms to the sides so it stands as
+# a deliberate, menacing figure. Bone-local rotation about Z swings the arm down.
+const _ARM_DROP_DEG := 80.0
+const _FOREARM_TUCK_DEG := 12.0
+
+func _pose_arms_down(instance: Node3D) -> void:
+	var skel := instance.find_child("Skeleton3D", true, false) as Skeleton3D
+	if not skel:
+		return
+	# Godot sanitizes the glTF "mixamorig:" prefix to "mixamorig_". +Z bone-local
+	# rotation drops the left arm; the right arm mirrors it. A small forearm tuck
+	# pulls the hands in so they hang at the sides instead of splaying outward.
+	_rotate_bone(skel, "mixamorig_LeftArm", deg_to_rad(_ARM_DROP_DEG))
+	_rotate_bone(skel, "mixamorig_RightArm", deg_to_rad(-_ARM_DROP_DEG))
+	_rotate_bone(skel, "mixamorig_LeftForeArm", deg_to_rad(_FOREARM_TUCK_DEG))
+	_rotate_bone(skel, "mixamorig_RightForeArm", deg_to_rad(-_FOREARM_TUCK_DEG))
+
+
+func _rotate_bone(skel: Skeleton3D, bone_name: String, angle_z: float) -> void:
+	var idx := skel.find_bone(bone_name)
+	if idx == -1:
+		return
+	var rest := skel.get_bone_rest(idx)
+	# Compose the drop onto the bind-pose rotation, in bone-local space.
+	skel.set_bone_pose_rotation(idx, rest.basis.get_rotation_quaternion() * Quaternion(Vector3.FORWARD, angle_z))
 
 
 func _build_visual_procedural() -> void:

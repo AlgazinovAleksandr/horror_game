@@ -2,6 +2,9 @@ extends Node
 
 # Persists across scene changes as an Autoload singleton (GameState)
 
+signal objective_changed(text: String)  # drives the subtle objective HUD line
+var current_objective: String = ""       # current level goal shown to the player
+
 var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=backrooms, 5=void, 6=ending
 var has_keycard: bool = false     # Level 1 unlock item
 var level2_code: String = "472"  # Combination lock answer for Level 2
@@ -23,8 +26,15 @@ func reset_level_state() -> void:
 	has_keycard = false
 	level2_code_correct = false
 
+# Set the current objective line; the HUD (panic_hud.gd) listens for this.
+func set_objective(text: String) -> void:
+	current_objective = text
+	objective_changed.emit(text)
+
+
 func start_current_level() -> void:
 	reset_level_state()
+	current_objective = ""  # cleared so the next level re-announces its goal cleanly
 	match current_level:
 		0: get_tree().change_scene_to_file(SCENE_INTRO)
 		1: get_tree().change_scene_to_file(SCENE_LEVEL_1)

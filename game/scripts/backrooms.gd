@@ -91,6 +91,7 @@ func _ready() -> void:
 
 	_assign_round()
 	Vignette.spawn(self, Color(0.95, 0.88, 0.45, 1.0), 1.4)
+	GameState.set_objective("Follow the DOWN arrows — three turns in a row (0/3)")
 
 
 # ---------------------------------------------------------------- materials
@@ -444,6 +445,7 @@ func _wrong_turn() -> void:
 	_play("light_pop", Vector3(0, H, 0), 2.0)
 	_player.add_panic(WRONG_TURN_PANIC)
 	_counter = 0
+	GameState.set_objective("Wrong turn — follow the DOWN arrows (0/3)")
 	_teleport_to_spawn()
 
 
@@ -470,6 +472,7 @@ func _show_progress() -> void:
 		_progress_label.add_theme_font_size_override("font_size", 24)
 		layer.add_child(_progress_label)
 	_progress_label.text = "the seam loosens…  (%d / %d)" % [_counter, TURNS_TO_WIN]
+	GameState.set_objective("Follow the DOWN arrows — three turns in a row (%d/%d)" % [_counter, TURNS_TO_WIN])
 	var c: Color = _progress_label.get_theme_color("font_color")
 	var tween := create_tween()
 	tween.tween_property(_progress_label, "theme_override_colors/font_color",

@@ -63,6 +63,7 @@ func _ready() -> void:
 
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 	RandomAmbient.register_player(_player())
+	GameState.set_objective("Restore power — flip the breakers (0/3)")
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_scheduled_blackout = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
 
@@ -248,6 +249,8 @@ func _on_breaker_flipped() -> void:
 			entry[1] = minf(RESTORED_ENERGY, entry[1] + 0.18)
 	if _breakers_flipped >= 3 and not _power_on:
 		_restore_power()
+	else:
+		GameState.set_objective("Restore power — flip the breakers (%d/3)" % _breakers_flipped)
 
 
 func _restore_power() -> void:
@@ -263,6 +266,7 @@ func _restore_power() -> void:
 	t2.tween_property(_morgue_shutter, "position:y", -1.5, 0.9).set_trans(Tween.TRANS_QUAD)
 	t2.tween_callback(func() -> void: _morgue_shutter.use_collision = false)
 	_play_at("breaker_throw", Vector3(6, 1.5, 12.5), 2.0)
+	GameState.set_objective("Power restored — take the keycard from the morgue")
 
 
 # ---------------------------------------------------------------- morgue keycard
@@ -615,6 +619,7 @@ func on_keycard_taken() -> void:
 	var p := _player()
 	if p and p.has_method("add_panic"):
 		p.add_panic(KEYCARD_PANIC)
+	GameState.set_objective("Keycard taken — reach the exit door")
 
 
 func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
