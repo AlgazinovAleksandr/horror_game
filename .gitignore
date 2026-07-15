@@ -8,6 +8,8 @@ export_presets.cfg
 *.blend1
 *.blend2
 
+ARTICLE.md
+
 # Python
 __pycache__/
 *.pyc
@@ -26,6 +28,10 @@ export/
 *.app
 *.dmg
 *.pck
+
+Game_Demo.mov
+
+Game_Demo_final.mp4
 
 # Claude Code local settings (personal permissions, not for the shared repo)
 .claude/settings.local.json
