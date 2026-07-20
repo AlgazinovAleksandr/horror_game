@@ -232,6 +232,12 @@ func _strike(message: String) -> void:
 		p.add_panic(STRIKE_PANIC)
 	_notice(message, Color(1.0, 0.3, 0.25))
 
+	# Playtest instrumentation. Guarded so removing the DebugLog autoload is enough
+	# to strip it — nothing here affects play.
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("STRIKE %d/3 — %s" % [_strikes, message])
+
 
 # Brief centred label. Timer is connected, not awaited — an awaited timer dies with
 # the node that started it (Issue 6).

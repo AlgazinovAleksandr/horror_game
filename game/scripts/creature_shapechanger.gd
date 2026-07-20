@@ -14,6 +14,16 @@ class_name CreatureShapechanger
 # breaks the Node3D transform chain (ISSUES_SOLUTIONS.md Issue 10).
 
 const TEX_PATH := "res://assets/textures/level_5_kontur/creature_shapechanger.png"
+
+# ⚠️ DELIBERATE, do not "balance" this down.
+#
+# 0.8 x PANIC_BASE_RATE (20) = 16 panic/s, and KONTUR is the one level with no decay
+# at all (its floor-wide DreadZone cancels decay exactly), so a stare kills in ~3 s
+# from an empty bar and ~2 s after a single strike. That is faster than the level's
+# stated three-strike budget, and it was raised in playtest (2026-07-21, two deaths
+# here in one session) and kept on purpose: in KONTUR, looking at things costs you.
+# The creature sits 3.2 m off the walking line, so every second of eye contact is a
+# choice the player made.
 const GAZE_INTENSITY := 0.8
 const KILL_DIST := 2.0
 const SIZE := Vector2(0.9, 1.9)

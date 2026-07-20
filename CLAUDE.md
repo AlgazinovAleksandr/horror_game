@@ -315,6 +315,7 @@ New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees th
 | `3d-modeling` | Blender topology, UV unwrapping, export settings for Godot |
 | `nano-banana-pro` | Generate concept art, texture references, UI mockups |
 | `grill-me` | Stress-test a design or plan decision |
+| `game-testing` | Playtest loop: launch the game from any level, capture a `DebugLog` session while the user plays, then diagnose anomalies (bugs, unwinnable states, difficulty spikes, puzzles being guessed rather than read) and propose fixes. **Confirms every finding with the user before changing game logic** — the agent's read can be wrong and "brutal on purpose" is a legitimate answer. Contains the log-signature tables (panic % → constants), known false positives, and the verification rules (assert with physics queries; never let a test reach the win condition by emitting the signal). |
 | `fix-void` | Diagnose and fix black void / open-space holes in CSGBox3D levels. Use whenever a user reports a black rectangle, missing wall, floor gap, or visible void. The skill contains the full diagnostic protocol: localise → map coverage → identify void type → compute fix node → verify → write. Also contains a table of all voids already fixed in this project. |
 
 ## Asset Pipeline

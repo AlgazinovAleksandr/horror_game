@@ -20,6 +20,16 @@ const WATER_Y := 0.12
 const ROOM_H := 3.2
 const WADE_SLOW := 0.6             # refreshed every frame while submerged
 
+# A DreadZone's decay (2.0) and pressure (2.0) cancel EXACTLY, so dread alone leaves
+# the bar frozen — no threat at all in the level's finale. This is the zone's own
+# slow drip on top, the way CreatureSmiler drives its own curve. Deliberately small:
+# from the 35% entry cap it allows roughly a minute of searching, which is about one
+# unhurried sweep of the wing, and the dry platform's CalmZone still nets negative so
+# there is somewhere to recover. Pressure everywhere, exactly one island.
+# 0.5 left ~65 s, but playtest showed a first-time player needs ~90-120 s to sweep
+# the wing and find the Sump. 0.3 gives ~125 s from the entry cap.
+const DREAD_DRIP := 0.3            # panic per second, flashlight-independent
+
 var spawn_point: Vector3
 
 var _origin: Vector3
@@ -100,6 +110,16 @@ func _build_water() -> void:
 
 
 func _build_seams() -> void:
+	# ⚠️ ORIENTATION. GlitchWall puts its walk-into trigger at local -Z. These seams sit
+	# on their room's NORTH wall, so the player approaches from -Z and the trigger must
+	# stay at -Z: yaw ZERO. A PI yaw (which reads as "turn it to face the room") pushes
+	# the trigger to +Z, straight through the wall behind it — the seam then renders
+	# perfectly and can never be touched. That shipped, and it made the Flood
+	# unwinnable: the only reachable trigger in the zone was a decoy.
+	# Same convention as backrooms_zone2.gd: rotation.y = atan2(axis.x, axis.z) with
+	# `axis` pointing OUTWARD from the room, which is 0 for a north wall.
+	const NORTH_YAW := 0.0
+
 	# The real seam, hidden off the main line in the Sump.
 	var c: Vector3 = _builder.room_center("Sump")
 	_real_seam = GlitchWall.new()
@@ -107,18 +127,23 @@ func _build_seams() -> void:
 	add_child(_real_seam)
 	_real_seam.setup(Vector2(3.6, 2.6), 2.6, true)
 	_real_seam.position = Vector3(c.x, 1.35, c.z + 3.85)
-	_real_seam.rotation.y = PI
+	_real_seam.rotation.y = NORTH_YAW
 	_real_seam.touched.connect(_on_seam_touched)
 
 	# Two decoys, lit by the inverse rule.
-	for spec in [["Cistern", 3.85], ["Basin", 3.85]]:
+	#
+	# The Basin decoy is offset +4 m in x rather than centred: the Basin's north wall
+	# carries the Throat doorway at x=0, and a 3.6 m-wide trigger centred there means
+	# walking into the Throat at all is scored as a wrong answer, before the player has
+	# chosen anything. Wrong guesses should cost; walking down a corridor shouldn't.
+	for spec in [["Cistern", 0.0], ["Basin", 4.0]]:
 		var rc: Vector3 = _builder.room_center(spec[0])
 		var d := GlitchWall.new()
 		d.name = "Decoy" + str(spec[0])
 		add_child(d)
 		d.setup(Vector2(3.6, 2.6), 2.6, false)
-		d.position = Vector3(rc.x, 1.35, rc.z + spec[1])
-		d.rotation.y = PI
+		d.position = Vector3(rc.x + float(spec[1]), 1.35, rc.z + 3.85)
+		d.rotation.y = NORTH_YAW
 		d.touched.connect(_on_seam_touched)
 		_decoys.append(d)
 
@@ -131,12 +156,20 @@ func _on_seam_touched(is_real: bool) -> void:
 
 
 func _build_pressure() -> void:
-	# Dark + dread over the whole wing. Dread is the additive source; dark is what
-	# makes holding the flashlight off in order to SEE the seam actually cost you.
+	# Dread only — NO blanket DarkZone.
+	#
+	# This zone's puzzle requires the flashlight OFF to see the exit seam. A DarkZone
+	# charges +3/s for exactly that, and because player.gd's panic resolution is an
+	# if/elif chain, the dark branch also SUPPRESSES decay entirely: light off was
+	# +5/s with no way down, light on was a frozen bar and an invisible exit. The
+	# puzzle and the panic system were fighting each other and the puzzle lost —
+	# three playtest deaths inside 10 s, without the mechanic ever being attempted.
+	#
+	# Dread alone still means no decay and a steady climb, so the room is on a timer;
+	# it just no longer punishes the one thing it asks you to do.
 	var centre := Vector3(0, ROOM_H / 2.0, 14.0)
 	var extent := Vector3(40, ROOM_H, 40)
 	MazeKit.zone_box(self, DreadZone.new(), centre, extent, "FloodDread")
-	MazeKit.zone_box(self, DarkZone.new(), centre, extent, "FloodDark")
 
 	# The one dry place in the level: a raised platform in the Basin with a lamp.
 	# Recovery has to exist somewhere or the three-zone run is unsurvivable.
@@ -153,13 +186,21 @@ func _build_pressure() -> void:
 	MazeKit.zone_box(self, CalmZone.new(), Vector3(bc.x, 1.2, bc.z),
 		Vector3(4.5, 2.4, 4.5), "FloodCalm")
 
-	# Beartraps UNDER the water — invisible by construction, only the snap warns you.
-	for r in ["EastRun", "WestRun", "Cistern"]:
-		var rc: Vector3 = _builder.room_center(r)
-		var trap := Beartrap.new()
-		trap.position = Vector3(rc.x + randf_range(-1.5, 1.5), 0,
-			rc.z + randf_range(-1.5, 1.5))
-		add_child(trap)
+	# ONE beartrap, under the water, in the CISTERN only.
+	#
+	# There were three, in EastRun/WestRun/Cistern — but EastRun and WestRun are the
+	# only corridors to the Sump, so the required route was mined with invisible
+	# traps (15 panic each, unrecoverable in a no-decay zone). Both playtest deaths
+	# were beartraps on that forced path. A trap the player cannot see, avoid, or
+	# recover from is a toll, not a challenge.
+	#
+	# The Cistern holds a DECOY seam, so it is optional exploration — a trap there
+	# punishes chasing the wrong answer, which is a choice the player actually made.
+	var cist: Vector3 = _builder.room_center("Cistern")
+	var trap := Beartrap.new()
+	trap.position = Vector3(cist.x + randf_range(-1.5, 1.5), 0,
+		cist.z + randf_range(-1.5, 1.5))
+	add_child(trap)
 
 	# One non-teach HOLD apparition in the Throat: by now the player has been taught
 	# the rule in the Lab, so this one is allowed to be fatal.
@@ -194,8 +235,11 @@ func _process(delta: float) -> void:
 	# it lapses naturally the moment the zone is left.
 	var p: Vector3 = _player.global_position
 	var local: Vector3 = p - _origin
-	if local.z > -4.0 and local.z < 30.0 and absf(local.x) < 20.0 and p.y < _origin.y + 1.5:
+	var submerged: bool = local.z > -4.0 and local.z < 30.0 \
+		and absf(local.x) < 20.0 and p.y < _origin.y + 1.5
+	if submerged:
 		_player.apply_slow(WADE_SLOW)
+		_player.add_panic(DREAD_DRIP * delta)
 
 	_drip_timer -= delta
 	if _drip_timer <= 0.0:

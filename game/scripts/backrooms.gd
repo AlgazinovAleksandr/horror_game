@@ -32,7 +32,9 @@ const SPAWN := Vector3(0, 0, -5.0)   # entry arm, facing +z into the hub
 # walls teleport between them. Far enough apart that no lighting or audio bleeds.
 const ZONE2_ORIGIN := Vector3(200, 0, 0)
 const ZONE3_ORIGIN := Vector3(-200, 0, 0)
-const WRONG_WALL_PANIC := 18.0
+# 18 was too steep against a 4-way guess in a zone where panic cannot decay: two
+# wrong walls spent 72% of the bar before the Flood was even reached.
+const WRONG_WALL_PANIC := 12.0
 
 const AUDIO_BUS := "Backrooms"
 const MUSIC_VOLUME_DB := -4.0
@@ -134,8 +136,18 @@ func _build_later_zones() -> void:
 	_zone3.mistake.connect(_on_zone_mistake.bind(3))
 
 
+# Panic carried between zones with no way to shed it: the Sprawl and the Flood are
+# both no-decay zones, so a player arriving at 90% simply died on entry, three times
+# in a row in playtest, without ever getting to attempt the puzzle. Clearing a zone
+# is the level's biggest beat — it has to come with real relief, or the difficulty
+# is decided by the previous room rather than by this one.
+const ZONE_ENTRY_PANIC_CAP := 0.25
+
 func _enter_zone(n: int) -> void:
 	_zone = n
+	if is_instance_valid(_player) and _player.has_method("set_panic_ratio"):
+		if _player.get_panic_ratio() > ZONE_ENTRY_PANIC_CAP:
+			_player.set_panic_ratio(ZONE_ENTRY_PANIC_CAP)
 	match n:
 		2:
 			_teleport(_zone2.spawn_point)
@@ -732,3 +744,24 @@ func _process(_delta: float) -> void:
 		var f: Dictionary = _all_lights[randi() % _all_lights.size()]
 		if f.light.visible:
 			f.light.light_energy = f.base * randf_range(0.82, 1.04)
+
+	_catch_out_of_world()
+
+
+# Safety net. The glitch walls are deliberately walk-through, so any gap they leave
+# is a hole in the shell — a playtest ended with the player falling forever out of
+# the Sprawl. Rather than trust every future bit of geometry, catch the fall and
+# put them back at the current zone's start. This is a bug backstop, NOT a designed
+# death: it costs no panic and fires no screamer.
+const FALL_Y := -5.0
+
+func _catch_out_of_world() -> void:
+	if not is_instance_valid(_player) or _player.global_position.y > FALL_Y:
+		return
+	var back: Vector3 = SPAWN
+	match _zone:
+		2: back = _zone2.spawn_point if is_instance_valid(_zone2) else SPAWN
+		3: back = _zone3.spawn_point if is_instance_valid(_zone3) else SPAWN
+	push_warning("Backrooms: player left the world at %v (zone %d) — recovered"
+		% [_player.global_position, _zone])
+	_teleport(back)

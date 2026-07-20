@@ -43,6 +43,16 @@ func _process(_delta: float) -> bool:
 		_gravity_probe()
 	elif _frame == 56:
 		_progression()
+	elif _frame == 70:
+		_solid_walls_block()
+	elif _frame == 78:
+		_seams_reachable()
+	elif _frame == 90:
+		_flood_survivable_setup()
+	elif _frame == 96:
+		_flood_baseline()
+	elif _frame == 156:
+		_flood_measure()
 	elif _frame > 200:
 		print("\n%d checks, %d failed" % [_checks, _fails.size()])
 		for f in _fails:
@@ -187,6 +197,143 @@ func _progression() -> void:
 		_player.global_position.distance_to(z3.spawn_point) < 1.0)
 	_ok("Sprawl exit does NOT advance the level",
 		gs.current_level == lvl_before)
+
+
+func _solid_walls_block() -> void:
+	# REGRESSION (playtest 2026-07-20): go_solid() used to drop the trigger without
+	# adding a collider, leaving a 7 m hole in the perimeter with no floor behind
+	# it. The player walked through an "outed" wall and fell out of the world.
+	# Flag checks can't see this — only a physical query can.
+	print("\n--- outed walls are physically solid ---")
+	var z2 = _scene.get_node_or_null("ZoneSprawl")
+	if not z2:
+		return
+
+	var space: PhysicsDirectSpaceState3D = _scene.get_world_3d().direct_space_state
+	var walls: Array = []
+	for c in z2.get_children():
+		if c is GlitchWall:
+			walls.append(c)
+
+	for w in walls:
+		w.go_solid()
+	await process_frame
+
+	var leaks := 0
+	for w in walls:
+		# Ray from the hall centre outward through the wall. A solid wall must stop it.
+		var outward: Vector3 = (w.global_position - z2.global_position)
+		outward.y = 0.0
+		outward = outward.normalized()
+		var from: Vector3 = z2.global_position + Vector3(0, 1.5, 0) + outward * 5.0
+		var to: Vector3 = z2.global_position + Vector3(0, 1.5, 0) + outward * 26.0
+		var q := PhysicsRayQueryParameters3D.create(from, to)
+		if space.intersect_ray(q).is_empty():
+			leaks += 1
+			print("      LEAK through %s" % w.name)
+	_ok("no walk-through gaps once every wall is outed (%d leaks)" % leaks, leaks == 0)
+
+	# And the out-of-world catcher must recover a player who gets past anyway.
+	_player.global_position = z2.global_position + Vector3(0, -20.0, 22.0)
+	_scene._zone = 2
+	_scene._catch_out_of_world()
+	_ok("out-of-world catcher returns the player",
+		_player.global_position.distance_to(z2.spawn_point) < 1.0)
+
+	for w in walls:
+		w.revive()
+
+
+func _seams_reachable() -> void:
+	# REGRESSION (2026-07-21): the Flood's seams were yawed PI "to face the room",
+	# which swung their walk-into triggers to the far side of the wall they were
+	# mounted on. Every seam rendered correctly and none could be touched — the zone
+	# was unwinnable, and the only reachable trigger left in it was a decoy.
+	#
+	# The existing progression test missed this entirely because it fires `cleared`
+	# and `_on_seam_touched()` directly. Wiring was never the problem; geometry was.
+	# So ask the physics server, not the object.
+	print("\n--- Flood seams are physically reachable ---")
+	var z3 = _scene.get_node_or_null("ZoneFlood")
+	if not z3:
+		return
+	var space: PhysicsDirectSpaceState3D = _scene.get_world_3d().direct_space_state
+	var unreachable: Array[String] = []
+	var seams := 0
+	for seam in z3.get_children():
+		if not (seam is GlitchWall):
+			continue
+		seams += 1
+		var area: Area3D = seam.get_node_or_null("GlitchTrigger")
+		if not area:
+			unreachable.append("%s (no trigger)" % seam.name)
+			continue
+		# Walk in toward the trigger from 2 m further out on the trigger's own side.
+		var toward: Vector3 = area.global_position - seam.global_position
+		var from: Vector3 = area.global_position + toward.normalized() * 2.0
+		from.y = seam.global_position.y
+		var q := PhysicsRayQueryParameters3D.create(from, area.global_position)
+		if not space.intersect_ray(q).is_empty():
+			unreachable.append(seam.name)
+	_ok("all 3 Flood seams found (got %d)" % seams, seams == 3)
+	_ok("no Flood seam is walled off from the player (%s)"
+		% ("none" if unreachable.is_empty() else ", ".join(unreachable)),
+		unreachable.is_empty())
+
+	# And the real one must not be the decoy's neighbour on a doorway: a decoy
+	# straddling a doorway scores a mistake for merely using the corridor.
+	var basin: Vector3 = z3._builder.room_center("Basin")
+	var on_doorway := false
+	for d in z3._decoys:
+		if absf(d.global_position.z - (z3.global_position.z + basin.z + 3.85)) < 0.1 \
+				and absf(d.position.x - basin.x) < 1.9:
+			on_doorway = true
+	_ok("no decoy straddles the Throat doorway", not on_doorway)
+
+
+var _flood_t0 := 0.0
+var _flood_p0 := 0.0
+
+func _flood_survivable_setup() -> void:
+	# SURVIVABILITY (playtest 2026-07-20): the Flood's puzzle needs the flashlight
+	# OFF, but a blanket DarkZone charged +3/s for exactly that AND suppressed decay
+	# (player.gd's panic chain is if/elif). Net +5/s with no way down killed the
+	# player in ~1 s, three runs in a row, with the mechanic never attempted.
+	# Assert the intended play style is actually survivable long enough to solve.
+	print("\n--- the Flood is survivable while solving it ---")
+	var z3 = _scene.get_node_or_null("ZoneFlood")
+	if not z3 or not _player:
+		return
+	_ok("Flood has no blanket DarkZone (it would tax the solution)",
+		z3.get_node_or_null("FloodDark") == null)
+	_player.global_position = z3.spawn_point + Vector3(0, 0, 6.0)
+	var flash: SpotLight3D = _player.get_node_or_null("Camera3D/Flashlight")
+	if flash:
+		flash.visible = false          # the posture the puzzle demands
+
+
+func _flood_baseline() -> void:
+	if not _player:
+		return
+	_player.set_panic_ratio(0.25)      # what _enter_zone now caps arrivals at
+	_flood_p0 = _player.get_panic_ratio()
+	_flood_t0 = Time.get_ticks_msec() / 1000.0
+
+
+func _flood_measure() -> void:
+	if not _player:
+		return
+	var dt: float = maxf(0.001, Time.get_ticks_msec() / 1000.0 - _flood_t0)
+	var dp: float = _player.get_panic_ratio() - _flood_p0
+	var rate: float = (dp * 50.0) / dt          # panic points per second
+	var survival: float = 999.0
+	if rate > 0.01:
+		survival = ((1.0 - _flood_p0) * 50.0) / rate
+	print("      light-off in the Flood: %+.2f panic/s -> ~%.0f s of search time"
+		% [rate, survival])
+	# 25 s is the floor for "you can cross the wing and check the Sump".
+	_ok("searching in the dark gives >90 s of search time and is not frozen (got %.0f s)" % survival,
+		survival > 90.0 and rate > 0.05)
 
 
 func _gravity_probe() -> void:

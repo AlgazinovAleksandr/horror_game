@@ -19,6 +19,7 @@ var _area: Area3D
 var _solid: bool = false
 var _shader_mat: ShaderMaterial
 var _trigger_size: Vector3 = Vector3.ONE
+var _body: StaticBody3D = null
 
 
 func setup(size: Vector2, height: float, real: bool = true,
@@ -81,6 +82,19 @@ func go_solid() -> void:
 	if is_instance_valid(_area):
 		_area.queue_free()
 
+	# ⚠️ A solidified wall MUST gain a collider. Without one it is a hole in the
+	# perimeter with no floor behind it, and the player walks straight out of the
+	# world — found in playtest, at (200.69, -6.30, 21.78).
+	if not is_instance_valid(_body):
+		_body = StaticBody3D.new()
+		_body.name = "SolidBody"
+		var col := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(_trigger_size.x, _trigger_size.y, 0.3)
+		col.shape = shape
+		_body.add_child(col)
+		add_child(_body)
+
 
 # Tear a solidified wall back open. Only used to rescue zone 2 if the player has
 # outed every wall — a maze with no exit left is worse than a maze that cheats.
@@ -88,6 +102,9 @@ func revive() -> void:
 	if not _solid:
 		return
 	_solid = false
+	if is_instance_valid(_body):
+		_body.queue_free()
+		_body = null
 	if _shader_mat:
 		_mesh.material_override = _shader_mat
 	_area = Area3D.new()

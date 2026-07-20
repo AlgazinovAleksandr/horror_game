@@ -315,3 +315,96 @@ directly to the level root.
 **Why it matters going forward.** `CreatureSmiler` and `FakeDoor` still use `"../Player"` and so
 must remain **direct children of the level root** — they break if parented under a zone/builder
 node. New props should prefer the group lookup.
+
+---
+
+## Issue 13 — Walking through an "outed" glitch wall drops the player out of the world
+
+**Symptom.** In the Backrooms Sprawl (zone 2), the player walks into a wall they have already
+touched once and falls forever. Logged in playtest at `(200.69, -6.30, 21.78)` — local
+`(0.69, 21.78)`, i.e. past the north perimeter.
+
+**Diagnosis.** `GlitchWall.go_solid()` marked the wall solid, swapped its material and freed the
+walk-into trigger `Area3D` — but **never added a collider**. The zone's perimeter has a deliberate
+7 m gap at each wall (that is what makes the wall walk-through-able), and there is no floor beyond
+the shell. So an outed wall was a 7 m hole into the void that merely *looked* solid.
+
+Flag-level tests could not see this: `is_solid()` returned true and the visuals were correct. Only
+a physics query reveals it.
+
+**Fix.**
+1. `go_solid()` now builds a `StaticBody3D` + `BoxShape3D` sized from the wall's trigger extents;
+   `revive()` frees it again.
+2. `backrooms.gd:_catch_out_of_world()` (called each frame) returns the player to the current
+   zone's spawn if `global_position.y < -5`. This is a **bug backstop, not a designed death** — no
+   panic, no screamer — so any future geometry gap degrades into a hiccup rather than a soft-lock.
+
+**Regression test.** `tests/walk_backrooms.gd:_solid_walls_block()` outs every wall, then casts a
+ray outward through each one and asserts it is stopped. Verified to genuinely fail (4 leaks) with
+the fix disabled.
+
+**General lesson.** For procedural geometry, assert with **physics queries**, not object state. The
+whole class of "looks right, isn't solid" bugs is invisible to flag checks. The drop probes in the
+same test only sampled the hall interior and never the perimeter gaps, which is why they passed.
+
+---
+
+## Issue 14 — A yaw of PI on a wall-mounted trigger swings it behind the wall (unwinnable Flood)
+
+**Symptom.** The Backrooms zone 3 (The Flood) could not be completed. The real seam in the Sump
+rendered correctly, inverted with the flashlight exactly as designed, and did nothing when walked
+into. The only seam in the zone that responded to the player was a decoy.
+
+**Cause.** `GlitchWall.setup()` places its walk-into `Area3D` at local `(0, 0, -0.9)` — in front of
+the surface. `backrooms_zone3.gd` set `rotation.y = PI` on all three seams, reading as "turn it to
+face the room". That yaw also rotates the trigger, moving it to world `+Z`: through the room's north
+wall and into solid geometry. Measured trigger position was `z = 25.75` against a wall face at
+`z = 25.10`.
+
+`backrooms_zone2.gd` has the correct convention and a comment stating it —
+`rotation.y = atan2(axis.x, axis.z)` with `axis` pointing **outward** from the room centre, which is
+**0** for a north wall, not PI. Zone 3 didn't follow it.
+
+**Fix.** `NORTH_YAW := 0.0` for all three Flood seams. Separately, the Basin decoy was centred on the
+Basin's north wall, which carries the Throat doorway — a 3.6 m trigger there scored a mistake for
+merely walking down the corridor. Offset it +4 m in x, clear of the opening.
+
+**Why every existing test passed.** `tests/walk_backrooms.gd` drove progression through
+`cleared.emit()` and `_on_seam_touched()` directly. The wiring was never broken; the geometry was.
+The suite now has `_seams_reachable()`, which raycasts toward each trigger from the side the player
+approaches from and fails if a wall intervenes. `tests/flood_reach.gd` is the standalone probe.
+
+**General lesson (a second helping of Issue 13's).** When a node bundles a *visual* and a
+*trigger volume*, a transform meant for one silently applies to the other. Assert the trigger's
+world position, not the mesh's appearance — and never let a test reach the win condition by calling
+the signal.
+
+---
+
+## Issue 15 — Death doesn't stop the player; panic keeps accruing behind the screamer
+
+**Symptom.** KONTUR playtest log, immediately after a death: panic resets to 0 as expected, then
+climbs `5% → 23% → 41% → 59% → 78%` over the next two seconds, at a fixed position, before the
+level reloads. The player was dead, the black panel was up, and the bar was still filling.
+
+**Cause.** `Screamer.trigger()` does `get_tree().paused = false` and never pauses anything. For the
+whole `RESTART_DELAY` the player node keeps processing: movement, the gaze raycast, and
+`_update_panic`. The corpse was still staring at the Perëkozhnik at 16 panic/s.
+
+**Why not just pause the tree.** `NoteUI` pauses while a note is open and detects the *unpause* to
+drop its overlay — that unpause is exactly what tells it a screamer fired. Pausing in `trigger()`
+would strand a trap note on screen through the death sequence.
+
+**Fix.** `Screamer._freeze_player()` — sets `process_mode = PROCESS_MODE_DISABLED` on the node in
+the `"player"` group, called from both `trigger()` and `trigger_to_menu()`. The node is freed by the
+reload moments later, so this only has to hold for `RESTART_DELAY`. Depends on Issue 12's fix
+(the player was in no group at all until then).
+
+**Also fixed alongside (instrumentation).** `debug_log.gd` detects death by the panic *collapse*, so
+a restart — which reloads the SAME scene, leaving `scene_file_path` unchanged — logged every death
+twice: once for the real collapse, once when the fresh player's zero panic was compared against the
+dead player's last reading. It now rebases `_last_panic` on whoever just spawned. A level
+*advance* on high panic was miscounted the same way; guarded with `_scene_changed`.
+
+**General lesson.** "Fires a screamer" is not the same as "the run is over". Any state the player
+can still accumulate between the trigger and the reload is live state — check what keeps ticking.

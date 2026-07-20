@@ -26,8 +26,10 @@ var _last_panic := 0.0
 var _last_scene := ""
 var _last_objective := ""
 var _peak_panic := 0.0
+var _session_peak := 0.0
 var _deaths := 0
 var _reported_fall := false
+var _scene_changed := false
 
 
 func _ready() -> void:
@@ -47,6 +49,12 @@ func _say(msg: String) -> void:
 		_f.flush()          # flush every line — a crash must not lose the tail
 
 
+# Called by game code for events the poller cannot infer — a strike names WHICH gate
+# failed, which a panic jump alone never tells us. Observation only; safe to no-op.
+func note(msg: String) -> void:
+	_say("EVENT      %s" % msg)
+
+
 func _on_objective(text: String) -> void:
 	if text != _last_objective:
 		_last_objective = text
@@ -62,14 +70,19 @@ func _process(delta: float) -> void:
 
 	# --- scene / level transitions ---
 	var scene := get_tree().current_scene
+	_scene_changed = false
 	if scene and scene.scene_file_path != _last_scene:
+		if _last_scene != "":
+			_say("   %s peak panic %.0f%%" % [_last_scene.get_file(), _peak_panic * 100.0])
 		_last_scene = scene.scene_file_path
 		_say("SCENE      -> %s   (GameState.current_level=%d)"
 			% [_last_scene.get_file(), GameState.current_level])
 		_player = null
 		_still = 0
 		_reported_fall = false
+		_scene_changed = true
 		_peak_panic = 0.0
+		_last_panic = 0.0     # or the drop to the new player's zero reads as a death
 
 	if not scene:
 		return
@@ -77,6 +90,11 @@ func _process(delta: float) -> void:
 		_player = scene.get_node_or_null("Player")
 		if _player:
 			_last_pos = _player.global_position
+			# A restart reloads the SAME scene, so the scene-change guard above never
+			# fires and the new player's zero panic reads as a second collapse — every
+			# death was logged twice. Rebase on whoever just spawned.
+			if _player.has_method("get_panic_ratio"):
+				_last_panic = _player.get_panic_ratio()
 			_say("PLAYER     spawned at %v" % _last_pos.snappedf(0.01))
 		return
 
@@ -103,13 +121,23 @@ func _process(delta: float) -> void:
 	if _player.has_method("get_panic_ratio"):
 		var r: float = _player.get_panic_ratio()
 		_peak_panic = maxf(_peak_panic, r)
+		_session_peak = maxf(_session_peak, r)
 		# Log meaningful jumps, not noise.
 		if absf(r - _last_panic) > 0.18:
 			_say("PANIC      %.0f%%  (was %.0f%%) at %v"
 				% [r * 100.0, _last_panic * 100.0, pos.snappedf(0.1)])
-		if r >= 0.99 and _last_panic < 0.99:
+		# Detect death by the COLLAPSE, not by catching the peak: at a 0.5 s poll the
+		# bar is often already reset by the time we look, which is why three real
+		# deaths logged as zero. A fall from near-full to near-empty is a death.
+		#
+		# But NOT across a scene change: advancing a level on high panic also collapses
+		# the bar (new scene, new player, zero panic), and that logged as a death for a
+		# run the player actually WON. `_last_panic` is zeroed on transition above; this
+		# guard covers the poll the transition lands on.
+		if not _scene_changed and _last_panic > 0.70 and r < 0.15:
 			_deaths += 1
-			_say("!! PANIC MAXED — death #%d at %v" % [_deaths, pos.snappedf(0.01)])
+			_say("!! DIED (panic %.0f%% -> %.0f%%) — death #%d at %v"
+				% [_last_panic * 100.0, r * 100.0, _deaths, pos.snappedf(0.01)])
 		_last_panic = r
 
 	# --- flashlight / battery, the resource the Flood depends on ---
@@ -125,6 +153,8 @@ var _flash_was := true
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_PREDELETE:
 		if _f:
+			# _peak_panic is per-scene and resets on every transition, so reporting it
+			# here always showed the last scene's spawn value (i.e. 0%).
 			_say("=== session end: peak panic %.0f%%, %d deaths ==="
-				% [_peak_panic * 100.0, _deaths])
+				% [_session_peak * 100.0, _deaths])
 			_f.flush()

@@ -87,11 +87,29 @@ func set_screamer_audio(stream: AudioStream) -> void:
 	_audio.stream = stream
 
 
+# Death has to actually STOP the player.
+#
+# trigger() deliberately UNPAUSES the tree — NoteUI pauses while a note is open and
+# detects the unpause to drop its overlay, so pausing here instead would strand a
+# trap note on screen. But that left the player fully simulating behind the black
+# panel for the whole restart delay: still walking, still gazing, still feeding the
+# panic bar. Playtest showed panic climbing 5% -> 78% AFTER death, because the corpse
+# was still staring at the Perekozhnik.
+#
+# So freeze the player alone. The node is freed by the reload a moment later; this
+# only has to hold for RESTART_DELAY.
+func _freeze_player() -> void:
+	var p := get_tree().get_first_node_in_group("player")
+	if p:
+		p.process_mode = Node.PROCESS_MODE_DISABLED
+
+
 func trigger() -> void:
 	if _is_triggering:
 		return
 	_is_triggering = true
 	get_tree().paused = false
+	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_apply_level_av()
 	_black_panel.visible = true
@@ -108,6 +126,7 @@ func trigger_to_menu() -> void:
 		return
 	_is_triggering = true
 	get_tree().paused = false
+	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_apply_level_av()
 	_black_panel.visible = true

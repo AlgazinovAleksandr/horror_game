@@ -291,6 +291,18 @@ func add_panic(amount: float) -> void:
 		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
 
 
+# Give panic back. Used at major structural beats — surviving a Backrooms zone —
+# where the fiction says the pressure just came off. Without this, panic is a
+# one-way ratchet across a multi-zone level and the later zones are unwinnable
+# regardless of how well you play them.
+func relieve_panic(amount: float) -> void:
+	_panic = maxf(0.0, _panic - amount)
+
+
+func set_panic_ratio(ratio: float) -> void:
+	_panic = clampf(ratio, 0.0, 1.0) * PANIC_MAX
+
+
 func apply_slow(duration: float) -> void:
 	_slow_timer = maxf(_slow_timer, duration)
 
