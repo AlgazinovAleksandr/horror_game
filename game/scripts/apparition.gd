@@ -215,7 +215,7 @@ func _rush() -> void:
 		var img := _resolve_tex(RUSH_BASE)
 		if img == "":
 			img = _resolve_tex(FIG_BASE)
-		Screamer.flash_scare(img, "jumpscare", 0.7)
+		Screamer.flash_scare(img, "all_levels_screamer", 0.7)
 		if _player:
 			_player.jolt_camera(0.1, 0.4)
 			_player.add_panic(TEACH_PANIC)

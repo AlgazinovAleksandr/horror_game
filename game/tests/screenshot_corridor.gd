@@ -21,6 +21,7 @@ const SHOTS := [
 	[228.3, 229.8, "12_turnmirror_230"],
 	[273.3, 274.8, "13_turnmirror_275"],
 	[13.0, 19.0, "14_ordinary_door"],
+	[168.0, 174.0, "15_kontur_plate"],   # KONTUR hint 3/4, side wall at d=172
 ]
 
 var _frame := 0

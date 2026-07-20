@@ -45,6 +45,9 @@ var _cellar_gate: CSGBox3D
 var _apparition: Apparition
 var _apparition_fired: bool = false
 var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
+var _tv_card: Label3D
+var _tv_card_clock: float = 12.0   # time until the test card next surfaces
+var _tv_card_hold: float = 0.0     # time the card stays legible
 
 
 func _ready() -> void:
@@ -510,6 +513,21 @@ func _spawn_tv() -> void:
 	# Static hiss loop.
 	_loop_audio("tv_static", pos, -14.0)
 
+	# KONTUR HINT 2/4 — the answer to KONTUR's Gate 2 (which bottle). Every so often
+	# the static resolves into a broadcast test card for a few seconds, then loses it
+	# again: you have to be in the room, looking, at the right moment. Rendered as
+	# text over the screen so it needs no new texture. See kontur.gd.
+	_tv_card = Label3D.new()
+	_tv_card.name = "KonturTestCard"
+	_tv_card.text = "O-41 RETARDS ON CONTACT\nWITH ACETIC ACID.\n\nHOUSEHOLD VINEGAR.\nNOTHING ELSE."
+	_tv_card.font_size = 44
+	_tv_card.pixel_size = 0.0016
+	_tv_card.modulate = Color(0.75, 0.95, 0.8, 0.0)
+	_tv_card.outline_size = 0
+	_tv_card.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tv_card.position = pos + Vector3(0, 0, 0.05)   # proud of the +z screen face
+	add_child(_tv_card)
+
 
 func _spawn_bathroom_mirror() -> void:
 	# North wall — the west wall (Vector2(-1,0)) is the bathroom's only doorway, and the
@@ -756,6 +774,29 @@ func _process(delta: float) -> void:
 	_tick_timers(delta)
 	_drive_lights()
 	_tick_debug_apparition(delta)
+	_tick_tv_card(delta)
+
+
+const TV_CARD_HOLD := 4.5
+const TV_CARD_GAP_MIN := 16.0
+const TV_CARD_GAP_MAX := 26.0
+
+
+func _tick_tv_card(delta: float) -> void:
+	if not _tv_card:
+		return
+	if _tv_card_hold > 0.0:
+		_tv_card_hold -= delta
+		# Fade out over the last second so it reads as the signal slipping away.
+		var a: float = clampf(_tv_card_hold, 0.0, 1.0)
+		_tv_card.modulate.a = a if _tv_card_hold < 1.0 else 1.0
+		if _tv_card_hold <= 0.0:
+			_tv_card.modulate.a = 0.0
+			_tv_card_clock = randf_range(TV_CARD_GAP_MIN, TV_CARD_GAP_MAX)
+		return
+	_tv_card_clock -= delta
+	if _tv_card_clock <= 0.0:
+		_tv_card_hold = TV_CARD_HOLD
 
 
 func _tick_debug_apparition(delta: float) -> void:

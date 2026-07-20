@@ -14,6 +14,7 @@ const SHOTS := [
 	[Vector3(0, 1.6, 19.0), Vector3(0, 1.6, 24.0), "05_glitch_wall"],
 	[Vector3(6.0, 1.6, 0.0), Vector3(13.0, 1.6, 0.0), "06_east_arm"],
 	[Vector3(0, 1.6, -4.0), Vector3(0.9, 1.0, -4.0), "07_clue_note"],
+	[Vector3(0.6, 1.75, -4.6), Vector3(-2.0, 1.75, -4.6), "08_kontur_scrawl"],  # hint 4/4, entry arm left wall
 ]
 
 var _frame := 0

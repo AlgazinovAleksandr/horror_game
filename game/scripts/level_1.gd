@@ -181,6 +181,11 @@ func _spawn_notes() -> void:
 		"Do not look at the tray. Do not look at the monitor.\n\nThey are not what they appear. When you take the card, keep your eyes on the floor.")
 	_make_note(_builder.wall_point("Records", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
 		"Night log — the corridor lights fail on their own now. When the dark comes, do not run. Running is how they find you. Stand still. Breathe. It passes.")
+	# KONTUR HINT 1/4 — the answer to KONTUR's Gate 1 (the two doors). Deliberately
+	# filed in the morgue: you only find it if you look around a room that is
+	# actively trying to kill you. See kontur.gd.
+	_make_note(_builder.wall_point("Morgue", Vector2(0, -1), 1.4, 0.1), 0.0,
+		"K.O.N.T.U.R. — INTERNAL CIRCULAR 12/4\n(This page does not belong to this facility.)\n\n...evacuation from a Class-II Object follows Protocol 4-B. Personnel leave by the door marked in BLACK.\n\nRed seals denote contained growth. A red seal is not an exit. A red seal opened from the inside has never once been closed again.\n\nFiled: Barkhan-9. Do not remove from the archive.")
 
 
 func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> void:

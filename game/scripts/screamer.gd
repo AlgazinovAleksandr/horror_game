@@ -18,11 +18,12 @@ const LEVEL_SCREAMERS := {
 	1: ["res://assets/textures/level_1_lab/screamer_lab.png", "screamer_lab"],
 	2: ["res://assets/textures/level_2_house/screamer_house.png", "screamer_house"],
 	3: ["res://assets/textures/level_3_corridor/screamer_hotel.png", "screamer_corridor"],
-	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "jumpscare"],
-	5: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
+	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "all_levels_screamer"],
+	5: ["res://assets/textures/level_5_kontur/screamer_kontur.png", "kontur_scream"],
+	6: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
 }
 
-const FALLBACK_AUDIO := "jumpscare"  # intro / ending levels with no dedicated scream
+const FALLBACK_AUDIO := "all_levels_screamer"  # intro / ending levels with no dedicated scream
 
 const RESTART_DELAY := 2.5
 
@@ -61,7 +62,7 @@ func _ready() -> void:
 
 
 # Set both the screamer image and the scream audio for the current level.
-# Falls back to a random screamers/ image + the shared jumpscare for intro/ending.
+# Falls back to a random screamers/ image + the shared all_levels_screamer for intro/ending.
 func _apply_level_av() -> void:
 	var entry: Variant = LEVEL_SCREAMERS.get(GameState.current_level)
 	if entry != null and ResourceLoader.exists(entry[0]):

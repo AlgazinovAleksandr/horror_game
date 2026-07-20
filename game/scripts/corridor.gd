@@ -248,6 +248,11 @@ func _spawn_panels() -> void:
 		[262.0, -1.0, 2.0, 3.0, "torch.png", 1.5],
 		[300.0, 1.0, 2.0, 3.0, "torch.png", 1.5],
 		[255.0, -1.0, 1.8, 1.2, "carpet.png", 1.6],  # wall-hung carpet
+		# KONTUR HINT 3/4 — the answer to KONTUR's Gate 3 (the offering). Reads as
+		# hotel signage here; only later does it mean anything. Full-height panel
+		# because the art carries its own wallpaper+wainscot background, like the
+		# clock/mirror/torch panels. See kontur.gd.
+		[172.0, -1.0, 2.0, 3.0, "kontur_plate.png", 1.5],
 	]
 	for p in decor:
 		_spawn_quad(_panel_transform(p[0], p[1], p[5]), Vector2(p[2], p[3]), TEX_DIR + p[4])

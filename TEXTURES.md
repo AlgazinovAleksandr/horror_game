@@ -66,6 +66,7 @@ Columns:
 | `level_3_corridor/torch.png` | Wall sconce torch (lit) on matching wallpaper/wainscot background | Level 3 (The Corridor) — *dead torch* panels in Zone C (lit torches are 3D `torch_3d.gd`) | done |
 | `level_3_corridor/screamer_hotel.png` | Victorian woman, hollow eyes, screaming — hotel-ghost screamer | Level 3 (The Corridor) ONLY — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[3]`, deliberately NOT in `screamers/` | done |
 | `level_3_corridor/screamer_manager.png` | The Manager — hotel-clerk figure (survivable Manager scare) | Level 3 (The Corridor) — `flash_scare()` fired once mid-hall by the distance-triggered Manager event (`_ev_manager`) | done |
+| `level_3_corridor/kontur_plate.png` | Brass door plate: "RECOVERED ITEMS ARE BAIT. LEAVE THEM." on matching hotel wallpaper+wainscot | Level 3 — **KONTUR hint 3/4** (answers KONTUR Gate 3). Full-height decor panel at d=172 m, side −1 (`corridor.gd:_spawn_panels()`) | done |
 | `level_3_corridor/blood_corridor.png` | Dried blood hand-drag smear on the hotel wallpaper (style-matched to `wall.png`) | Level 3 (The Corridor) — 6 wall quads in Zones B/C | done |
 | `level_3_corridor/floor_crack.png` | Carpet torn open over splintered floorboards, black void beneath | Level 3 (The Corridor) — 2 static floor decals + spawned under player by floor-crack event | done |
 
@@ -79,12 +80,33 @@ Columns:
 
 Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — the exit utility room's seam-tearing wall (screen-space vertex jitter + RGB split), built in `backrooms.gd` `_build_glitch_wall()`.
 
-### level_4_void/  (now Level 5 — The Void)
+### level_5_kontur/  (Level 5 — KONTUR)
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
-| `level_4_void/wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 5 (The Void) — all wall CSGBox3D nodes | done |
-| `level_4_void/floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 5 (The Void) — all floor CSGBox3D nodes | done |
-| `level_4_void/screamer_void.png` | Void-specific fatal screamer face | Level 5 (The Void) — fatal screamer (creature lunge / void-fall / panic max); `screamer.gd` `LEVEL_SCREAMERS[5]` | done |
+| `level_5_kontur/kontur_concrete_infected.png` | Porous brutalist concrete with dark parasitic mould patches; seamless | Level 5 — the `CONCRETE_ROOMS` (Passage, Archive) wall skin (`kontur.gd:_rooms_with_skins()`) | done |
+| `level_5_kontur/kontur_wallpaper_soviet.png` | Peeling 1970s Soviet wallpaper, olive/yellow geometric; seamless | Level 5 — builder-wide wall material (the Soviet half) | done |
+| `level_5_kontur/kontur_floor_tile.png` | Cracked Soviet mosaic floor, chipped beige/brown tiles; seamless | Level 5 — builder-wide floor material | done |
+| `level_5_kontur/kontur_facility_wall.png` | Clinical mint-green institutional tile; seamless | Level 5 — the `FACILITY_ROOMS` (Airlock, Escort, Terminus) wall skin | done |
+| `level_5_kontur/door_black.png` | Matte black steel industrial door, flat elevation | Level 5 — Gate 1's correct door (`choice_door.gd`, side randomised per run) | done |
+| `level_5_kontur/door_red.png` | Blood-red steel door welded shut with an official stamp, flat elevation | Level 5 — Gate 1's wrong door | done |
+| `level_5_kontur/kontur_sign_blank.png` | Blank enamel institutional sign plate with corner screws | Level 5 — all four redacted rule plates (`kontur.gd:_make_sign()`); text is `Label3D` over it, redaction is a black quad. Faintly emissive so it reads in the dark | done |
+| `level_5_kontur/fungal_mass.png` | Wet grey-white mycelium blocking a doorway | Level 5 — Gate 1's red-door seal + Gate 2's `FungalBarrier` | done |
+| `level_5_kontur/label_vinegar.png` | Soviet bottle label, typewriter text "VINEGAR" | Level 5 — Gate 2, the **correct** bottle (`bottle_item.gd`) | done |
+| `level_5_kontur/label_bleach.png` | Soviet bottle label, "BLEACH" + hazard triangle | Level 5 — Gate 2, wrong bottle | done |
+| `level_5_kontur/label_water.png` | Soviet bottle label, "DISTILLED WATER" | Level 5 — Gate 2, wrong bottle | done |
+| `level_5_kontur/creature_shapechanger.png` | Gaunt almost-human figure in a grey Soviet coat, TRANSPARENT background | Level 5 — the Perëkozhnik billboard (`creature_shapechanger.gd`). Verified real alpha; renders as a clean cutout | done |
+| `level_5_kontur/screamer_kontur.png` | Face erupting with fungal mycelium, screaming | Level 5 — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[5]` | done |
+| `level_5_kontur/kontur_flash.png` | Spore burst with a half-formed screaming face | Level 5 — the wrong-answer `flash_scare()` on every gate (`kontur.gd:_strike()`) | done |
+| `level_5_kontur/kontur_poster.png` | Soviet safety poster, "DO NOT TOUCH INFECTED SURFACES" | Level 5 — decal on the Archive's west wall | done |
+| `level_5_kontur/kontur_panel_mailboxes.png` | Battered Soviet mailboxes on matching wallpaper background | Level 5 — full-height wall panel, Landing west wall | done |
+| `level_5_kontur/kontur_panel_chute.png` | Rusted trash-chute hatch on matching concrete background | Level 5 — wall panel, Landing east wall | done |
+
+### level_4_void/  (now Level 6 — The Void)
+| file_name | texture_description | where_used | status |
+|-----------|---------------------|------------|--------|
+| `level_4_void/wall_void.png` | Cracked dark matter — deep black with jagged fracture lines, faint purple glow at cracks | Level 6 (The Void) — all wall CSGBox3D nodes | done |
+| `level_4_void/floor_void.png` | Dark abyss floor — near-black with faint chalked symbols and fragmented handwritten words | Level 6 (The Void) — all floor CSGBox3D nodes | done |
+| `level_4_void/screamer_void.png` | Void-specific fatal screamer face | Level 6 (The Void) — fatal screamer (creature lunge / void-fall / panic max); `screamer.gd` `LEVEL_SCREAMERS[6]` | done |
 
 ### screamers/
 | file_name | texture_description | where_used | status |
@@ -117,7 +139,7 @@ The `.tres` materials in `assets/materials/level_layout/` and `assets/materials/
 Intentionally omitted — the Void's extreme vignette (strength 2.0, blue-purple) makes ceilings nearly invisible. Add if visibility is confirmed in testing.
 
 ### Screamer subfolder & per-level screamers
-Images in `game/assets/textures/screamers/` are auto-loaded at startup via `DirAccess` in `screamer.gd` — but they are now only the **fallback pool for the intro room and ending** (random pick). Levels 1–5 each have a dedicated fatal screamer mapped in `screamer.gd`'s `LEVEL_SCREAMERS` table (`level_1_lab/screamer_lab.png`, `level_2_house/screamer_house.png`, `level_3_corridor/screamer_hotel.png`, `level_backrooms/screamer_smiler.png`, `level_4_void/screamer_void.png`), each kept in its own level folder and deliberately out of `screamers/` so it only appears in its level. (The Backrooms reuses the shared `jumpscare` audio with the smiler image.)
+Images in `game/assets/textures/screamers/` are auto-loaded at startup via `DirAccess` in `screamer.gd` — but they are now only the **fallback pool for the intro room and ending** (random pick). Levels 1–6 each have a dedicated fatal screamer mapped in `screamer.gd`'s `LEVEL_SCREAMERS` table (`level_1_lab/screamer_lab.png`, `level_2_house/screamer_house.png`, `level_3_corridor/screamer_hotel.png`, `level_backrooms/screamer_smiler.png`, `level_4_void/screamer_void.png`), each kept in its own level folder and deliberately out of `screamers/` so it only appears in its level. (The Backrooms reuses the shared `jumpscare` audio with the smiler image.)
 Separately, **survivable** flash scares (`Screamer.flash_scare()`, no restart) use their own images: `level_2_house/screamer_forest.png` (House window), `level_3_corridor/screamer_manager.png` (corridor Manager), `level_3_corridor/mirror_with_creature.png` (corridor turn mirrors).
 
 ### Note paper textures

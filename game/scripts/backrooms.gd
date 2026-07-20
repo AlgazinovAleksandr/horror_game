@@ -81,6 +81,7 @@ func _ready() -> void:
 	_spawn_lights()
 	_spawn_arm_sensors()
 	_spawn_intro_note()
+	_spawn_kontur_scrawl()
 	_spawn_mirage_doors()
 	_spawn_phone()
 	_start_ambience()
@@ -254,7 +255,7 @@ func _on_exit_reached(body: Node3D) -> void:
 	# Belt-and-braces: the N mouth already blocks early entry, but never let the
 	# seam tear unless the three down-turns are genuinely banked.
 	if _counter >= TURNS_TO_WIN - 1:
-		GameState.advance_level()  # -> The Void
+		GameState.advance_level()  # -> KONTUR
 	else:
 		_wrong_turn()
 
@@ -519,6 +520,30 @@ func _spawn_intro_note() -> void:
 	note.add_child(col)
 
 
+# KONTUR HINT 4/4 — the answer to KONTUR's Gate 4 (the escort). Marker scrawl on
+# the ENTRY arm's left wall: behind you at spawn, so you only read it if you turn
+# and look around before walking into the maze. Rendered as text rather than a decal
+# so it needs no new texture. See kontur.gd.
+#
+# ⚠️ NOT on a choice arm's dead end: that is where the Smiler spawns, and reading a
+# scrawl there would mean shining your flashlight at it — which is fatal. The entry
+# arm is never dark and never hosts a creature.
+func _spawn_kontur_scrawl() -> void:
+	var lbl := Label3D.new()
+	lbl.name = "KonturScrawl"
+	lbl.text = "WHEN IT WALKS BEHIND YOU —\nDON'T LOOK BACK.\nIT ISN'T THERE\nUNTIL YOU LOOK."
+	lbl.font_size = 44
+	lbl.pixel_size = 0.0032
+	# Label3D is unshaded, so this stays constant-dark while the wallpaper behind it
+	# brightens or dims — the contrast survives any lighting the arm happens to have.
+	lbl.modulate = Color(0.09, 0.08, 0.07)
+	lbl.outline_size = 0
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.position = Vector3(-(HALF - 0.06), 1.75, -4.6)
+	lbl.rotation.y = PI / 2.0   # face +x, across the entry arm
+	add_child(lbl)
+
+
 # Blood-red doors that mock the hope of retreat: [lateral_pos, facing_yaw].
 func _spawn_mirage_doors() -> void:
 	# [position, facing direction (into corridor)]
@@ -585,6 +610,14 @@ func _start_ambience() -> void:
 		ambient.volume_db = -8.0
 		ambient.finished.connect(ambient.play)
 		ambient.play()
+	var music := GameState.load_audio("backrooms_music")
+	if music:
+		var mp := AudioStreamPlayer.new()
+		mp.stream = music
+		mp.volume_db = -14.0
+		add_child(mp)
+		mp.finished.connect(mp.play)
+		mp.play()
 
 
 # ---------------------------------------------------------------- flicker

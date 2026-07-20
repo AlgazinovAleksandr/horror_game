@@ -11,7 +11,7 @@ const SHAKE_MAX := 60.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	GameState.current_level = 5
+	GameState.current_level = 6
 
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
