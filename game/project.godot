@@ -21,6 +21,7 @@ GameState="*res://scripts/game_state.gd"
 Screamer="*res://scripts/screamer.gd"
 NoteUI="*res://scripts/note_ui.gd"
 RandomAmbient="*res://scripts/random_ambient.gd"
+DebugLog="*res://scripts/debug_log.gd"
 
 [display]
 

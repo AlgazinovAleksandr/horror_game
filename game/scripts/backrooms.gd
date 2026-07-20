@@ -22,8 +22,22 @@ const HALF := W / 2.0
 const TEX_DIR := "res://assets/textures/level_backrooms/"
 
 const TURNS_TO_WIN := 3
-const WRONG_TURN_PANIC := 15.0
+const WRONG_TURN_PANIC := 18.0
 const SPAWN := Vector3(0, 0, -5.0)   # entry arm, facing +z into the hub
+
+# Audio. Everything that loops goes through one bus so a SilenceZone can duck the
+# whole bed at once. The score deliberately LEADS the hum by 8 dB — the previous
+# mix had it 6 dB underneath, which made it inaudible.
+# The three zones live at separate world offsets in this one scene; the glitch
+# walls teleport between them. Far enough apart that no lighting or audio bleeds.
+const ZONE2_ORIGIN := Vector3(200, 0, 0)
+const ZONE3_ORIGIN := Vector3(-200, 0, 0)
+const WRONG_WALL_PANIC := 18.0
+
+const AUDIO_BUS := "Backrooms"
+const MUSIC_VOLUME_DB := -4.0
+const HUM_VOLUME_DB := -12.0
+const BED_SILENCED_DB := -30.0   # what a SilenceZone ducks the bus to
 
 # Arm geometry: id -> { axis (unit Vector3 from hub outward), length }
 const CHOICE_ARMS := {
@@ -41,6 +55,9 @@ var _counter: int = 0
 var _correct: String = "E"
 var _dark_arm: String = ""
 var _progress_label: Label = null
+var _zone: int = 1
+var _zone2: BackroomsZone2 = null
+var _zone3: BackroomsZone3 = null
 
 var _arrow_quads := {}          # arm_id -> MeshInstance3D (the arrow decal)
 var _arm_lights := { "N": [], "E": [], "W": [], "hub": [] }
@@ -85,6 +102,7 @@ func _ready() -> void:
 	_spawn_mirage_doors()
 	_spawn_phone()
 	_start_ambience()
+	_build_later_zones()
 
 	# Backrooms-only player rules: the maze forbids rest, and something walks behind you.
 	_player.enable_standstill_panic()
@@ -93,6 +111,64 @@ func _ready() -> void:
 	_assign_round()
 	Vignette.spawn(self, Color(0.95, 0.88, 0.45, 1.0), 1.4)
 	GameState.set_objective("Follow the DOWN arrows — three turns in a row (0/3)")
+
+
+# ---------------------------------------------------------------- zones 2 & 3
+
+# The three zones are one scene at three world offsets, and the glitch walls
+# teleport between them. Keeping it one scene keeps current_level == 4 and avoids
+# inventing scene constants for what is, to the player, a single descent.
+func _build_later_zones() -> void:
+	_zone2 = BackroomsZone2.new()
+	_zone2.name = "ZoneSprawl"
+	add_child(_zone2)
+	_zone2.build(ZONE2_ORIGIN)
+	_zone2.cleared.connect(func() -> void: _enter_zone(3))
+	_zone2.mistake.connect(_on_zone_mistake.bind(2))
+
+	_zone3 = BackroomsZone3.new()
+	_zone3.name = "ZoneFlood"
+	add_child(_zone3)
+	_zone3.build(ZONE3_ORIGIN, _player)
+	_zone3.cleared.connect(func() -> void: GameState.advance_level())  # -> KONTUR
+	_zone3.mistake.connect(_on_zone_mistake.bind(3))
+
+
+func _enter_zone(n: int) -> void:
+	_zone = n
+	match n:
+		2:
+			_teleport(_zone2.spawn_point)
+			_announce("THE SPRAWL")
+			GameState.set_objective("Four walls tear. Only one is thin — listen for it")
+		3:
+			_teleport(_zone3.spawn_point)
+			_announce("THE FLOOD")
+			GameState.set_objective("The way out does not show itself in the light")
+
+
+func _teleport(to: Vector3) -> void:
+	_player.global_position = to
+	_player.velocity = Vector3.ZERO
+
+
+func _on_zone_mistake(which: int) -> void:
+	# A wrong wall: the same shape of penalty as a wrong turn in zone 1, but it also
+	# sends you back across the room, so guessing costs distance as well as panic.
+	_play("light_pop", _player.global_position + Vector3(0, 2, 0), 2.0)
+	Screamer.flash_scare(TEX_DIR + "backrooms_wallpaper_albedo.png", "light_pop", 0.35)
+	_player.add_panic(WRONG_WALL_PANIC)
+	_player.jolt_camera(0.1, 0.35)
+	if which == 2:
+		_teleport(_zone2.spawn_point)
+	else:
+		_teleport(_zone3.spawn_point)
+
+
+# Zone name card on entry — reuses the progress label's presentation so the level
+# keeps one visual voice.
+func _announce(title: String) -> void:
+	_show_progress_text(title)
 
 
 # ---------------------------------------------------------------- materials
@@ -255,7 +331,7 @@ func _on_exit_reached(body: Node3D) -> void:
 	# Belt-and-braces: the N mouth already blocks early entry, but never let the
 	# seam tear unless the three down-turns are genuinely banked.
 	if _counter >= TURNS_TO_WIN - 1:
-		GameState.advance_level()  # -> KONTUR
+		_enter_zone(2)   # zone 1 cleared — the descent continues, it doesn't end
 	else:
 		_wrong_turn()
 
@@ -459,6 +535,13 @@ func _teleport_to_spawn() -> void:
 # Brief, dim confirmation that a down-turn registered — otherwise a correct turn
 # (which loops you back to an identical hub) reads as "nothing happened."
 func _show_progress() -> void:
+	_show_progress_text("the seam loosens…  (%d / %d)" % [_counter, TURNS_TO_WIN])
+	GameState.set_objective("Follow the DOWN arrows — three turns in a row (%d/%d)" % [_counter, TURNS_TO_WIN])
+
+
+# Shared presentation for both the turn counter and the zone name cards, so the
+# level speaks with one voice as it descends.
+func _show_progress_text(text: String) -> void:
 	if not _progress_label:
 		var layer := CanvasLayer.new()
 		add_child(layer)
@@ -472,13 +555,12 @@ func _show_progress() -> void:
 		_progress_label.add_theme_color_override("font_color", Color(0.85, 0.8, 0.5, 0.0))
 		_progress_label.add_theme_font_size_override("font_size", 24)
 		layer.add_child(_progress_label)
-	_progress_label.text = "the seam loosens…  (%d / %d)" % [_counter, TURNS_TO_WIN]
-	GameState.set_objective("Follow the DOWN arrows — three turns in a row (%d/%d)" % [_counter, TURNS_TO_WIN])
+	_progress_label.text = text
 	var c: Color = _progress_label.get_theme_color("font_color")
 	var tween := create_tween()
 	tween.tween_property(_progress_label, "theme_override_colors/font_color",
 		Color(c.r, c.g, c.b, 0.9), 0.3)
-	tween.tween_interval(1.0)
+	tween.tween_interval(1.4)
 	tween.tween_property(_progress_label, "theme_override_colors/font_color",
 		Color(c.r, c.g, c.b, 0.0), 0.8)
 
@@ -600,21 +682,43 @@ func _play(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 	p.play()
 
 
+func _ensure_bus() -> void:
+	# One bus for the whole ambient bed, so Zone 2's SilenceZone can duck every
+	# looping source with a single tween instead of chasing individual players.
+	if AudioServer.get_bus_index(AUDIO_BUS) != -1:
+		return
+	var idx := AudioServer.bus_count
+	AudioServer.add_bus(idx)
+	AudioServer.set_bus_name(idx, AUDIO_BUS)
+	AudioServer.set_bus_send(idx, "Master")
+
+
+func set_bed_volume_db(db: float) -> void:
+	var idx := AudioServer.get_bus_index(AUDIO_BUS)
+	if idx != -1:
+		AudioServer.set_bus_volume_db(idx, db)
+
+
 func _start_ambience() -> void:
+	_ensure_bus()
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if not ambient:
 		return
 	var s := GameState.load_audio("fluorescent_hum")
 	if s:
 		ambient.stream = s
-		ambient.volume_db = -8.0
+		# Bed sits UNDER the score now — the music leads by 8 dB.
+		ambient.volume_db = HUM_VOLUME_DB
+		ambient.bus = AUDIO_BUS
 		ambient.finished.connect(ambient.play)
 		ambient.play()
 	var music := GameState.load_audio("backrooms_music")
 	if music:
 		var mp := AudioStreamPlayer.new()
+		mp.name = "MusicPlayer"
 		mp.stream = music
-		mp.volume_db = -14.0
+		mp.volume_db = MUSIC_VOLUME_DB
+		mp.bus = AUDIO_BUS
 		add_child(mp)
 		mp.finished.connect(mp.play)
 		mp.play()

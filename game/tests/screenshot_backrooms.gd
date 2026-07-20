@@ -15,6 +15,22 @@ const SHOTS := [
 	[Vector3(6.0, 1.6, 0.0), Vector3(13.0, 1.6, 0.0), "06_east_arm"],
 	[Vector3(0, 1.6, -4.0), Vector3(0.9, 1.0, -4.0), "07_clue_note"],
 	[Vector3(0.6, 1.75, -4.6), Vector3(-2.0, 1.75, -4.6), "08_kontur_scrawl"],  # hint 4/4, entry arm left wall
+
+	# ZONE 2 — THE SPRAWL (world offset +200 x). Wrong-scale pillar hall.
+	[Vector3(200, 1.6, -16.0), Vector3(200, 1.6, 6.0), "20_sprawl_entry"],
+	[Vector3(200, 1.6, 0.0), Vector3(216, 1.6, 0.0), "21_sprawl_east_wall"],
+	[Vector3(200, 1.6, 0.0), Vector3(200, 1.6, 20.0), "22_sprawl_north_wall"],
+	[Vector3(207, 1.6, 7.0), Vector3(200, 1.6, 0.0), "23_sprawl_pillars"],
+	[Vector3(200, 1.6, 14.0), Vector3(200, 1.6, 22.0), "24_sprawl_alcove"],
+	[Vector3(200, 3.4, -8.0), Vector3(200, 1.0, 8.0), "25_sprawl_scale"],
+
+	# ZONE 3 — THE FLOOD (world offset -200 x).
+	[Vector3(-200, 1.6, -2.0), Vector3(-200, 1.6, 8.0), "30_flood_landing"],
+	[Vector3(-200, 1.6, 12.0), Vector3(-200, 1.6, 20.0), "31_flood_basin"],
+	[Vector3(-200, 1.6, 15.0), Vector3(-209, 1.6, 15.0), "32_flood_westrun"],
+	[Vector3(-209, 1.6, 18.0), Vector3(-209, 1.6, 25.0), "33_flood_sump_seam"],
+	[Vector3(-191, 1.6, 18.0), Vector3(-191, 1.6, 25.0), "34_flood_cistern_decoy"],
+	[Vector3(-200, 1.6, 20.0), Vector3(-200, 1.6, 27.0), "35_flood_throat"],
 ]
 
 var _frame := 0

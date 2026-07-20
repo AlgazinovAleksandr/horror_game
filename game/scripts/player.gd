@@ -62,6 +62,10 @@ const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	# Props that live under a builder node can't reach the player by the usual
+	# "../Player" path. living_mirror.gd already documents a group fallback, but
+	# nothing ever joined the group, so that fallback was dead. Join it here.
+	add_to_group("player")
 	interact_label.visible = false
 	_flash_base_energy = flashlight.light_energy
 	var fs := GameState.load_audio("footstep")

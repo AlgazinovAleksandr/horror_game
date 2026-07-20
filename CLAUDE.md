@@ -65,7 +65,27 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - **Footstep echo** (`player.enable_footstep_echo()`): every step replays at half-volume 0.4 s later, two paces behind you
 - **Mirage doors** (`mirage_door.gd`): blood-red doors identical to the back doors; opening one swings onto blank wallpaper + 10 panic, mocking the hope of retreat
 - **The rotary phone** (`rotary_phone.gd`): a 1970s phone on the carpet that rings (`rotary_ring`); answering (E) plays `phone_whisper` and opens a read-to-die trap note via `NoteUI.show_note(text, 11.0)` — hang up (close) to survive
-- Win: three down-turns → walk into the glitch wall. Fail: wrong turns/standing still/the Smiler/a read-to-end phone call → panic bar fills
+- **THREE ZONES (Session 14).** One scene, three world-space offsets; each zone ends in a glitch
+  wall that teleports you to the next. `backrooms.gd` orchestrates (`_enter_zone`, `_on_zone_mistake`)
+  - **Zone 1 — THE LOBBY** (origin 0): the original hub + N/E/W arms. Three down-turns → its glitch
+    wall now calls `_enter_zone(2)` instead of `advance_level()`. `WRONG_TURN_PANIC` 15 → 18
+  - **Zone 2 — THE SPRAWL** (`backrooms_zone2.gd`, origin `(200,0,0)`): a 40×40 m pillar hall with a
+    **4.5 m** ceiling — deliberately wrong-scale against zone 1's 3 m corridors. Four *identical*
+    glitch walls, one real, randomised. **The tell is SOUND**: a `SilenceZone` around the real wall
+    ducks the whole `"Backrooms"` audio bus to −30 dB, so you find the exit by listening. Touching a
+    fake = `go_solid()` + 18 panic + teleport + re-randomise (two mistakes ≈ 36/50)
+  - **Zone 3 — THE FLOOD** (`backrooms_zone3.gd`, origin `(-200,0,0)`): an 8-room flooded wing built
+    with `RoomBuilder`, ankle-deep water (`apply_slow` refreshed per frame), near-black. **The tell is
+    DARKNESS**: the real seam is visible only with the flashlight OFF; two decoys glow only with it
+    ON. The zone is a `DarkZone`, so searching costs +3/s. Clearing it → `advance_level()` → KONTUR
+  - Each new zone has exactly **one `CalmZone`** anchor (lit island / dry platform) — three
+    net-positive-panic zones back to back is otherwise unsurvivable
+- **Audio mix (Session 14)**: music −14 → **−4 dB**, hum −8 → **−12 dB** (the score now LEADS by
+  8 dB); both routed through a runtime `"Backrooms"` bus so `SilenceZone` can duck them together;
+  loop flags enabled in the `.import` files; `rotary_phone`/`mirage_door` emitters given explicit
+  `volume_db` (they were an unset 0 dB, louder than everything else)
+- Win: three zones, three glitch walls. Fail: wrong turns/wrong walls/standing still/the Smiler/a
+  read-to-end phone call → panic bar fills
 
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
 - **The level whose answers are not inside it.** Four gates, each a *different verb*, each answered by a
@@ -212,6 +232,10 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `creature_smiler.gd` | `class_name CreatureSmiler` — the Backrooms darkness entity. Billboard `screamer_smiler.png` at a dark arm's end. Flashlight-on-it or sprint → `Screamer.trigger()`; light off + hold still → fades. Suspends the maze's standstill/dark ticks (`player.set_smiler_active`) and drives its own +2.5/s dread |
 | `mirage_door.gd` | `class_name MirageDoor` — blood-red back-door lookalike; `interact()` swings it open onto blank wallpaper + 10 panic. Self-building mesh |
 | `rotary_phone.gd` | `class_name RotaryPhone` — rings (`rotary_ring`) on a timer; `interact()` answers → `phone_whisper` + a read-to-die trap note via `NoteUI.show_note(text, 11.0)`. Self-building primitive mesh |
+| `maze_kit.gd` | `class_name MazeKit` (Session 14) — static geometry primitives shared by the three Backrooms zones: `box/slab/wall/light_strip/zone_box` + the wall/floor/ceiling materials. Extracted from `backrooms.gd`. ⚠️ Keep `make_material`'s **negative V** uv scale — a positive `uv1_scale.y` renders wallpaper upside-down |
+| `glitch_wall.gd` | `class_name GlitchWall` (Session 14) — the walk-through exit surface. `setup(size, height, is_real, tex)`, `signal touched(is_real)`, `go_solid()` (an outed fake becomes ordinary wall), `revive()`, `set_seam_visible()` (hides the **whole node**, not just the mesh — Node3D visibility is inherited and the Area3D keeps monitoring regardless) |
+| `silence_zone.gd` | `class_name SilenceZone` (Session 14) — Zone 2's tell. Ducks the `"Backrooms"` audio bus to −30 dB while the player is inside. Restores the bus in `_exit_tree()` so a teleport-out never leaves the level permanently silent |
+| `backrooms_zone2.gd` / `backrooms_zone3.gd` | `class_name BackroomsZone2` / `BackroomsZone3` (Session 14) — the Sprawl and the Flood. `build(origin)` / `build(origin, player)`, `signal cleared` + `signal mistake`; the level owns the consequences |
 | `room_builder.gd` | `class_name RoomBuilder` (Session 10) — procedural room-graph: `build(rooms, doorways)` where room=`{name,pos:Vector2,size:Vector2,h?, wall_mat?/floor_mat?/ceil_mat?}` and doorway=`{pos,width,dir:"x"\|"z",h?}` → CSG floor/ceiling/walls, **floors auto-bridged under every doorway** (kills the Issue-5 void-fall class). Applies its own materials; the optional per-room `*_mat` keys (Session 11) override them so a Morgue/Kitchen/Bathroom reads as a distinct place (`level_*.gd:_rooms_with_skins()`). Helpers: `room_center/size/height`, `wall_point(room,side,y,inset)`, static `make_material()`. Doorways open EVERY wall on their plane, so connected rooms must ABUT (share a wall plane). Used by `level_1.gd`, `level_2.gd` + `kontur.gd` |
 | `apparition.gd` | `class_name Apparition` (Session 10) — the random monster. `Apparition.spawn(parent, rule, pos, teach)`; `RULE_HOLD` = appear-ahead, survive by not sprinting; `RULE_STARE`/`RULE_LOOKAWAY` reuse stalker/smiler. See "Random Apparition" above |
 | `breaker.gd` | `class_name Breaker` (Session 10) — Lab power switch; `interact()` flips once + emits `flipped` + clunk (`breaker_throw`) |

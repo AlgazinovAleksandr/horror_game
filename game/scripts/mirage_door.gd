@@ -8,6 +8,7 @@ class_name MirageDoor
 
 const PANIC := 10.0
 const SIZE := Vector2(1.0, 2.1)
+const CREAK_VOLUME_DB := -4.0   # was an unset 0 dB, which sat on top of the score
 
 var _opened: bool = false
 var _creak: AudioStreamPlayer3D
@@ -45,6 +46,7 @@ func _ready() -> void:
 	if s:
 		_creak.stream = s
 	_creak.unit_size = 5.0
+	_creak.volume_db = CREAK_VOLUME_DB
 	add_child(_creak)
 
 

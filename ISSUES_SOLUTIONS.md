@@ -267,3 +267,51 @@ body.add_child(col)          # collider + mesh under the body
 **Lesson:** `_find_scary_object` walks **up**, so a `ScaryObject` must be an *ancestor* of the collider, never a child — and because it's a plain `Node`, the body it parents owns its own world transform. Both halves are documented in CLAUDE.md's Panic System section.
 
 **Files changed:** `game/scripts/level_2.gd` (`_make_cursed_body`), `game/scripts/corridor.gd` (`_make_cursed_panel_at`), `game/scripts/creature_stalker.gd`.
+
+---
+
+## Issue 11 — Wall panels invisible: `wall_point()` inset buries them inside the wall
+
+**Symptom.** A `_make_cursed_panel()` / decal quad placed with
+`_builder.wall_point(room, side, y, 0.06)` renders as *nothing at all*. The node exists, `visible`
+is true, the texture imports fine and has a valid `.ctex`. The wall is simply bare.
+
+**Diagnosis.** `RoomBuilder.wall_point()` measures from the room's **nominal boundary**, not from
+the wall's **inner face**. Walls are `T = 0.2` thick and centred on the boundary, so the inner face
+sits `0.1` inside the room. Any inset below `0.1` places the panel *within the wall solid*, where
+the wall's inner surface occludes it.
+
+Concretely, for Observation (centre z=17, depth 5 → boundary z=19.5):
+```
+wall inner face   z = 19.400
+inset 0.06  ->    z = 19.440   BURIED (0.04 behind the face)
+inset 0.16  ->    z = 19.340   visible, 0.06 proud
+```
+
+**Fix.** Use an inset **greater than half the wall thickness** — `0.16` gives a clean 0.06 clearance.
+
+**Gotcha when diagnosing this.** A raycast toward the panel will report the panel's *own* collider
+as the first hit — `_make_cursed_panel` gives it a 0.1 m-deep `BoxShape3D`. Exclude the panel's own
+body (`rq.exclude = [body.get_rid()]`) or you will measure the panel against itself and conclude
+nothing is wrong. `tests/check_lab_hint.gd` does this and asserts on it.
+
+**Also fixed by this.** The Records room warning sign (`lab_warning_sign.png`, inset 0.06) had the
+same bug and had *never actually been visible in game*.
+
+---
+
+## Issue 12 — The player belonged to no group, so group-based lookups silently did nothing
+
+**Symptom.** Any prop that resolves the player via `is_in_group("player")` never fires. Area3D
+triggers appear dead.
+
+**Diagnosis.** `add_to_group` appeared **nowhere** in the project. `living_mirror.gd` documents and
+uses a "falls back to group `player`" path — that fallback had always been dead code. Everything
+else reached the player through `get_node("../Player")`, which only works for nodes parented
+directly to the level root.
+
+**Fix.** `player.gd:_ready()` now calls `add_to_group("player")`.
+
+**Why it matters going forward.** `CreatureSmiler` and `FakeDoor` still use `"../Player"` and so
+must remain **direct children of the level root** — they break if parented under a zone/builder
+node. New props should prefer the group lookup.

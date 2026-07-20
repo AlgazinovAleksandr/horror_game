@@ -9,6 +9,11 @@ class_name RotaryPhone
 const RING_INTERVAL := 7.0       # silence between ring bursts
 const ANSWER_PANIC_RATE := 11.0  # read-to-die rate fed by NoteUI while the call is up
 
+# These used to default to 0 dB, which made the ring the loudest recurring sound in
+# the level despite reading as "distant". Pulled down under the score.
+const RING_VOLUME_DB := -6.0
+const WHISPER_VOLUME_DB := -3.0
+
 const WHISPER_TEXT := """...hello? hello is someone—
 ...don't follow the arrows they want you to—
 ...it's been three days. three. days.
@@ -29,6 +34,7 @@ func _ready() -> void:
 	if ring:
 		_ring_player.stream = ring
 	_ring_player.unit_size = 6.0
+	_ring_player.volume_db = RING_VOLUME_DB
 	add_child(_ring_player)
 
 	_whisper_player = AudioStreamPlayer3D.new()
@@ -36,6 +42,7 @@ func _ready() -> void:
 	if wh:
 		_whisper_player.stream = wh
 	_whisper_player.unit_size = 4.0
+	_whisper_player.volume_db = WHISPER_VOLUME_DB
 	add_child(_whisper_player)
 
 

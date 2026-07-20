@@ -40,6 +40,7 @@ var _power_on: bool = false
 var _morgue_shutter: CSGBox3D
 var _apparition: Apparition
 var _apparition_fired: bool = false
+var _pa_speaker: AudioStreamPlayer3D
 var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 
@@ -56,6 +57,7 @@ func _ready() -> void:
 	_spawn_morgue_keycard()
 	_spawn_observation_mirror()
 	_spawn_room_props()
+	_spawn_pa_speaker()
 	_spawn_doors()
 	_spawn_apparition()
 	_start_ambience()
@@ -272,6 +274,71 @@ func _restore_power() -> void:
 	t2.tween_callback(func() -> void: _morgue_shutter.use_collision = false)
 	_play_at("breaker_throw", Vector3(6, 1.5, 12.5), 2.0)
 	GameState.set_objective("Power restored — take the keycard from the morgue")
+	# The PA can only speak once the power is back, so the hint lands on a player
+	# who has actually finished the breaker quest.
+	_announce_trial_four()
+
+
+# ---------------------------------------------------------------- the PA hint
+
+# LEVEL 4 HINT, spoken half. Pairs with the observation-room whiteboard. The line
+# names neither the wall nor the Backrooms — it describes the exit as "the surface
+# that will not hold still" and is cut off by the relay before it finishes. See
+# tools/make_pa_voice.py.
+const PA_CAPTION := "PA: \"...the way out is the surface that will not hold still.\nThrough. Not around. Subject forty-seven is not to be—\""
+
+func _announce_trial_four() -> void:
+	# A beat after the lights settle, so it doesn't collide with the breaker clunk.
+	var delay := get_tree().create_timer(1.4)
+	delay.timeout.connect(func() -> void:
+		if not is_instance_valid(_pa_speaker):
+			return
+		_pa_speaker.play()
+		_show_caption(PA_CAPTION, 13.0)
+	)
+
+
+func _spawn_pa_speaker() -> void:
+	# A tannoy horn high on the cross-hall wall, above head height so it reads as
+	# building infrastructure rather than a prop you can interact with.
+	var pos := Vector3(0.0, 2.55, 11.4)
+	_make_prop(pos, Vector3(0.42, 0.3, 0.26), Color(0.24, 0.25, 0.23))
+
+	_pa_speaker = AudioStreamPlayer3D.new()
+	_pa_speaker.name = "PASpeaker"
+	var s := GameState.load_audio("pa_trial4")
+	if s:
+		_pa_speaker.stream = s
+	_pa_speaker.unit_size = 14.0     # carries down the corridors, as a tannoy should
+	_pa_speaker.volume_db = 4.0
+	_pa_speaker.position = pos
+	add_child(_pa_speaker)
+
+
+func _show_caption(text: String, seconds: float) -> void:
+	# Subtitle for the PA, so a player with the sound down still gets the hint.
+	# Deliberately NOT GameState.set_objective — that line belongs to the quest.
+	var canvas := CanvasLayer.new()
+	add_child(canvas)
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", Color(0.82, 0.84, 0.78))
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	label.add_theme_constant_override("outline_size", 6)
+	label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	label.offset_top = -140.0
+	label.offset_bottom = -60.0
+	label.modulate.a = 0.0
+	canvas.add_child(label)
+
+	var t := create_tween()
+	t.tween_property(label, "modulate:a", 0.95, 0.5)
+	t.tween_interval(seconds)
+	t.tween_property(label, "modulate:a", 0.0, 1.0)
+	# Connect rather than await: the tween must still clean up if the node goes away.
+	t.finished.connect(canvas.queue_free)
 
 
 # ---------------------------------------------------------------- morgue keycard
@@ -434,7 +501,9 @@ func _spawn_room_props() -> void:
 			Vector3(0.7, 1.3, 0.6), Color(0.28, 0.3, 0.27))
 	# Warning sign on the WEST wall — the east wall is the only doorway into Records,
 	# and a wall panel there blocks the entrance (it has a collider).
-	_make_cursed_panel(_builder.wall_point("Records", Vector2(-1, 0), 1.8, 0.06),
+	# Same burial bug as the whiteboard: at inset 0.06 this sign was inside the wall
+	# and had never actually been visible in game.
+	_make_cursed_panel(_builder.wall_point("Records", Vector2(-1, 0), 1.8, 0.16),
 		Vector2(0.8, 0.6), PI / 2.0, 0.0, TEX + "lab_warning_sign.png")
 	_accent_lamp(Vector3(rc.x, 1.9, rc.z), Color(0.7, 0.85, 0.6), 0.5)
 	# Observation: a monitoring desk in front of the one-way mirror (east wall), with a
@@ -442,6 +511,20 @@ func _spawn_room_props() -> void:
 	var oc: Vector3 = _builder.room_center("Observation")
 	_make_prop(Vector3(oc.x + 1.0, 0.5, oc.z), Vector3(1.6, 1.0, 0.7), Color(0.22, 0.23, 0.25))
 	_accent_lamp(Vector3(oc.x + 1.0, 1.3, oc.z), Color(0.4, 0.7, 0.9), 0.4, 3.5)
+
+	# LEVEL 4 HINT — the researchers' whiteboard. A flow diagram of the Backrooms
+	# trial whose final node is a hatched WALL with an arrow driven through it, and
+	# a half-wiped "NO DOOR" in the margin. intensity 0.0 = decorative, no gaze panic;
+	# the board should reward a careful player, not punish them for reading it.
+	# NORTH wall: Observation's only doorway is west (1.5, 17), and a panel there
+	# carries a collider that would seal the room (the Session-11 bug class).
+	# ⚠️ inset must exceed RoomBuilder's HALF wall thickness (T=0.2, so >0.1) —
+	# wall_point() measures from the room's nominal boundary, not the wall's inner
+	# face, so the usual 0.06 buries the panel inside the wall and it renders as
+	# nothing at all. 0.16 leaves it sitting 0.06 proud.
+	_make_cursed_panel(_builder.wall_point("Observation", Vector2(0, 1), 1.7, 0.16),
+		Vector2(2.0, 1.25), PI, 0.0, TEX + "lab_whiteboard.png")
+	_accent_lamp(Vector3(oc.x, 2.2, oc.z + 1.6), Color(0.85, 0.88, 0.8), 0.5, 4.0)
 
 
 # ---------------------------------------------------------------- observation

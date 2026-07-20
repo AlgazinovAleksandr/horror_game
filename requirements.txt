@@ -1,0 +1,2 @@
+# Asset-generation tooling (tools/*.py). The game itself needs none of this.
+Pillow>=10.0
