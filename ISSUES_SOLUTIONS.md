@@ -408,3 +408,90 @@ dead player's last reading. It now rebases `_last_panic` on whoever just spawned
 
 **General lesson.** "Fires a screamer" is not the same as "the run is over". Any state the player
 can still accumulate between the trigger and the reload is live state — check what keeps ticking.
+
+---
+
+## Issue 16 — A level whose puzzles gate nothing (KONTUR's exit had no unlock condition)
+
+**Symptom.** KONTUR was measured clearing in **32 seconds** across two playtests, and felt "too
+simple". It was not a pacing problem.
+
+**Cause.** `kontur.gd:_spawn_level_doors()` built the exit with `_make_door("ExitDoor", true, false)`
+and never set `unlock_condition`, so it defaulted to `UnlockCondition.NONE` (`door.gd`), which
+`_is_unlocked()` answers `true` for unconditionally. The player could walk Landing → Terminus having
+failed or ignored all four gates. The gates cost panic and nothing else — they were decoration.
+
+**Why nobody noticed.** Every gate *worked*: each fired its strike, logged its message, and cost its
+18 panic. Testing confirmed the gates behaved correctly and never asked the separate question of
+whether they were *load-bearing*.
+
+**Fix.** `door.gd` gained `@export var extra_lock: bool` (checked first in `_is_unlocked()`) and
+`@export var locked_message: String`. `kontur.gd` keeps a `_gates` ledger of all eight gates and
+`_refresh_exit()` holds the door until every one is passed. `walk_kontur.gd` now asserts the door
+refuses to open with gates outstanding — and that check was verified to fail when the lock is removed.
+
+**General lesson.** "Does the mechanic work?" and "does the mechanic matter?" are different tests.
+For any puzzle, assert that **failing it changes the outcome**, not just that it fires.
+
+---
+
+## Issue 17 — Godot renames colliding sibling nodes using the CLASS name, so name lookups silently miss
+
+**Symptom.** KONTUR's wrong door was supposed to open onto a hole. A build-time guard reported
+`the void behind the red door is incomplete (freed 1 of 2)` — the room floor was removed but the
+doorway floor bridge was not, leaving a 0.4 m gap the player steps straight over.
+
+**Cause.** `RoomBuilder._box()` names every doorway bridge `"DoorFloor"`. When `add_child()` hits a
+name collision, Godot 4 renames the newcomer using the **class** name, not the requested one:
+
+```
+DoorFloor          pos=(0, -0.1, 4)      <- only the FIRST keeps the name
+@CSGBox3D@19       pos=(-2, -0.1, 10)
+@CSGBox3D@20       pos=(2, -0.1, 10)
+@CSGBox3D@21       pos=(-2, -0.1, 13)
+```
+
+So `name == "DoorFloor"` finds exactly one node per scene, and `name.begins_with("DoorFloor")` is no
+better — the rest share no prefix with what was asked for. Room floors were unaffected only because
+their names (`Passage_Floor`, `Archive_Floor`) happen to be unique.
+
+**Fix.** Match generated geometry on **position**, never on name:
+
+```gdscript
+var bridge_at := Vector3(red_x, -RoomBuilder.T / 2.0, 13.0)
+...
+elif child.position.distance_to(bridge_at) < 0.25:
+```
+
+**General lesson.** Any node built in a loop with a fixed `name` is unfindable by name after the
+first one. Either give each a unique name at build time, or identify it by geometry. The guard that
+caught this (`if killed != 2: push_warning(...)`) cost two lines and found the bug before the level
+was ever run — assert the *count* whenever you delete or mutate a set of generated nodes.
+
+---
+
+## Issue 18 — A "flashlight off" puzzle inside a DarkZone (the same conflict, a second time)
+
+**Symptom.** KONTUR's Blackout room (Gate 7) is solved by turning the flashlight OFF to see the real
+door seam. Playtest: `FLASHLIGHT OFF` at 28.0 s, dead at 34.1 s — **45% of the panic bar in four
+seconds** of doing exactly what the room asks. The only survivable strategy was to flick the light
+off for one second, glance, and flick it back on.
+
+**Cause.** The room was a `DarkZone`, which adds `DARK_PANIC_RATE` (+3/s) while the flashlight is
+off *and*, because `player.gd:_update_panic` is an **if/elif chain**, takes the branch that would
+otherwise apply decay. Stacked with KONTUR's level-wide `DreadZone` (+2/s, additive) that is **+5/s
+with no decay at all**. The puzzle and the panic system were fighting, and the puzzle lost.
+
+**This is the second occurrence.** The Backrooms Flood (`backrooms_zone3.gd`) had the identical
+conflict earlier the same day, was diagnosed, and had its blanket `DarkZone` removed — and the
+`game-testing` skill carries a "Standing caution" paragraph describing this exact trap. It was
+reintroduced anyway, in a new room, by the author of that warning.
+
+**Fix.** Remove the `DarkZone`. Neither room has a lamp, so both are pitch black on their own; the
+zone only ever supplied the tax. `walk_kontur.gd` now asserts no `DarkZone` overlaps the Blackout,
+and the check was verified to fail when one is re-added.
+
+**General lesson.** Whenever a puzzle's solution is *"turn the flashlight off"*, *"stand still"*, or
+*"stop sprinting"*, check whether a zone already charges panic for that exact posture. Write the
+assertion into the level's test at the same time as the puzzle — a documented gotcha did not stop
+this happening twice in one day, but a failing test would have.

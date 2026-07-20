@@ -1,15 +1,38 @@
 extends StaticBody3D
 
-# 3-digit combination lock for Level 2 exit door.
+# Combination lock. Level 2's exit uses it (3 digits, 472); KONTUR's roster gate uses
+# it (2 digits, 47). The number of dials is derived from the answer — see _digit_count.
 # Builds its own UI programmatically — no child nodes required in the scene.
 
 const WRONG_CODE_PANIC := 10.0  # brute-forcing the lock is the fail path
+
+# KONTUR reuses this lock for its roster gate, which needs a different answer and its
+# own bookkeeping. Leave `code` empty and the lock behaves exactly as Level 2 always
+# has (GameState.level2_code / level2_code_correct); set it and the lock reports
+# through the signals instead of touching GameState at all.
+@export var code: String = ""
+@export var title_text: String = "COMBINATION LOCK"
+signal unlocked
+signal wrong_code(attempts: int)
+
+var _attempts: int = 0
+
+
+# THE LOCK SIZES ITSELF FROM ITS ANSWER.
+#
+# It used to be hard-coded to three digits. KONTUR's roster gate answers "Subject 47",
+# and on a three-digit lock that is ambiguous — is it 047 or 470? Nothing in the game
+# states a padding convention, so a playtester who knew the answer still failed twice
+# and spent 87 seconds at it. A two-digit answer now gets a two-digit lock and the
+# question disappears.
+func _digit_count() -> int:
+	return code.length() if code != "" else GameState.level2_code.length()
 
 var _canvas: CanvasLayer
 var _panel: PanelContainer
 var _digit_labels: Array[Label] = []
 var _feedback_label: Label
-var _digits: Array[int] = [0, 0, 0]
+var _digits: Array[int] = []
 var _selected: int = 0
 var _ui_open: bool = false
 var _buzz_player: AudioStreamPlayer
@@ -51,7 +74,7 @@ func _build_ui() -> void:
 	_panel.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "COMBINATION LOCK"
+	title.text = title_text
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(title)
 
@@ -60,7 +83,9 @@ func _build_ui() -> void:
 	hbox.add_theme_constant_override("separation", 16)
 	vbox.add_child(hbox)
 
-	for i in range(3):
+	_digits.resize(_digit_count())
+	_digits.fill(0)
+	for i in range(_digit_count()):
 		var lbl := Label.new()
 		lbl.text = "0"
 		lbl.custom_minimum_size = Vector2(48, 48)
@@ -95,7 +120,7 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_left"):
 		_selected = max(0, _selected - 1)
 	elif event.is_action_pressed("ui_right"):
-		_selected = min(2, _selected + 1)
+		_selected = min(_digit_count() - 1, _selected + 1)
 	elif event.is_action_pressed("ui_up"):
 		_digits[_selected] = (_digits[_selected] + 1) % 10
 	elif event.is_action_pressed("ui_down"):
@@ -114,13 +139,19 @@ func _input(event: InputEvent) -> void:
 
 
 func _submit() -> void:
-	var entered := "%d%d%d" % [_digits[0], _digits[1], _digits[2]]
-	if entered == GameState.level2_code:
-		GameState.level2_code_correct = true
+	var entered := ""
+	for d in _digits:
+		entered += str(d)
+	var answer: String = code if code != "" else GameState.level2_code
+	if entered == answer:
+		if code == "":
+			GameState.level2_code_correct = true
 		_feedback_label.text = "UNLOCKED"
+		unlocked.emit()
 		await get_tree().create_timer(0.8).timeout
 		_close_ui()
 	else:
+		_attempts += 1
 		_feedback_label.text = "INCORRECT"
 		_feedback_label.add_theme_color_override("font_color", Color(0.85, 0.2, 0.15))
 		if _buzz_player.stream:
@@ -128,6 +159,7 @@ func _submit() -> void:
 		var player := get_tree().current_scene.get_node_or_null("Player")
 		if player and player.has_method("add_panic"):
 			player.add_panic(WRONG_CODE_PANIC)
+		wrong_code.emit(_attempts)
 
 
 func _close_ui() -> void:
@@ -138,6 +170,6 @@ func _close_ui() -> void:
 
 
 func _refresh_display() -> void:
-	for i in range(3):
+	for i in range(_digit_labels.size()):
 		_digit_labels[i].text = str(_digits[i])
 		_digit_labels[i].modulate = Color.WHITE if i == _selected else Color(0.5, 0.5, 0.5)

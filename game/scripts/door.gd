@@ -6,6 +6,16 @@ enum UnlockCondition { NONE, KEYCARD, CODE_ENTERED, TWIST_READ }
 @export var advances_level: bool = true
 @export var goes_back: bool = false
 
+# An additional lock the OWNING LEVEL controls, on top of `unlock_condition`.
+#
+# KONTUR needs its exit sealed until all eight gates are passed — a condition no enum
+# value can express, because it lives in the level script's own state rather than in
+# GameState. The level sets this true at build time and clears it when the last gate
+# falls. `locked_message` lets it say WHY, which matters there: a run can be forfeit,
+# and "LOCKED" would read as a bug rather than as a verdict.
+@export var extra_lock: bool = false
+@export var locked_message: String = "LOCKED"
+
 var _twist_activated: bool = false
 
 
@@ -44,6 +54,8 @@ func interact() -> void:
 
 
 func _is_unlocked() -> bool:
+	if extra_lock:
+		return false
 	match unlock_condition:
 		UnlockCondition.NONE:
 			return true
@@ -69,16 +81,4 @@ func _open_door() -> void:
 
 
 func _show_locked_feedback() -> void:
-	var canvas := CanvasLayer.new()
-	canvas.layer = 50
-	add_child(canvas)
-
-	var lbl := Label.new()
-	lbl.text = "LOCKED"
-	lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	lbl.add_theme_color_override("font_color", Color(1.0, 0.2, 0.2))
-	lbl.add_theme_font_size_override("font_size", 48)
-	canvas.add_child(lbl)
-
-	await get_tree().create_timer(1.5).timeout
-	canvas.queue_free()
+	ScreenText.toast(get_tree(), locked_message, Color(1.0, 0.2, 0.2), 1.5, 48)

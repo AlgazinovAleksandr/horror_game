@@ -113,6 +113,21 @@ func _ready() -> void:
 	_assign_round()
 	Vignette.spawn(self, Color(0.95, 0.88, 0.45, 1.0), 1.4)
 	GameState.set_objective("Follow the DOWN arrows — three turns in a row (0/3)")
+	_check_banishment()
+
+
+# KONTUR sends the player back here when they open its wrong door and fall out of the
+# world. The flag survives the level change because GameState.reset_level_state()
+# deliberately doesn't clear it (the same trick `is_ending` uses). Clear it here, so
+# the accusation shows exactly once and a later death in the Backrooms doesn't repeat
+# it on every reload.
+func _check_banishment() -> void:
+	if not GameState.kontur_banished:
+		return
+	GameState.kontur_banished = false
+	ScreenText.scrawl(get_tree(),
+		"YOU DIDN'T READ.\n\nTHE COLOUR WAS WRITTEN DOWN\nSOMEWHERE YOU DIDN'T LOOK.\n\nGO BACK. FIND IT.",
+		6.0, 46)
 
 
 # ---------------------------------------------------------------- zones 2 & 3

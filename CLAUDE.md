@@ -88,32 +88,72 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   read-to-end phone call → panic bar fills
 
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
-- **The level whose answers are not inside it.** Four gates, each a *different verb*, each answered by a
-  hint planted in an earlier level. A player who explored reads straight through; one who rushed must
-  guess, and guesses cost panic they cannot get back. Built procedurally by `kontur.gd` via
-  `RoomBuilder` from an 8-room spine (Landing → Vestibule → Passage → Kitchen → Archive → Airlock →
-  Escort → Terminus), same `.tscn`-minimal / `PRESERVE`-whitelist pattern as the Lab and House
+- **The level whose answers are not inside it.** **Eight** gates, each a *different verb*, each
+  answered by a hint planted in an earlier level. A player who explored reads straight through; one
+  who rushed must guess, and guesses cost panic they cannot get back. Built procedurally by
+  `kontur.gd` via `RoomBuilder` from a 13-room spine (Landing → Vestibule → **AnteWest/AnteEast** →
+  Passage → Kitchen → **Records** → Archive → **Switchboard** → **Blackout** → Airlock → Escort →
+  Terminus, z −4…98), same `.tscn`-minimal / `PRESERVE`-whitelist pattern as the Lab and House
 - **Visual arc = the story**: peeling Soviet wallpaper (`kontur_wallpaper_soviet`) → raw infected
   concrete (`kontur_concrete_infected`, the `CONCRETE_ROOMS`) → clinical KONTUR tile
   (`kontur_facility_wall`, the `FACILITY_ROOMS`, which reuse `lab_floor`/`lab_ceiling`). Done entirely
   with `RoomBuilder`'s per-room `wall_mat`/`floor_mat`/`ceil_mat` overrides in `_rooms_with_skins()`
 - **Gate 1 — THE TWO DOORS** (`choice_door.gd`, *choose*): a black and a red door in the vestibule.
-  Which side is black is **randomised per run**, so the answer is the colour, never a position. Black
-  opens onto the passage; red opens onto a wall of O-41 + a strike. Hint: hidden note in the **Lab morgue**
+  Which side is black is **randomised per run**, so the answer is the colour, never a position. The two
+  doors open into **two separate antechambers**, and `_open_the_void()` deletes the floor behind the red
+  one — the wrong door is a **hole**, not a decoration. Hint: hidden note in the **Lab morgue**
+- **BANISHMENT** (`_check_void_fall` → `_banish`, threshold `y < −4`): falling out of the world does not
+  kill you, it **demotes** you. `GameState.kontur_banished` is set (it survives the transition because
+  `reset_level_state()` deliberately doesn't clear it, the same trick `is_ending` uses), `current_level`
+  drops to 4, and `backrooms.gd:_check_banishment()` greets you with a blood-red scrawl — *"YOU DIDN'T
+  READ. THE COLOUR WAS WRITTEN DOWN SOMEWHERE YOU DIDN'T LOOK."* — then clears the flag so it shows once
 - **Gate 2 — THE SHELF** (`bottle_item.gd` + `fungal_barrier.gd`, *use*): three bottles (vinegar /
   bleach / water) on the kitchen shelf, and a fungal mass sealing the way on. Vinegar dissolves it
   (canon: acetic acid retards O-41); a wrong bottle is **consumed**, so a bad guess costs a walk back
   as well as a strike. Hint: the **House TV** static resolves into a KONTUR test card every ~16–26 s
+- **Gate 5 — THE ROSTER** (`combination_lock.gd`, *recall*): a personnel gate in Records welded shut
+  until you enter **047**. The only gate whose answer the player has carried since the first minute of
+  the game — the **intro room** note opens *"You are Subject 47."* Nothing in KONTUR states the number;
+  the plate just leaves the field blank. The lock gained `code` / `title_text` / `unlocked` /
+  `wrong_code` so it can serve two levels without touching `GameState.level2_code`
 - **Gate 3 — THE OFFERING** (`offering_pedestal.gd`, *abstain*): a keycard glowing on a lit pedestal,
   deliberately identical in read to the Lab keycard the player has spent five levels being trained to
-  grab. The exit is **already open**. Taking it = alarm + strike; walking past is scored silently on
-  entering the Airlock. Hint: the **Corridor** door plate at d=172 m ("RECOVERED ITEMS ARE BAIT")
-- **Gate 4 — THE ESCORT** (`escort_gate.gd`, *camera discipline*): the lights behind you die and
-  something breathes at your back for 26 m. The camera heading may not stray more than
-  `LOOK_LIMIT_DEG=100°` from the corridor axis. Mouse-look is otherwise free — only actually turning
-  round trips it, and a `COOLDOWN=3 s` stops one panicked spin spending every strike at once. Hint:
-  marker scrawl on the **Backrooms** east arm's dead-end cap
-- **Fail economy (unique to this level)**: the whole floor is one `DreadZone`. `DREAD_DECAY_RATE` and
+  grab. The exit is **already open**. Taking it **forfeits the run**; walking past is scored silently on
+  entering the Switchboard. Hint: the **Corridor** door plate at d=172 m ("RECOVERED ITEMS ARE BAIT")
+- **Gate 6 — THE PHONE** (`rotary_phone.gd`, *ignore*): a phone rings for a whole room's length in the
+  Switchboard. Answering **forfeits the run**. Hint: the **Backrooms** phone is a read-to-die trap. The
+  phone gained `open_note` (false here — the forfeit is punishment enough) and an `answered` signal
+- **Gate 7 — THE BLACKOUT** (*unlight*): an unlit room with three door seams on the far wall. The real
+  one is visible **only with the flashlight OFF**; the two that glow under the beam are painted on and
+  cost a strike. ⚠️ **No `DarkZone` here** — a room solved by turning the light off must not also tax
+  the light being off (+3/s *and* decay suppressed, +5/s with the level DreadZone). Issue 18. The Airlock/Escort/Terminus spine is **built at whichever of three x offsets was
+  drawn**, so the answer moves every run. Hint: the **Backrooms Flood**
+- **Gate 8 — THE AIRLOCK** (*wait*): the decontamination cycle needs `AIRLOCK_CYCLE=9 s` of stillness
+  (horizontal speed ≤ `STILL_SPEED`; looking around is free). This **inverts** the Backrooms rule that
+  standing still raises panic, and no earlier level hints at it — so unlike every other gate it
+  **teaches itself**, via a wall meter that fills while you hold still and drains twice as fast when
+  you move
+- **Gate 4 — THE ESCORT** (`escort_gate.gd`, *camera discipline*): 26 m with the lights dead behind you.
+  Heading may not stray more than `LOOK_LIMIT_DEG=100°` from the corridor axis; `COOLDOWN=3 s`. The
+  **first look is free** (`ARM_AT=0.16`) and emits `warned` instead — the lights dying behind you is
+  itself an invitation to turn, and a playtester forfeited 1.5 m in, before the temptation or the sign.
+  The rule's sign hangs in the **Airlock**, read while standing still for gate 8, not inside the
+  corridor it governs. **The
+  rule now has teeth**: a `tempt(stage)` signal paced on *distance* (`TEMPT_AT = [0.18, 0.45, 0.72]`,
+  measured on progress so a cautious and a brisk player both get all three) fires footsteps behind you,
+  then a whisper, then a blood-red **"LOOK BEHIND YOU"** on the screen. It is a lie, and obeying it
+  forfeits the run. Diegetic first, text last — a UI that lies about something you can already *hear*
+  reads as the level's voice rather than as a cheap trick. Hint: **Backrooms** east-arm dead-end scrawl
+- **The exit actually locks** (Issue 16): `_make_door` used to leave `unlock_condition = NONE`, so the
+  level was completable having failed or skipped every gate — it cleared in **32 seconds**. `door.gd`
+  gained `extra_lock` + `locked_message`; `kontur.gd` holds a `_gates` ledger and `_refresh_exit()`
+  keeps the door sealed until all eight pass, naming the shortfall on the door itself
+- **FORFEIT**: the three *abstain* gates (offering / phone / escort) cannot be un-failed, so failing one
+  voids the run — `_forfeit()` fires a scrawl, rewrites the objective **and** the exit door's locked
+  message within a second. That loudness is load-bearing, not polish: a sealed door with no explanation
+  reads as a bug rather than as a verdict
+- **Fail economy (unique to this level)**: the whole floor is one `DreadZone` (sized to span z −4…98 —
+  a short zone silently stops applying partway down the spine). `DREAD_DECAY_RATE` and
   `DREAD_PANIC_RATE` are both 2.0/s in `player.gd`, so they **cancel exactly** — panic never drains
   here. Each wrong answer is `flash_scare(kontur_flash.png)` + jolt + `STRIKE_PANIC=18`. Three strikes
   = 54 > `PANIC_MAX` (50), so `add_panic()` fires the fatal screamer on its own. **There is no bespoke
@@ -121,14 +161,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - **Redacted signs** (`_make_sign`): each gate's rule is stated on a wall plate with the operative word
   replaced by a censor bar, so a player who missed the hints gets the shape of the question but not the
   answer. Text is `Label3D` over `kontur_sign_blank.png` (faintly emissive so it reads in the dark);
-  the redaction is a black quad on its own line, which needs no text measurement to place
+  the redaction is a black quad on its own line, which needs no text measurement to place.
+  ⚠️ All `wall_point()` insets are **0.16** — under ~0.11 the plate is buried inside the 0.2 m wall
+  and invisible in game (Issue 11)
 - **The Perëkozhnik** (`creature_shapechanger.gd`): a billboard mimic standing motionless in the
   passage's far corner. It never moves or chases and is **not** a gate — it feeds gaze panic and kills
-  only within `KILL_DIST=2 m`. It exists to punish the one instinct this level otherwise rewards:
-  walking up to something for a better look
+  only within `KILL_DIST=2 m`. Its 16 panic/s stare is **deliberately** faster than the three-strike
+  budget (see the `⚠️ DELIBERATE` note on `GAZE_INTENSITY`); it exists to punish the one instinct this
+  level otherwise rewards: walking up to something for a better look
 - **Objectives never state an answer** — `GameState.set_objective()` runs in protocol register
   ("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT", "DECONTAMINATION REQUIRED", …)
-- Win: four gates → exit door (`NONE`) → The Void. Fail: three strikes, or the Perëkozhnik
+- Win: **all eight** gates → exit door → The Void. Fail: three strikes, the Perëkozhnik, a forfeited
+  run, or the wrong door (which banishes rather than kills)
 
 **Level 6 — The Void (surreal broken geometry)**
 - Corridors loop, geometry distorted, floating tiles, floor text
@@ -240,7 +284,8 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `apparition.gd` | `class_name Apparition` (Session 10) — the random monster. `Apparition.spawn(parent, rule, pos, teach)`; `RULE_HOLD` = appear-ahead, survive by not sprinting; `RULE_STARE`/`RULE_LOOKAWAY` reuse stalker/smiler. See "Random Apparition" above |
 | `breaker.gd` | `class_name Breaker` (Session 10) — Lab power switch; `interact()` flips once + emits `flipped` + clunk (`breaker_throw`) |
 | `living_mirror.gd` | `class_name LivingMirror` (Session 10) — one-way mirror; a figure shows in the glass only when the player is NOT looking head-on (`LOOK_DOT=0.8`) + gaze panic (ScaryObject). **Seeds `body.global_transform = global_transform`** — without it the ScaryObject-chained collider sits at the world origin (an invisible wall; the bug fixed in Session 10) |
-| `kontur.gd` | Level 5 — KONTUR. Builds the 8-room spine via `RoomBuilder`, the Soviet→facility skins, the level-wide `DreadZone` (the no-decay economy), all four gates + their redacted signs, the Perëkozhnik, props and doors. Owns the strike counter (`_strike()` → `flash_scare` + 18 panic) |
+| `kontur.gd` | Level 5 — KONTUR. Builds the 13-room spine via `RoomBuilder`, the Soviet→facility skins, the level-wide `DreadZone` (the no-decay economy), all **eight** gates + their redacted signs, the Perëkozhnik, props and doors. Owns the strike counter (`_strike()`), the `_gates` ledger + `_refresh_exit()` (the exit stays sealed until all eight pass), `_forfeit()`, and `_open_the_void()`/`_check_void_fall()`/`_banish()` (the wrong door drops you a level) |
+| `screen_text.gd` | `class_name ScreenText` — shared transient on-screen text: `toast()` / `caption()` / `scrawl()` (blood-red, slightly rotated — the project has no handwriting font, so the tilt does the work). Replaces five hand-rolled CanvasLayer+Label helpers. ⚠️ Always parents to the tree root and cleans up via a **connected**, never awaited, tween — an awaited timer dies with the node that started it (Issue 6) |
 | `choice_door.gd` | `class_name ChoiceDoor` — KONTUR Gate 1. Self-building hinged door panel; `@export is_correct/texture_path`, `signal chosen(correct)`, swings open on `interact()`. The level owns the consequence |
 | `bottle_item.gd` | `class_name BottleItem` — KONTUR Gate 2. Self-building glass bottle + label quad; `@export kind/label_path`, `signal taken(kind)`. Layer 2 / mask 0 like `note.gd` so the shelf line isn't walkable-into |
 | `fungal_barrier.gd` | `class_name FungalBarrier` — KONTUR Gate 2. The O-41 mass sealing a doorway; `setup(size, tex)`, `signal sprayed`, `dissolve()` (drops the collider FIRST, then tweens, so the player is never trapped mid-tween) |
@@ -258,7 +303,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `level_2_1.tscn` | CODE_ENTERED | **Minimal scene** (Session 10): same `.tscn`-minimal / `PRESERVE`-whitelist pattern — the 8-room ground floor + lowered cellar are built at runtime by `level_2.gd` via `RoomBuilder` + `_build_cellar()`. Player spawn (0,0.1,−2.0) facing +z; `ExitDoor` built with `advances_level=true`; BackDoor returns to Lab. **Session 11:** brighter lamps (rooms 0.9, range 10) + `_boost_ambient()` (raised ambient + BLACK background per-scene); fixed cellar headroom + sky-cap. **Note:** `GameState.SCENE_LEVEL_2` points to `level_2_1.tscn` (not `level_2.tscn`). |
 | `corridor.tscn` | NONE (reach the door) | Minimal scene: root + Environment + AmbientPlayer + Player at (0,0,2) facing +z — everything else built by `corridor.gd` in `_ready()`. Exit door 217 at d=320 m; BackDoor at the start returns to The House |
 | `backrooms.tscn` | NONE (three down-turns → glitch wall) | Level 4. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0,−5) facing +z — the cyclic maze, lights, arrows, zones, props all built by `backrooms.gd` in `_ready()`. Sets `current_level = 4` |
-| `kontur.tscn` | NONE (pass four gates) | Level 5 — KONTUR. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−3) facing +z — the 8-room spine, gates, signs, creature and doors all built by `kontur.gd` in `_ready()`. Sets `current_level = 5`; BackDoor returns to the Backrooms |
+| `kontur.tscn` | `extra_lock` — all eight gates | Level 5 — KONTUR. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−3) facing +z — the 8-room spine, gates, signs, creature and doors all built by `kontur.gd` in `_ready()`. Sets `current_level = 5`; BackDoor returns to the Backrooms |
 | `level_3.tscn` | TWIST_READ | The Void (level 6). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 6` |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 

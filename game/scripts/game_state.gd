@@ -12,6 +12,12 @@ var level2_code_correct: bool = false  # Set to true by combination_lock.gd on c
 var twist_read: bool = false           # True once the twist note in Level 3 is read
 var is_ending: bool = false       # True when loading intro room as the twist ending
 
+# Set when KONTUR's wrong door drops the player out of the world and demotes them to
+# the Backrooms. backrooms.gd reads it on arrival to show the accusation, then clears
+# it. Like `is_ending`, this MUST survive a level change — so it is deliberately NOT
+# touched by reset_level_state(), which runs on every transition.
+var kontur_banished: bool = false
+
 const SCENE_INTRO   := "res://scenes/intro_room.tscn"
 const SCENE_LEVEL_1 := "res://scenes/level_1.tscn"
 const SCENE_LEVEL_2 := "res://scenes/level_2_1.tscn"
@@ -71,6 +77,7 @@ func go_back() -> void:
 func go_to_main_menu() -> void:
 	is_ending = false
 	twist_read = false
+	kontur_banished = false
 	current_level = 0
 	has_keycard = false
 	level2_code_correct = false

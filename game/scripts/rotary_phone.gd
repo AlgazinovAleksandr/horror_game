@@ -21,6 +21,13 @@ const WHISPER_TEXT := """...hello? hello is someone—
 ...if you can hear this you already took a wrong—
 ...HANG UP. HANG UP. HANG U—"""
 
+signal answered
+
+# KONTUR reuses this phone as its "ignore" gate, where picking up is itself the whole
+# failure — stacking a read-to-die note on top of a forfeited run would be punishing
+# the same mistake twice. Backrooms leaves this true and keeps the trap note.
+@export var open_note: bool = true
+
 var _answered: bool = false
 var _ring_timer: float = 2.0
 var _ring_player: AudioStreamPlayer3D
@@ -105,5 +112,7 @@ func interact() -> void:
 	_ring_player.stop()
 	if _whisper_player.stream:
 		_whisper_player.play()
+	answered.emit()
 	# Read-to-die: NoteUI feeds panic while the call is open; hang up to survive.
-	NoteUI.show_note(WHISPER_TEXT, ANSWER_PANIC_RATE)
+	if open_note:
+		NoteUI.show_note(WHISPER_TEXT, ANSWER_PANIC_RATE)
