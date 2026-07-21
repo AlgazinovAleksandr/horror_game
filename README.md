@@ -4,11 +4,11 @@ A 3D first-person atmospheric horror game built in Godot 4. You are **Subject 47
 
 ## Premise
 
-You wake in a dark room. A note on the table tells you that you are part of an experiment — and that the entity you may encounter is a product of your own mind. Five levels stand between you and the truth. Touch the wrong things and the experiment ends badly.
+You wake in a dark room. A note on the table tells you that you are part of an experiment — and that the entity you may encounter is a product of your own mind. Six levels stand between you and the truth. Touch the wrong things and the experiment ends badly.
 
 ## Gameplay
 
-- **First-person exploration** — walk through 4 escalating environments
+- **First-person exploration** — walk through 6 escalating environments
 - **Trigger objects** — specific objects are traps. Interact with them (press E) or stare for 3 continuous seconds → screamer → level restarts
 - **Trap notes (read-to-die)** — trap notes open like any other note, but panic climbs fast while the page is open and the text bleeds red. Close it in time and you escape shaken; read to the end and the screamer takes you
 - **Panic system** — staring at any object tagged as `ScaryObject` fills a panic bar. The bar rises ~1.3× faster than it falls. Hit the limit → screamer. Visual feedback: blur + red-tint overlay. Audio feedback: heartbeat whose pitch and volume rise with panic
@@ -20,6 +20,7 @@ You wake in a dark room. A note on the table tells you that you are part of an e
 - **Stalking creatures** (Level 6 — The Void) — tall red-eyed figures that freeze while you watch them and advance the instant you look away (Weeping-Angel logic). Let one reach you and it lunges → screamer. Staring also feeds panic, so you can't just watch one forever
 - **Notes** — find and read notes to collect clues, codes, and keycards needed to unlock each exit door
 - **Combination lock** — Level 2's exit needs a 3-digit code from the safe notes. Every wrong guess buzzes and spikes panic: brute-forcing the lock is itself a way to die
+- **KONTUR's cross-level gates** (Level 5) — this level's answers aren't inside it. Each of its eight gates was hinted somewhere earlier: a note in the Lab, a TV test card in the House, a door plate in the Corridor, a phone in the Backrooms. A player who explored reads straight through; one who rushed is guessing, and guesses here cost panic that never drains
 - **Back doors** — each level has a back door (blood-red glow) that returns you to the previous level. Collected items (keycard, code) are cleared on re-entry
 - **No combat** — horror through atmosphere, sound, lighting, and restraint
 
@@ -47,8 +48,9 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 | 1 — The Lab | Sprawling institutional wing — 10 rooms: reception, exam rooms, records, a sealed morgue, a one-way-mirror observation room | **Restore power** (flip 3 breakers) to drop the morgue shutter, take the guarded keycard from the dark morgue, use on exit door | Interact with or stare 3 s at a trigger object; the apparition rushes you if you sprint; or panic bar fills |
 | 2 — The House | Abandoned domestic interior — 8 ground-floor rooms + a descent into the cellar (door slams, footsteps overhead, a moonlit forest behind the window, TV static, a music box) | Find the cellar key, read 3 safe notes (the third is down in the cellar), enter 3-digit code on lock | Read a trap note to the end; panic bar fills (scares, cursed props, dark cellar, wrong lock codes) |
 | 3 — The Corridor | ~320 m haunted-hotel hallway (inspired by *The Corridor*, 2012); the Manager and creature-filled turn mirrors strike along the way | Never reach room 217 — the corridor goes black, your light dies, and you noclip through the floor into the Backrooms | Panic bar fills (events, darkness, beartraps, cursed mirror/clock/paintings, sprinting, the final dread zone) |
-| 4 — The Backrooms | Liminal mono-yellow maze: looping intersections, buzzing fluorescents, a ringing rotary phone, mirage back-doors, and the Smiler in the dark | Read the down-arrows — take three correct down-turns in a row to tear the seam and walk into the glitch wall | Wrong turn (resets you); standing still too long; light the Smiler or sprint near it; answer the phone to the end; or the panic bar fills |
-| 5 — The Void | Surreal broken geometry, looping corridors, stalking red-eyed creatures, a floor broken open over the abyss | Find the twist note, walk through exit | A creature reaches you; you fall into the void; read a trap note to the end; or the panic bar fills |
+| 4 — The Backrooms | Liminal mono-yellow maze in three zones — the Lobby (looping intersections, buzzing fluorescents, a ringing rotary phone, mirage back-doors, the Smiler in the dark), the Sprawl (an oversized pillar hall where sound, not sight, marks the real exit), and the Flood (an ankle-deep flooded wing where the exit only shows with the flashlight off) | Clear all three zones — each ends in a glitch wall that reveals the way to the next | Wrong turn/wrong wall in the Lobby/Sprawl; standing still too long; light the Smiler or sprint near it; answer the phone to the end; or the panic bar fills |
+| 5 — KONTUR | A decaying Soviet stairwell that sterilises room by room into a clinical containment wing — eight gates, each a different verb (choose, use, recall, abstain, ignore, unlight, wait, don't look), each one's answer hidden somewhere in an earlier level | Pass all eight gates, then reach the exit — it stays sealed until every gate is cleared | Three wrong-answer strikes, the motionless mimic in the passage, forfeiting one of the three no-take-backs gates (the offering, the phone, the escort), or the panic bar fills. The wrong door at Gate 1 doesn't kill you — it drops you back a level, into the Backrooms |
+| 6 — The Void | Surreal broken geometry, looping corridors, stalking red-eyed creatures, a floor broken open over the abyss | Find the twist note, walk through exit | A creature reaches you; you fall into the void; read a trap note to the end; or the panic bar fills |
 | Ending | Returns to the intro room — corrupted: dead candle, blood-red throb, the way out boarded over, one spotlit note | Read the note | — |
 
 ## Stack
