@@ -314,6 +314,38 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `level_3.tscn` | TWIST_READ | The Void (level 6). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 6` |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 
+## ⚠️ Building a level without coincident-surface bugs (READ THIS FIRST)
+
+Levels 1 and 2 shipped with a family of bugs the player described as *"textures merging into each
+other"* / *"lagging textures"*. Every one of them was the same underlying fault — **two visible
+surfaces occupying the same plane** — and the fix was never in the art. Session 15 fixed six
+variants (Issues 19, 20, 23, 24, 25, 26). KONTUR had the same bug and nobody had noticed.
+
+**Run this before calling any procedurally-built level done:**
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path game \
+  --script res://tests/check_wall_overlap.gd -- res://scenes/<level>.tscn
+```
+It asserts two things and prints `WALL-OVERLAP PASS` / `FAIL` with the offending node names:
+1. no two CSG boxes have parallel faces within 2 mm while overlapping in the other two axes;
+2. every `QuadMesh` sits at least 2 cm clear of every CSG box.
+
+### The rules it encodes
+| Rule | Why |
+|---|---|
+| Rooms in a `ROOMS` table must **ABUT, never overlap** | Overlapping rooms emit floor/ceiling slabs whose visible faces are both at y=0 / y=h → z-fight (the Lab's `Observation` poked 0.5 m into two neighbours) |
+| Never hand-compute a wall-prop position; use `wall_point()` | Its inset is measured from the room's NOMINAL boundary, and the wall face is `T/2` in from that. The morgue poster's hand-rolled `c.z + 2.9` landed exactly on the face and got sliced apart |
+| Wall props need `inset ≥ 0.16`; **0.22** if anything hangs behind them | `LivingMirror` puts its figure 0.05 behind the glass. At 0.1 the figure was *inside the wall* — invisible in both levels, for the whole project's life |
+| Artwork goes on a **`QuadMesh`**, never on a `BoxMesh` face | A box doesn't map the whole texture per face; it renders a magnified crop. `door.gd:build_visual()` is the pattern — box for edge/depth, quad for art |
+| Any deliberately overlapping slab must be **offset**, not coplanar | Floor bridges are sunk `BRIDGE_SINK` (4 mm) for exactly this reason |
+| A new builder that emits walls must dedup by **interval**, not by exact span | Abutting rooms of different depths emit same-plane walls with different spans; exact-match dedup builds both |
+
+### Why this was hard to catch
+It is **camera-dependent**: a depth fight resolves differently per position and angle, so static
+screenshots from `tests/screenshot_level.gd` mostly did *not* reproduce it while walking around in
+game did. Three rounds of fixes were driven by the user's own in-game screenshots. **Do not trust a
+clean screenshot run as evidence that geometry is sound — run the assertion.**
+
 ### ⚠️ Put artwork on a QuadMesh, never on a BoxMesh face
 A `BoxMesh` does not map a whole texture onto each face, so a textured box renders a magnified CROP
 of its own art (Issue 24 — the exit doors showed one hinge and no window, while the tray and monitor

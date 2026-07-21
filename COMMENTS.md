@@ -250,3 +250,71 @@ Two House bugs shared a root: a box's local axes don't tilt the way intuition sa
 
 ### Two more "it built fine but doesn't play" misses
 The headless smoke test passes (no parse/script errors) on geometry that is still unplayable, so two bugs only a human (or an interaction probe) catches slipped through to playtest. First: the rebuilt exit doors were created with `advances_level = false`, and `door.gd` only acts when `goes_back` **or** `advances_level` is true — so collecting the keycard and pressing E on the lit door did *nothing*. Second: the morgue trigger objects (surgical tray, face-monitor) were placed at y-offsets that buried them *inside* the cart they sit on, so the "objects you mustn't look at" were invisible. Both are reminders that a clean compile says nothing about reachability or whether a prop is where you can see it — the Issue-5 lesson, restated: blockout-walk (or ray-probe) the actual play path, every objective, before trusting a level.
+---
+
+## Session 15 — The "merging textures" hunt, and why it took three rounds
+
+### One bug wearing six hats
+The user reported Levels 1 and 2 as looking visibly worse than 3–6: *"lagging textures, as if two
+textures are merging into each other."* It read like an art problem. It was not — it was six
+variants of a single fault, **two visible surfaces occupying the same plane**, plus one texture that
+had silently failed to import.
+
+What makes this worth writing down is that the fix was found three separate times, and the first two
+were incomplete:
+
+1. **Round one** found walls rendering upside-down (a positive `uv1_scale.y`, the one convention
+   `RoomBuilder` never received while `MazeKit` and `corridor.gd` both had it) and floor bridges
+   coplanar with room floors. Both were real. The screenshots improved a lot. It was declared fixed.
+2. **The user came back with in-game screenshots** showing bathroom tile bleeding through a hallway
+   wall. The actual dominant cause had been missed entirely: `RoomBuilder` deduped walls by **exact
+   span match**, so two abutting rooms of *different depths* each emitted a wall on the shared plane
+   and both got built. Only equal-sized rooms had ever been deduped.
+3. **The user came back again** with the morgue poster sliced apart. Same class, one level down:
+   `wall_point()`'s inset is measured from the room's nominal boundary, not the wall's face, so an
+   inset of 0.10 — used by every note in both levels — put props *exactly* on the wall face.
+
+### Why the harness never saw it
+A depth fight resolves differently depending on camera position and angle. The screenshot harness
+shoots from fixed points, so it mostly produced clean images of a level that was obviously broken
+the moment you walked through it. **Every round of this was found by the user, not by the tooling.**
+
+That is the real lesson, and it is why the durable output of this session is not the six fixes but
+`tests/check_wall_overlap.gd`, which asserts the invariant directly — no two visible faces within
+2 mm, no quad closer than 2 cm to a box — and names the offending nodes. It found the same bug in
+KONTUR, which nobody had reported and everyone considered finished.
+
+### Latent bugs that fell out of the same rule
+Two things had been broken for the project's entire life without anyone noticing:
+
+- **The one-way mirror's figure was never visible.** `LivingMirror` hangs its figure 0.05 m *behind*
+  the glass. With the glass at inset 0.1 — flush with the wall face — the figure sat inside the wall,
+  occluded. The Lab's observation room and the House's bathroom both shipped with a scare that could
+  not fire visually.
+- **The Lab's `Observation` room overlapped two of its neighbours** by 0.5 m in the `ROOMS` table.
+
+Neither would ever have surfaced as a bug report; they would just have been quietly dull rooms.
+
+### Methodology notes worth keeping
+- **Bisect before theorising.** When the new ceiling fittings rendered as blown-out white slabs,
+  three hypotheses were argued in sequence, including an FOV calculation that "proved" the fitting
+  could not even be in frame. It was wrong. Disabling the fixture and re-shooting identified the
+  cause in a single run. The calculation had been more persuasive than the evidence, which is exactly
+  the failure mode to watch for.
+- **Probe the scene rather than reading the picture.** The blank monitor turned out to be a `.png`
+  that was really JPEG data — `load()` failed while `ResourceLoader.exists()` returned true, so the
+  existing guard passed and the prop rendered empty with no visible error. A scene probe surfaced the
+  real `_load` failure immediately; no amount of staring at screenshots would have.
+- **Suspect the camera before the geometry.** Several House shots came back black. The geometry was
+  fine: a screamer had fired, `_freeze_player()` had disabled the player's `process_mode`, so the
+  player never fell from the spawn height and the camera sat above the ceiling. A test harness that
+  teleports a physics body has to wait for it to settle — and undo whatever the game did to it.
+
+### On emission, again
+Adding visible light fittings to Levels 1–2 (they were the only levels lighting rooms with
+*invisible* point lights, while the Corridor and Backrooms pair every light with a glowing mesh)
+re-taught the Issue-21 lesson twice in one session: a fixture's albedo must be dark because it sits
+centimetres from its own light, and its emission must stay below 1.0 because the project has no
+tonemapping. The same trap then washed a textured steel door to salmon pink. In a project with
+Linear tonemap, no glow and ~0.45 light energy, **emission is not polish — it is most of a surface's
+final colour.**

@@ -496,6 +496,43 @@ and the check was verified to fail when one is re-added.
 assertion into the level's test at the same time as the puzzle — a documented gotcha did not stop
 this happening twice in one day, but a failing test would have.
 
+## Playbook — "textures are merging / flickering / lagging" (the coincident-surface family)
+
+Issues 19, 20, 23, 24, 25 and 26 are all ONE bug class wearing different hats: **two visible surfaces
+in the same plane**, or **a texture that never loaded**. They were reported by the user three separate
+times because each round of fixes only caught one variant. Use this table before diagnosing from
+scratch.
+
+| What you see | Almost certainly | Fix |
+|---|---|---|
+| One room's texture bleeding through another's along a **jagged/stippled contour**, flickering as you walk | Two coincident WALL slabs — abutting rooms of different depths emitting the same plane twice | Interval-subtract wall dedup (Issue 23) |
+| **Patchwork rectangles** on hallway floors at doorways | Floor bridge coplanar with room floors | `BRIDGE_SINK` (Issue 20) |
+| A wall poster/sign **sliced apart** by the wall behind it | Prop sitting exactly ON the wall face — `wall_point()` inset of 0.10 | `inset ≥ 0.16` (Issue 26) |
+| A wall prop **invisible** although the code runs | Prop buried INSIDE the 0.2 m wall — inset < 0.1, or something hanging behind the prop | `inset 0.22` for props with depth (Issue 26) |
+| Wainscot at mid-wall; lower half a **mirrored duplicate** | Positive `uv1_scale.y` on a triplanar material | Negate V (Issue 19) |
+| A prop shows a **magnified crop** of its own texture | Art applied to a `BoxMesh` face | Move art to a `QuadMesh` (Issue 24) |
+| A prop renders **blank/untextured**, no error visible | `.png` that is really JPEG — `load()` fails while `ResourceLoader.exists()` returns TRUE | `file` it, then `sips -s format png` (Issues 1, 25) |
+| A whole emissive surface reads as **flat pure white** | `emission_energy_multiplier > 1.0` with Linear tonemap and no glow | Keep emission below 1.0 (Issue 21) |
+
+### Diagnostic order (learned the hard way)
+1. **Run the assertion first** — `tests/check_wall_overlap.gd` names the offending nodes in one run
+   and covers most of the table above.
+2. **Probe the scene, don't reason about it.** Dump the actual node positions, AABBs, materials and
+   textures (`tests/check_fixtures.gd`, `check_morgue_props.gd`, `check_window.gd`,
+   `check_spawn_blocked.gd` are all one-purpose probes written for exactly this). A probe surfaced the
+   `_load` error behind the blank monitor that no amount of looking at screenshots would have.
+3. **Bisect before theorising.** When ceiling fittings blew out white, three hypotheses were argued
+   in a row — including an FOV calculation that "proved" the fitting could not be on screen. It was
+   wrong. Disabling the fixture and re-shooting found the cause in ONE run.
+4. **Suspect the camera before the geometry.** When a probe says the geometry is fine but the picture
+   is black, the camera is somewhere unexpected (Issue 22).
+
+### Why screenshots are not sufficient evidence
+A depth fight resolves differently per camera position, so `tests/screenshot_level.gd` can come back
+clean while the level is visibly broken in play. Every round of this bug family was found by the
+*user*, walking around, not by the harness. Static captures verify art and layout; only the
+assertion verifies geometry.
+
 ## Issue 19 — RoomBuilder rendered every Lab/House wall upside-down (the "textures merging" bug)
 
 **Symptom.** Levels 1 and 2 looked visibly worse than 3–6. Walls appeared to have "two textures

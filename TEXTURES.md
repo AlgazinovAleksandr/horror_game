@@ -24,10 +24,15 @@ Columns:
 | `level_1_lab/lab_floor.png` | Clinical linoleum — grey with faint grid seams, scuff marks | Level 1 (The Lab) — all floor CSGBox3D nodes | done |
 | `level_1_lab/lab_ceiling.png` | Fluorescent drop-ceiling tiles — rectangular grid, yellowed, one tile displaced | Level 1 (The Lab) — ceiling CSGBox3D nodes | done |
 | `level_1_lab/poster_lab.png` | Medical anatomy diagram — torso cross-section with handwritten annotations in red; unnerving scrawl | Level 1 (The Lab) — cursed poster (gaze panic) on the morgue wall, built in `level_1.gd` | done |
-| `level_1_lab/blood_lab.png` | Dried blood smear — dark brownish-red, irregular shape, worn at edges | Level 1 (The Lab) — decal quad (on disk; not currently wired into the procedural build) | requires_review |
+| `level_1_lab/blood_lab.png` | Dried blood smear — dark brownish-red, irregular shape, worn at edges | Level 1 — **unused.** Its `Blood` node in `level_1.tscn` was freed by `_clear_old_scene()` on every load, so the texture was loaded and never drawn; the node + `ext_resource` were removed (Session 15). Re-add via `_make_cursed_panel`/`_make_prop` if wanted | to_be_added |
+| `level_1_lab/lab_door.png` | Heavy institutional steel door, flat elevation — pale grey-green enamel, wire-glass observation window, push bar, three riveted hinges, stencilled serial | Level 1 — exit + back doors (`door.gd:build_visual()`). **On a QuadMesh, not the box** — see the BoxMesh rule below | done |
+| `level_1_lab/lab_morgue_shutter.png` | Corrugated steel roller shutter, flat elevation — ribbed slats, rust, "MORTUARY — AUTHORISED ACCESS ONLY" stencil | Level 1 — the `MorgueShutter` CSGBox gating the morgue (`level_1.gd`). Applied with `uv1_scale.x = -1`: Godot mirrors box UVs across opposite faces and the lettering came out backwards on the side the player reads it from | done |
+| `level_1_lab/lab_surgical_tray.png` | Stainless instrument tray seen top-down — scalpel, haemostats, bone saw, forceps, dried blood | Level 1 — the morgue **tray** trigger object (`_make_trigger` detail `"tray"`, on a top-facing quad + procedural lip bars). One of the two objects the morgue note names | done |
+| `level_1_lab/lab_monitor_face.png` | Whole CRT monitor, front elevation — bezel, stand, dusty glass, a half-formed face in green phosphor static | Level 1 — the morgue **monitor** trigger object (`_make_trigger` detail `"monitor"`, full-face quad, emission 0.85). ⚠️ Shipped as JPEG-data-named-`.png` and silently failed to load — see the integrity rule below | done |
+| `level_1_lab/lab_light_fitting.png` | Recessed fluorescent ceiling fitting seen from below — twin tubes behind a yellowed prismatic diffuser, dead insects, one tube burnt out | Level 1 — the diffuser of every ceiling lamp (`level_1.gd:_add_fixture()`). Emission is driven from `_drive_lights()` so blackouts kill the fitting visibly | done |
 | `level_1_lab/lab_morgue_wall.png` | Cold-storage stainless-steel lockers, scuffed; seamless | Level 1 (The Lab) — the Morgue room's walls (per-room `wall_mat` override in `level_1.gd:_rooms_with_skins()`) | done |
 | `level_1_lab/lab_floor_wet.png` | Institutional tile with a dark water sheen; seamless | Level 1 (The Lab) — the Morgue room's floor (per-room `floor_mat` override) | done |
-| `level_1_lab/lab_oneway_mirror.png` | Dark observation glass with a faint reflection; panel | Level 1 (The Lab) — observation room mirror. **Note:** `living_mirror.gd` builds its glass from a `StandardMaterial3D` (metallic dark), not this texture; on disk, **not yet wired** | requires_review |
+| `level_1_lab/lab_oneway_mirror.png` | Dark observation glass with a faint reflection; panel | Level 1 + Level 2 — the `LivingMirror` glass (`living_mirror.gd` `GLASS_TEX`, wired Session 15; previously a flat metallic `StandardMaterial3D`). ⚠️ Its call sites must use `wall_point(..., 0.22)`: the figure hangs 0.05 behind the glass, and at the old 0.1 it sat **inside the wall and was never visible** | done |
 | `level_1_lab/lab_breaker_panel.png` | Grey electrical fuse box, open; panel/decal | Level 1 (The Lab) — applied to the 3 `Breaker` panel meshes (`breaker.gd` `PANEL_TEX`) so switches read as real load-centres | done |
 | `level_1_lab/lab_warning_sign.png` | Faded "QUARANTINE / DO NOT ENTER" sign; decal | Level 1 (The Lab) — decal panel on the Records room wall (`level_1.gd:_spawn_room_props()`) | done |
 | `level_1_lab/apparition_figure.png` | Tall pale gaunt skeletal wraith, front-on, on a TRANSPARENT background (billboard cutout) | Levels 1–2 — the `Apparition` figure (`apparition.gd`) AND the `LivingMirror` figure. 1024×1536 RGBA, real alpha (corners α=0); renders as a clean cutout in-game. The old white-background `.jpg` is superseded (`Apparition._resolve_tex` prefers `.png`) | done |
@@ -48,6 +53,7 @@ Columns:
 | `level_2_house/house_wood_stairs.png` | Worn wooden staircase texture; seamless | Level 2 (The House) — the cellar ramp surface (`level_2.gd:_build_cellar()`) | done |
 | `level_2_house/child_drawing.png` | Unsettling crayon child's drawing (a figure with too many limbs); decal | Level 2 (The House) — cursed decal on the child's-room east wall (`level_2.gd:_spawn_room_props()`) | done |
 | `level_2_house/lock_face.png` | Combination lock face — digits/dial for the exit lock UI | Level 2 (The House) — combination lock mesh in `level_2_1.tscn` | done |
+| `level_2_house/house_door.png` | Old six-panel domestic interior door, flat elevation — yellowed cream paint flaking to bare wood, tarnished brass rim lock | Level 2 — exit + back doors (`door.gd:build_visual()`). **On a QuadMesh, not the box** | done |
 | `level_2_house/forest.png` | Moonlit treeline behind the window glass — faint, self-illuminated so it reads in the dark room | Level 2 (The House) — `WindowForest` quad built in `level_2.gd` `_spawn_window()` | done |
 | `level_2_house/screamer_forest.png` | Forest-creature close-up (survivable Forest scare) | Level 2 (The House) — `flash_scare()` fired on close approach to the window (`level_2.gd`) | done |
 | `level_2_house/screamer_house.png` | Baba-Yaga / hag face — house-specific fatal screamer | Level 2 (The House) — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[2]` | done |
@@ -126,6 +132,43 @@ Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — th
 
 ## Notes
 
+### ⚠️ Integrity rules — check these before blaming the art (Session 15)
+Three separate "the texture looks wrong" reports turned out to be code or file problems, not art.
+Check in this order:
+
+1. **Is the file actually the format its extension claims?**
+   ```bash
+   file game/assets/textures/<path>.png     # must say "PNG image data"
+   ```
+   The Gemini/nano-banana pipeline returns **JPEG data even when the filename ends in `.png`**.
+   Godot imports it with `valid=false` and produces no `.ctex`, so `load()` fails — but
+   **`ResourceLoader.exists()` still returns `true`**, so the usual guard passes and the prop renders
+   blank with no visible error (`lab_monitor_face.png`; Issues 1 and 25). Fix with
+   `sips -s format png <path> --out <path>`, then delete the stale `.import` **and** the
+   `game/.godot/imported/<name>-*` entries before re-importing, or the bad import is cached.
+   A giveaway: the bad file is often far smaller than its siblings (287 KB vs ~3 MB).
+2. **Watch for a doubled extension.** `lab_light_fitting.png.png` silently did nothing — the guard
+   looked for `lab_light_fitting.png`, which did not exist.
+3. **Is the art on a `QuadMesh`?** A `BoxMesh` does not map a whole texture onto each face, so a
+   textured box renders a **magnified crop** of its own art — the exit doors showed one hinge and no
+   window while the tray and monitor beside them, on quads with the same material, were fine
+   (Issue 24). Use `door.gd:build_visual()` as the pattern: box for edge and depth, quad for art.
+4. **Is it a wall decal placed with `wall_point()`?** Use `inset ≥ 0.16`, or **0.22** if anything
+   hangs behind it. At 0.10 the prop is exactly on the wall face and the wall texture z-fights
+   through the art, slicing it apart (Issue 26).
+5. **Is the emission below 1.0?** No tonemapping and no glow anywhere in the project, so anything
+   above 1.0 clamps to flat pure white, and on a dark level emission outweighs albedo — a red-tinted
+   emissive door washed to salmon pink (Issue 21).
+
+For a full symptom → cause table see the playbook at the top of `ISSUES_SOLUTIONS.md`.
+
+### Flat-elevation prompt convention for prop textures
+Prop art (doors, shutters, panels, trays, fittings) is generated as a **flat orthographic elevation,
+filling the frame edge to edge, evenly lit, no cast shadows, no perspective, no background around the
+object**. That is what lets it sit on a quad and read as the object rather than as a photo of one.
+The Session-15 batch (`lab_door`, `house_door`, `lab_morgue_shutter`, `lab_surgical_tray`,
+`lab_monitor_face`, `lab_light_fitting`) all use this wording — reuse it for new props.
+
 ### Ceiling textures
 `lab_ceiling` and `house_ceiling` are separate from their wall textures. `_apply_textures()` in `level_1.gd` and `level_2.gd` already has a dedicated `"ceiling"` name branch that applies them.
 
@@ -143,7 +186,12 @@ Images in `game/assets/textures/screamers/` are auto-loaded at startup via `DirA
 Separately, **survivable** flash scares (`Screamer.flash_scare()`, no restart) use their own images: `level_2_house/screamer_forest.png` (House window), `level_3_corridor/screamer_manager.png` (corridor Manager), `level_3_corridor/mirror_with_creature.png` (corridor turn mirrors).
 
 ### Note paper textures
-`note_paper.png` is referenced by the scene-level materials `assets/materials/objects/note.tres` (safe notes) and `trap_note.tres` (trap notes, red-tinted variant), assigned as `surface_material_override` in the `.tscn` files. The runtime styling in `note.gd` (`_style_mesh()`) is commented out — the `.tres` materials are the live path.
+`note_paper.png` had **zero references project-wide** until Session 15 — every note in the game was a
+flat near-black emissive box, because `note.gd`'s `_style_mesh()` was commented out. It is now the
+live path: `note.gd:paper_material(trap)` is the single source of a note's material and is used both
+by `_ready()` (scene-placed notes) and by `level_1.gd`/`level_2.gd`'s `_make_note()` (procedural
+ones). The emission is kept alongside the texture — albedo carries the paper, emission is what makes
+a sheet findable in these dark levels.
 
 ### Procedural (untextured) Level 2 props — candidates for future textures
 The pressure package builds several props in `level_2.gd` from plain `StandardMaterial3D` colors, no texture files: the living-room **window** frame (dark glass + wooden crossbars — note the pane now shows `forest.png` behind it) and the **tarnished mirror** (dark metallic quad). If texture budget allows, a `mirror_house.png` would upgrade the mirror — add a row above when generated. (The old window-glimpse silhouette capsule was removed; only the Forest scare remains at the window.)
@@ -153,12 +201,16 @@ The Session-10 surface/decal batch was wired in Session 11 via `RoomBuilder`'s n
 `wall_mat`/`floor_mat` overrides (`level_*.gd:_rooms_with_skins()`) plus `_spawn_room_props()` and
 the `Breaker`/cellar-ramp builders: `lab_morgue_wall`, `lab_floor_wet`, `lab_breaker_panel`,
 `lab_warning_sign`, `house_kitchen_wall`, `house_bathroom_tile`, `house_wood_stairs`, `child_drawing`,
-and the `tv_static_face` path fix are all live now. **Still `requires_review`:** `lab_oneway_mirror`
-(the `LivingMirror` glass is a metallic `StandardMaterial3D`, not this texture) and `blood_lab` (no
-decal placed yet).
+and the `tv_static_face` path fix are all live now. **Both former `requires_review` entries were
+resolved in Session 15:** `lab_oneway_mirror` is wired into `living_mirror.gd`, and `blood_lab` was
+confirmed dead (its scene node was being freed on load) and removed from `level_1.tscn`.
 
 ### ⚠️ `apparition_figure` must be a transparent PNG
-`apparition.gd` and `living_mirror.gd` both billboard `apparition_figure`. The file on disk is a **`.jpg` (no alpha)**, so the cutout renders as a solid rectangle. Provide a transparent `level_1_lab/apparition_figure.png` — `Apparition._resolve_tex()` already prefers `.png` over `.jpg`, so dropping the PNG in is the only step. Same JPEG-as-cutout caveat applies to any future billboard art.
+`apparition.gd` and `living_mirror.gd` both billboard `apparition_figure`. A `.jpg` has no alpha, so
+the cutout renders as a solid rectangle; the transparent `.png` is now on disk and
+`Apparition._resolve_tex()` prefers `.png` over `.jpg`. The same caveat applies to any future
+billboard art — and note this is a *different* failure from Integrity rule 1 above: there the file is
+JPEG **data** wearing a `.png` name, which fails to load at all rather than losing its alpha.
 
 ### Draft textures
 `level_1_lab/draft/`, `level_2_house/draft/` hold earlier/lower-quality versions (`wall_lab`, `floor_lab`, `wall_house`, etc.) kept for reference; the live textures are the `*_wall.png` / `*_floor.png` files in the parent folders. Not referenced by any script.
