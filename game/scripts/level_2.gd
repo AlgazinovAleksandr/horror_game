@@ -686,18 +686,43 @@ func _spawn_cellar_contents() -> void:
 	key.position = _builder.room_center("Kitchen") + Vector3(2.0, 1.05, 1.6)
 	key.picked_up.connect(_open_cellar_gate)
 	add_child(key)
-	var km := MeshInstance3D.new()
-	var kb := BoxMesh.new()
-	kb.size = Vector3(0.18, 0.04, 0.07)
-	km.mesh = kb
-	var kmat := StandardMaterial3D.new()
-	kmat.albedo_color = Color(0.85, 0.7, 0.2)
-	kmat.metallic = 0.8
-	kmat.emission_enabled = true
-	kmat.emission = Color(0.6, 0.5, 0.1)
-	kmat.emission_energy_multiplier = 0.8
-	km.set_surface_override_material(0, kmat)
-	key.add_child(km)
+	# A key is not box-shaped, so unlike the keycards this one cannot be sold with a
+	# face texture on a slab — it needs an ALPHA CUTOUT on a flat quad lying face-up,
+	# the same trick as the apparition billboard. If the art is missing we fall back
+	# to the old gold box so the level stays completable.
+	var key_tex := TEX + "house_cellar_key.png"
+	if ResourceLoader.exists(key_tex):
+		var kq := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(0.22, 0.10)
+		kq.mesh = qm
+		var qmat := StandardMaterial3D.new()
+		var tex := load(key_tex)
+		qmat.albedo_texture = tex
+		# ALPHA_SCISSOR, not ALPHA: a scissored cutout still writes depth, so the key
+		# sorts correctly against the stand and the cellar gloom instead of blending.
+		qmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		qmat.alpha_scissor_threshold = 0.5
+		qmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		qmat.emission_enabled = true
+		qmat.emission_texture = tex
+		qmat.emission_energy_multiplier = 0.5   # findable in a dark kitchen
+		kq.set_surface_override_material(0, qmat)
+		kq.rotation = Vector3(-PI / 2.0, 0, 0)  # lie flat, face up
+		key.add_child(kq)
+	else:
+		var km := MeshInstance3D.new()
+		var kb := BoxMesh.new()
+		kb.size = Vector3(0.18, 0.04, 0.07)
+		km.mesh = kb
+		var kmat := StandardMaterial3D.new()
+		kmat.albedo_color = Color(0.85, 0.7, 0.2)
+		kmat.metallic = 0.8
+		kmat.emission_enabled = true
+		kmat.emission = Color(0.6, 0.5, 0.1)
+		kmat.emission_energy_multiplier = 0.8
+		km.set_surface_override_material(0, kmat)
+		key.add_child(km)
 	var kcol := CollisionShape3D.new()
 	var ks := BoxShape3D.new()
 	ks.size = Vector3(0.32, 0.24, 0.32)

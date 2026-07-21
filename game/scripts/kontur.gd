@@ -658,6 +658,12 @@ func _spawn_gate6_phone() -> void:
 	var phone := RotaryPhone.new()
 	phone.name = "SwitchboardPhone"
 	phone.open_note = false     # the forfeit IS the punishment; don't also bleed them
+	# A real recorded ring, at full level and audible across the room. The gate is
+	# "ignore the phone" — if the player cannot clearly hear it ringing, the rule on
+	# the sign is about nothing and the whole gate reads as a bug.
+	phone.ring_audio = "phone_ringing"
+	phone.ring_volume_db = 0.0
+	phone.ring_unit_size = 12.0
 	phone.position = Vector3(-2.2, 0.75, 47.5)
 	phone.answered.connect(func() -> void:
 		_answered_phone = true

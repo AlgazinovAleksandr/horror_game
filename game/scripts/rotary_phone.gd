@@ -28,6 +28,18 @@ signal answered
 # the same mistake twice. Backrooms leaves this true and keeps the trap note.
 @export var open_note: bool = true
 
+# Which ring to load, and how loud.
+#
+# The Backrooms keeps `rotary_ring` — a procedurally generated stinger from
+# make_sfx_backrooms.py, deliberately mixed UNDER that level's score at -6 dB so it
+# reads as "distant". KONTUR needs the opposite: Gate 6 is "ignore the phone", so the
+# ring has to be an unmistakable, sustained temptation heard for a whole room's
+# length. It overrides both to a real recorded ring at full level.
+@export var ring_audio: String = "rotary_ring"
+@export var ring_volume_db: float = RING_VOLUME_DB
+# Larger unit_size = audible from further away before distance attenuation bites.
+@export var ring_unit_size: float = 6.0
+
 var _answered: bool = false
 var _ring_timer: float = 2.0
 var _ring_player: AudioStreamPlayer3D
@@ -37,11 +49,13 @@ var _whisper_player: AudioStreamPlayer3D
 func _ready() -> void:
 	_build_mesh()
 	_ring_player = AudioStreamPlayer3D.new()
-	var ring := GameState.load_audio("rotary_ring")
+	var ring := GameState.load_audio(ring_audio)
+	if ring == null and ring_audio != "rotary_ring":
+		ring = GameState.load_audio("rotary_ring")   # fall back rather than go silent
 	if ring:
 		_ring_player.stream = ring
-	_ring_player.unit_size = 6.0
-	_ring_player.volume_db = RING_VOLUME_DB
+	_ring_player.unit_size = ring_unit_size
+	_ring_player.volume_db = ring_volume_db
 	add_child(_ring_player)
 
 	_whisper_player = AudioStreamPlayer3D.new()

@@ -463,9 +463,15 @@ func _spawn_morgue_keycard() -> void:
 	kmat.albedo_color = Color(0.2, 0.8, 0.3)
 	kmat.emission_enabled = true
 	kmat.emission = Color(0.1, 0.6, 0.2)
-	kmat.emission_energy_multiplier = 1.5
+	kmat.emission_energy_multiplier = 0.9
 	km.set_surface_override_material(0, kmat)
 	key.add_child(km)
+	# The card art rides on a top-facing quad — the card lies flat on the cart, so
+	# its top is the only face the player ever sees. (A texture on the BoxMesh would
+	# render a crop; see door.gd:build_visual and Issue 24.) The green emissive box
+	# stays underneath as the edge and as the pre-texture fallback.
+	_add_face_quad(key, Vector2(0.1, 0.15), Vector3(0, 0.013, 0),
+		Vector3(-PI / 2.0, 0, 0), TEX + "lab_keycard.png", 0.55)
 	var kcol := CollisionShape3D.new()
 	var ks := BoxShape3D.new()
 	ks.size = Vector3(0.3, 0.3, 0.6)

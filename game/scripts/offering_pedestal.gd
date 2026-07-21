@@ -11,6 +11,7 @@ class_name OfferingPedestal
 signal taken
 
 const INTERACTABLE_LAYER := 2
+const CARD_TEX := "res://assets/textures/level_5_kontur/kontur_keycard.png"
 
 var _taken: bool = false
 var _card: MeshInstance3D
@@ -40,7 +41,10 @@ func _build() -> void:
 	card_mat.albedo_color = Color(0.75, 0.85, 0.95)
 	card_mat.emission_enabled = true
 	card_mat.emission = Color(0.45, 0.75, 1.0)
-	card_mat.emission_energy_multiplier = 2.2
+	# ⚠️ Was 2.2 — above 1.0 clamps to flat pure white under Linear tonemap with no
+	# glow, so the bait card was a featureless white lozenge (Issue 21). It still has
+	# to glow invitingly; 0.9 does that without erasing the art.
+	card_mat.emission_energy_multiplier = 0.9
 
 	_card = MeshInstance3D.new()
 	var cbox := BoxMesh.new()
@@ -50,6 +54,23 @@ func _build() -> void:
 	_card.position = Vector3(0, 1.12, 0)
 	_card.rotation = Vector3(deg_to_rad(-20.0), 0, 0)
 	add_child(_card)
+
+	# Card art on a quad on the up-tilted face — a texture on the box itself would
+	# render a magnified crop (Issue 24). Guarded, so the gate works untextured too.
+	if ResourceLoader.exists(CARD_TEX):
+		var face := MeshInstance3D.new()
+		var fq := QuadMesh.new()
+		fq.size = Vector2(0.16, 0.10)
+		face.mesh = fq
+		var fmat := StandardMaterial3D.new()
+		var tex := load(CARD_TEX)
+		fmat.albedo_texture = tex
+		fmat.emission_enabled = true
+		fmat.emission_texture = tex
+		fmat.emission_energy_multiplier = 0.7
+		face.set_surface_override_material(0, fmat)
+		face.position = Vector3(0, 0, 0.009)
+		_card.add_child(face)
 
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(0.55, 0.8, 1.0)
