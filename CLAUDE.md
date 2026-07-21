@@ -165,8 +165,12 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   replaced by a censor bar, so a player who missed the hints gets the shape of the question but not the
   answer. Text is `Label3D` over `kontur_sign_blank.png` (faintly emissive so it reads in the dark);
   the redaction is a black quad on its own line, which needs no text measurement to place.
-  ⚠️ All `wall_point()` insets are **0.16** — under ~0.11 the plate is buried inside the 0.2 m wall
-  and invisible in game (Issue 11)
+  ⚠️ `wall_point()`'s inset is measured from the room's NOMINAL boundary, but the wall's inner face
+  is `T/2` (0.1 m) in from that — so clearance = `inset − 0.1`. An inset of **0.10 is exactly
+  coplanar** and z-fights (it sliced the morgue poster apart); below that the plate is buried
+  (Issue 11). `wall_point()` now clamps to a 3 cm minimum clearance itself (Issue 26), so 0.16 is
+  still the house style but no call site can get it wrong. Props needing depth behind them —
+  `LivingMirror` hangs its figure 0.05 behind the glass — need **0.22**
 - **The Perëkozhnik** (`creature_shapechanger.gd`): a billboard mimic standing motionless in the
   passage's far corner. It never moves or chases and is **not** a gate — it feeds gaze panic and kills
   only within `KILL_DIST=2 m`. Its 16 panic/s stare is **deliberately** faster than the three-strike
@@ -257,7 +261,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | Script | Responsibility |
 |--------|---------------|
 | `player.gd` | `CharacterBody3D` movement, raycast interaction, gaze timer (3s stare → fail), **panic system** (`_panic` float, `PANIC_MAX=50`, `PANIC_BASE_RATE=20/s`, `PANIC_DECAY_RATE=3.5/s`, `GAZE_RANGE=3.0m` separate from `INTERACT_RANGE=2.5m`), flashlight toggle (`toggle_flashlight` action, F), heartbeat audio tied to panic ratio. **Sprint** (`sprint` action, Shift): ×1.6 speed, +6 panic/s while sprinting (suppresses decay), faster footsteps. **Flashlight battery**: 240 s per scene (`BATTERY_MAX`), dying-bulb stutter below 48 s, dead = can't re-enable. Zone API: `add_panic(amount)` (instant spike, screamer at max), `apply_slow(duration)` (speed ×0.45), `cancel_slow()` (clears limp instantly — used by beartrap escape), `jolt_camera(strength, duration)`, `enter/exit_calm_zone()` (decay ×2.5), `enter/exit_dark_zone()` (+3 panic/s with flashlight off), `enter/exit_dread_zone()` (decay 2/s + constant 2/s pressure), `get_panic_ratio()`. **Backrooms-only opt-ins** (off by default everywhere else): `enable_standstill_panic()` (+3/s after 4 s still), `enable_footstep_echo()` (phantom step 0.4 s behind), `kill_flashlight()` (force off; F only clicks), `set_smiler_active(bool)` (suspends standstill + dark ticks for the Smiler), `is_flashlight_on()` / `is_sprinting()` |
-| `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors |
+| `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors. Static `door_material(tex_path)` owns the blood-red convention for all levels — ⚠️ with a texture the red emission must stay **very** low (0.18); these levels are lit at ~0.45 energy, so emission outweighs albedo and a higher value renders the door salmon pink (Issue 21) |
 | `note.gd` | Note interact, `is_trap` / `is_twist_note` flags. Trap notes open via `NoteUI.show_note(text, TRAP_PANIC_RATE)` — read-to-die, no instant fail |
 | `combination_lock.gd` | Spinner-dial UI, digit count sized from its answer (`_digit_count()`). Level 2 exit: 3 dials, code **472**, via `GameState.level2_code`. KONTUR's roster gate: 2 dials, code **47**, via its own `code`/`title_text`/`unlocked`/`wrong_code` exports — no `GameState` coupling. Wrong code = buzz + 10 panic (`WRONG_CODE_PANIC`); UI auto-drops if a screamer fires while open |
 | `creature_stalker.gd` | `class_name CreatureStalker` — the Void's creatures. Weeping-Angel stalk (move when unobserved, freeze when watched), LOS-gated, `START_GRACE` opening, lunge → `Screamer.trigger()` on contact. Builds its own visible red-eyed figure + gaze collider in `_ready()`. **Moves the inner `StaticBody3D` (not `self`)** — see the ScaryObject transform-chain gotcha below |
@@ -283,7 +287,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `glitch_wall.gd` | `class_name GlitchWall` (Session 14) — the walk-through exit surface. `setup(size, height, is_real, tex)`, `signal touched(is_real)`, `go_solid()` (an outed fake becomes ordinary wall), `revive()`, `set_seam_visible()` (hides the **whole node**, not just the mesh — Node3D visibility is inherited and the Area3D keeps monitoring regardless) |
 | `silence_zone.gd` | `class_name SilenceZone` (Session 14) — Zone 2's tell. Ducks the `"Backrooms"` audio bus to −30 dB while the player is inside. Restores the bus in `_exit_tree()` so a teleport-out never leaves the level permanently silent |
 | `backrooms_zone2.gd` / `backrooms_zone3.gd` | `class_name BackroomsZone2` / `BackroomsZone3` (Session 14) — the Sprawl and the Flood. `build(origin)` / `build(origin, player)`, `signal cleared` + `signal mistake`; the level owns the consequences |
-| `room_builder.gd` | `class_name RoomBuilder` (Session 10) — procedural room-graph: `build(rooms, doorways)` where room=`{name,pos:Vector2,size:Vector2,h?, wall_mat?/floor_mat?/ceil_mat?}` and doorway=`{pos,width,dir:"x"\|"z",h?}` → CSG floor/ceiling/walls, **floors auto-bridged under every doorway** (kills the Issue-5 void-fall class). Applies its own materials; the optional per-room `*_mat` keys (Session 11) override them so a Morgue/Kitchen/Bathroom reads as a distinct place (`level_*.gd:_rooms_with_skins()`). Helpers: `room_center/size/height`, `wall_point(room,side,y,inset)`, static `make_material()`. Doorways open EVERY wall on their plane, so connected rooms must ABUT (share a wall plane). Used by `level_1.gd`, `level_2.gd` + `kontur.gd` |
+| `room_builder.gd` | `class_name RoomBuilder` (Session 10) — procedural room-graph: `build(rooms, doorways)` where room=`{name,pos:Vector2,size:Vector2,h?, wall_mat?/floor_mat?/ceil_mat?}` and doorway=`{pos,width,dir:"x"\|"z",h?}` → CSG floor/ceiling/walls, **floors auto-bridged under every doorway** (kills the Issue-5 void-fall class). Applies its own materials; the optional per-room `*_mat` keys (Session 11) override them so a Morgue/Kitchen/Bathroom reads as a distinct place (`level_*.gd:_rooms_with_skins()`). Helpers: `room_center/size/height`, `wall_point(room,side,y,inset)`, static `make_material()`. Doorways open EVERY wall on their plane, so connected rooms must ABUT (share a wall plane). Used by `level_1.gd`, `level_2.gd` + `kontur.gd`. ⚠️ `make_material()` **negates V itself** (`Vector3(x, -absf(y), x)`) — callers pass a positive scale. A positive `uv1_scale.y` renders walls upside-down: the wainscot lands at mid-wall and the lower half reads as a mirrored duplicate (Issue 19). ⚠️ Floor bridges are sunk by `BRIDGE_SINK` (4 mm) because their top face is otherwise coplanar with every room floor — the doorway z-fighting/flicker of Issue 20. ⚠️ Wall dedup subtracts **intervals** per (axis, plane, height), not exact spans: abutting rooms of different depths emit walls on the same plane with different spans, and building both put two coincident slabs in the same place — one room's texture bleeding through another's, the "merging textures" bug (Issue 23). ⚠️ Rooms in a `ROOMS` table must ABUT, never OVERLAP, or their floor/ceiling slabs coincide too. `tests/check_wall_overlap.gd` asserts all of this |
 | `apparition.gd` | `class_name Apparition` (Session 10) — the random monster. `Apparition.spawn(parent, rule, pos, teach)`; `RULE_HOLD` = appear-ahead, survive by not sprinting; `RULE_STARE`/`RULE_LOOKAWAY` reuse stalker/smiler. See "Random Apparition" above |
 | `breaker.gd` | `class_name Breaker` (Session 10) — Lab power switch; `interact()` flips once + emits `flipped` + clunk (`breaker_throw`) |
 | `living_mirror.gd` | `class_name LivingMirror` (Session 10) — one-way mirror; a figure shows in the glass only when the player is NOT looking head-on (`LOOK_DOT=0.8`) + gaze panic (ScaryObject). **Seeds `body.global_transform = global_transform`** — without it the ScaryObject-chained collider sits at the world origin (an invisible wall; the bug fixed in Session 10) |
@@ -309,6 +313,27 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `kontur.tscn` | `extra_lock` — all eight gates | Level 5 — KONTUR. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−3) facing +z — the 8-room spine, gates, signs, creature and doors all built by `kontur.gd` in `_ready()`. Sets `current_level = 5`; BackDoor returns to the Backrooms |
 | `level_3.tscn` | TWIST_READ | The Void (level 6). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 6` |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
+
+### ⚠️ Put artwork on a QuadMesh, never on a BoxMesh face
+A `BoxMesh` does not map a whole texture onto each face, so a textured box renders a magnified CROP
+of its own art (Issue 24 — the exit doors showed one hinge and no window, while the tray and monitor
+beside them, on quads with the same material, were fine). `door.gd:build_visual()` is the pattern:
+box for edge/depth, `QuadMesh` on each face for the art.
+
+### ⚠️ `ResourceLoader.exists()` returns true for a texture whose IMPORT failed
+A `.png` that is really JPEG data imports with `valid=false` and no `.ctex`, so `load()` fails while
+`exists()` still says yes — the guard passes and the prop renders blank (Issue 25, a recurrence of
+Issue 1). If a texture silently doesn't appear, run `file` on it before debugging the code.
+
+### ⚠️ Emission is most of a surface's colour (no tonemapping, no glow)
+The project has **no glow/bloom, no fog and no SSAO on any level**, and renders with Linear tonemap
+at exposure 1.0. Two consequences that bit hard (Issue 21):
+- Any `emission_energy_multiplier` **above 1.0 clamps to flat pure white** with no detail. Ceiling
+  fittings use `FIXTURE_EMISSION` 0.55 (Lab) / 0.6 (House); `MazeKit`'s 1.6 only survives because
+  Backrooms strips are seen down a corridor, never directly overhead.
+- Because light energy is ~0.45, a surface's **albedo contributes far less than its emission**. A
+  self-lit prop's albedo must be DARK or the point light beside it blows it out — and a dark albedo
+  is also what lets a blackout drive the fitting visibly dead.
 
 ## Panic System
 

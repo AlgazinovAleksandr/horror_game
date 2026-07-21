@@ -783,7 +783,7 @@ func _spawn_gate8_airlock() -> void:
 	bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	bmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	back.set_surface_override_material(0, bmat)
-	back.position = Vector3(_dark_x, 1.55, 65.85)
+	back.position = Vector3(_dark_x, 1.55, 65.8)
 	back.rotation.y = PI
 	add_child(back)
 
@@ -799,7 +799,9 @@ func _spawn_gate8_airlock() -> void:
 	mmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_airlock_meter.set_surface_override_material(0, mmat)
-	_airlock_meter.position = Vector3(_dark_x, 1.55, 65.84)
+	# 6 cm clear of the seal behind it — at 1 cm the meter and its backing plate sat
+	# inside the AirlockSeal box and fought it for depth.
+	_airlock_meter.position = Vector3(_dark_x, 1.55, 65.79)
 	_airlock_meter.rotation.y = PI
 	_airlock_meter.scale.x = 0.001
 	add_child(_airlock_meter)

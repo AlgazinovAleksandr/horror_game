@@ -10,6 +10,7 @@ class_name LivingMirror
 const LOOK_DOT := 0.8       # how head-on the camera must be to "clear" the glass
 const REVEAL_SPEED := 5.0   # alpha lerp rate
 const FIG_BASE := "res://assets/textures/level_1_lab/apparition_figure"
+const GLASS_TEX := "res://assets/textures/level_1_lab/lab_oneway_mirror.png"
 const GAZE_INTENSITY := 0.7
 
 var _player: CharacterBody3D
@@ -44,6 +45,13 @@ func _build() -> void:
 	mmat.albedo_color = Color(0.06, 0.07, 0.09)
 	mmat.metallic = 0.9
 	mmat.roughness = 0.12
+	# The glass texture gives the panel a frame, grime and a suggestion of depth.
+	# It shipped on disk unused while every one-way mirror in the game was a flat
+	# dark quad. Kept guarded so the mirror still works if the file is absent, and
+	# the albedo tint above stays as the multiplier so it reads dark either way.
+	if ResourceLoader.exists(GLASS_TEX):
+		mmat.albedo_texture = load(GLASS_TEX)
+		mmat.albedo_color = Color(0.7, 0.75, 0.8)
 	mirror.set_surface_override_material(0, mmat)
 	body.add_child(mirror)
 

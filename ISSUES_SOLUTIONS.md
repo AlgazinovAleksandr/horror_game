@@ -495,3 +495,185 @@ and the check was verified to fail when one is re-added.
 *"stop sprinting"*, check whether a zone already charges panic for that exact posture. Write the
 assertion into the level's test at the same time as the puzzle — a documented gotcha did not stop
 this happening twice in one day, but a failing test would have.
+
+## Issue 19 — RoomBuilder rendered every Lab/House wall upside-down (the "textures merging" bug)
+
+**Symptom.** Levels 1 and 2 looked visibly worse than 3–6. Walls appeared to have "two textures
+merging into each other": the wainscot/baseboard band sat at mid-wall height and the lower half of
+every wall read as a mirrored duplicate of the upper half.
+
+**Cause.** `RoomBuilder.make_material()` passed `uv1_scale` straight through, and `level_1.gd` /
+`level_2.gd` both pass an all-positive scale. A positive `uv1_scale.y` on a triplanar material
+renders the texture flipped vertically. `MazeKit.make_material()` (Backrooms) and `corridor.gd`
+already force a **negative V**; `RoomBuilder` — used only by the Lab, the House and KONTUR — never
+received the fix, which is exactly why only those levels looked wrong.
+
+**Fix.** `make_material()` now negates V itself (`Vector3(x, -absf(y), x)`) so no call site has to
+remember. Z reuses the X component to keep horizontal tiling square.
+
+**General lesson.** When a gotcha is documented for one builder, grep for the other builders that do
+the same job. Three of them had the fix and one didn't, and the one that didn't owned two levels.
+
+## Issue 20 — Floor bridges z-fought with room floors at every doorway
+
+**Symptom.** Hallway floors flickered and showed a patchwork of rectangles while walking.
+
+**Cause.** `RoomBuilder._emit_floor_bridge()` placed the `DoorFloor` box's top face at exactly
+`y = 0` — coplanar with every room floor — and `BRIDGE_PAD = 1.3` guarantees it overlaps into the
+rooms on both sides. Nine doorways in the Lab, ten in the House. The file header actively asserted
+this was safe: *"coplanar box faces are accepted; the game is dark, seam z-fighting is invisible at
+these scales."* It is not; darkness does not resolve a depth fight.
+
+**Fix.** `BRIDGE_SINK = 0.004` drops the bridge below the floors, so the room floor always wins the
+depth test and the bridge only shows through the gap it exists to fill. 4 mm is far under
+`move_and_slide`'s step tolerance — `tests/walk_cellar.gd` confirms the ramp is still walkable both
+ways. The false comment was corrected in place.
+
+## Issue 21 — Emissive ceiling fittings rendered as blown-out white slabs
+
+**Symptom.** Adding visible light fittings to the Lab covered a large part of the ceiling in flat
+pure white. A hand-computed FOV argument "proved" the fitting could not even be in frame; it was
+wrong (the harness camera is pitched up). **Bisecting — disabling the fixture and re-shooting —
+found the culprit in one run, after three wrong guesses.**
+
+**Two stacked causes.**
+1. **Bright albedo next to its own light.** The fitting sits ~0.25 m from the point light it
+   represents, so a light albedo receives enormous irradiance and blows out. Fixture albedo must be
+   **dark**; the glow belongs to emission, which nearby lights don't affect — and that also lets a
+   blackout drive the fitting visibly dead, which a lit albedo never could.
+2. **Emission above 1.0 with no tonemapping.** The project renders with **Linear tonemap, exposure
+   1.0 and no glow** (`assets/elements/environment.tscn`), so any `emission_energy_multiplier > 1.0`
+   clamps to flat white with zero detail. `MazeKit` uses 1.6 and gets away with it only because
+   Backrooms strips are seen down a corridor, never overhead.
+
+**Fix.** `FIXTURE_EMISSION` is 0.55 (Lab) / 0.6 (House), both **below 1.0**, with dark albedos.
+
+**The same trap bit the doors.** `door.gd:door_material()` tints a textured door's emission red to
+keep the blood-red convention. At `emission_energy_multiplier = 0.5` the red swamped the pale steel
+texture — in a level lit at 0.45 energy, albedo contributes far less than emission — and the door
+rendered salmon pink. It is now 0.18.
+
+**General lesson.** In a project with no tonemapping and very low light energy, emission is not a
+finishing touch — it is most of a surface's final colour. Treat any value near or above 1.0 as
+"this will be pure white", and bisect before theorising.
+
+## Issue 22 — The screenshot harness captured before gravity settled, from above the ceiling
+
+**Symptom.** `tests/screenshot_level.gd` shots of the House living-room window came back near-black
+with a stray light pool, while a scene probe confirmed the window, its forest quad and all four
+frame bars existed, were positioned correctly and were `visible_in_tree`.
+
+**Cause.** `_place()` drops the player at `y = 1.6` and `_capture()` fired **12 frames (~0.2 s)**
+later. Falling from 1.6 to the rest height takes ~0.35 s, so some shots settled and some did not.
+The `Camera3D` sits **1.65 m above the player**, so an unsettled capture shoots from `y ≈ 3.25` —
+*above the 3.0 m ceiling*, looking into the ceiling slab.
+
+Worse, this was silent: shots that happened to settle rendered from ~1.65 m and shots that didn't
+rendered from ~3.25 m, so eye height varied per shot with no error and no warning. Every visual
+judgement made from those captures — including "the ceiling fixture dominates the frame" — was made
+from a camera near the ceiling.
+
+**Fix.** `SETTLE = 32` frames (~0.53 s) before capture, `CYCLE = 36`. Player now settles to `y ≈ 0`
+consistently and the camera sits at a correct 1.65 m eye height.
+
+**General lesson.** A visual test harness that teleports a physics body must wait for the body to
+come to rest, and should assert the resulting height rather than trusting it. When a probe says the
+geometry is fine but the picture says otherwise, **suspect the camera before the geometry.**
+
+## Issue 23 — Abutting rooms built TWO coincident walls (the real "merging textures" bug)
+
+**Symptom.** In game, one room's wall texture bled through another's along a jagged, stippled
+contour — the bathroom's tile showing through the hallway's dark panelling, the morgue's lockers
+through the corridor concrete. It flickered while walking. Static screenshots from the test harness
+mostly did not reproduce it, because a depth fight resolves differently per camera position.
+
+**Cause.** `RoomBuilder._emit_wall_segment()` deduped wall segments on an **exact span match**
+(`axis|fixed|a|b|h`). Rooms that abut share a wall plane, but only rooms of *identical depth* produce
+identical spans. The Lab's CrossHall emits x=6 over z 11..14 while the Morgue emits x=6 over
+z 9.5..15.5 — different keys, so BOTH were built, occupying the same 0.2 m slab on the same plane.
+Because the two rooms carry different skins, the z-fight showed as one room's texture inside the
+other, which reads as "textures merging" rather than as a depth artifact.
+
+**This was NOT the earlier floor-bridge fix (Issue 20).** That one was real and did remove the floor
+patchwork, but it addressed floors only, and the walls are what the player actually notices.
+
+**Fix.** Dedup now subtracts INTERVALS instead of matching keys: coverage is tracked per
+(axis, plane, height) and only the not-yet-walled part of a new segment is emitted. Whichever room
+builds first owns the shared stretch — already the documented behaviour for shared interior walls.
+
+**Also found by the same check:** the Lab's `Observation` room *overlapped* the Morgue and the
+ExitVestibule by 0.5 m in the `ROOMS` table, so their floor and ceiling slabs were coincident too;
+and the House's `CellarWallW` shared a plane with a ground-floor wall. Both fixed.
+
+**Regression test.** `tests/check_wall_overlap.gd` asserts no two CSG boxes have parallel faces
+within 2 mm while overlapping substantially in the other two axes. It deliberately tolerates the
+floor bridges (sunk 4 mm by `BRIDGE_SINK`) and the 0.2 x 0.2 stubs where perpendicular walls cross
+at a corner. Levels 1, 2 and 5 (KONTUR — which had the same bug) all pass.
+
+## Issue 24 — A texture on a BoxMesh renders a magnified CROP of itself
+
+**Symptom.** The exit doors showed one hinge and a blank panel — no observation window, no push bar,
+no serial number — as if the art were zoomed ~3x. The tray and monitor in the same level, using the
+same material and the same textures, rendered their full images correctly.
+
+**Cause.** The doors were `BoxMesh`; the tray and monitor were `QuadMesh`. A BoxMesh does not map
+the whole texture onto each face, so a texture applied directly to the box shows only a sub-rect.
+
+**Fix.** `door.gd:build_visual()` keeps the box as the dark edge/depth of the door and puts the
+artwork on a `QuadMesh` on each face (so the door reads from either side without every caller having
+to reason about its yaw). Doors were also enlarged 1.0 x 2.2 -> 1.25 x 2.45 and lifted to rest on the
+floor rather than sinking 0.125 m into it.
+
+**General lesson.** If two props share a material and a texture but only one renders correctly,
+compare their MESH types before suspecting the material.
+
+## Issue 25 — Issue 1 recurred: a .png that was really a JPEG
+
+`lab_monitor_face.png` was JPEG data with a `.png` extension (`file` reported *JPEG image data*),
+so its `.import` carried `valid=false`, no `.ctex` was produced, and `load()` failed **even though
+`ResourceLoader.exists()` returned true** — which is why the guard in `_add_face_quad` did not catch
+it and the monitor silently rendered as a blank box.
+
+Two things made it findable: the file was 287 KB while its siblings were ~3 MB, and a scene probe
+surfaced the actual `_load` error at `level_1.gd:_add_face_quad`. `sips -s format png` plus deleting
+the stale `.import`/`.godot/imported` entry fixed it.
+
+**Guarding with `ResourceLoader.exists()` is not sufficient** — it returns true for a file whose
+import FAILED. When a texture silently doesn't appear, run `file` on it first.
+
+## Issue 26 — `wall_point()`'s inset is measured from the wrong reference, so decals sat IN the wall
+
+**Symptom.** Wall-mounted art was sliced apart by the wall behind it — the morgue's anatomical poster
+was cut by a jagged diagonal tear with the drawer texture showing through it. Same class as Issue 23,
+but for props rather than for walls.
+
+**Cause.** `RoomBuilder.wall_point()` returns `pos + side * (half - inset)`, where `half` is half the
+room's NOMINAL size. But walls straddle that boundary with thickness `T = 0.2`, so the wall's inner
+FACE is at `half - 0.1`. The usable clearance is therefore `inset - T/2`, which means:
+
+| inset | clearance | result |
+|-------|-----------|--------|
+| 0.06, 0.08 | negative | prop buried inside the wall (Issue 11) |
+| **0.10** | **0.00** | **exactly coplanar — z-fights, slices the art** |
+| 0.15, 0.16 | 0.05–0.06 | correct |
+
+Callers had used all of these. Both levels' notes used 0.10; the House's bedroom painting used 0.08
+and the child's drawing 0.06; the morgue poster bypassed `wall_point` entirely with a hand-computed
+`c.z + 2.9` that happened to equal `half - 0.1`.
+
+**Fix.** `wall_point()` now clamps to a minimum of `T/2 + MIN_FACE_CLEAR` (0.13), guaranteeing every
+wall prop sits at least 3 cm proud of the face regardless of what the caller passes. The morgue
+poster was switched to `wall_point`. Insets of 0.15+ are unaffected.
+
+**A latent bug fell out of this.** `LivingMirror` hangs its figure 0.05 BEHIND the glass, so the glass
+needs clearance for the figure too. At inset 0.1 the glass sat on the wall face and the figure was
+0.05 *inside* the wall, occluded — the one-way mirror's figure could never have been visible in
+either the Lab or the House. Both call sites now use 0.22.
+
+**Regression test.** `tests/check_wall_overlap.gd` also asserts that every `QuadMesh` in the level is
+at least 2 cm clear of every CSG box. Because door art is now a single front-facing quad (the buried
+back quad was removed), this doubles as a check that no door is built facing into its wall.
+
+**General lesson.** When a helper takes an offset, be explicit in its name or docs about what the
+offset is measured FROM. "Inset from the room boundary" and "clearance from the wall face" differ by
+exactly the amount that turns a decal into a z-fight.

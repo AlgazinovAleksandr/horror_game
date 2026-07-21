@@ -34,7 +34,14 @@ const FOREST_SCARE_DIST := 1.5
 const FOREST_SCARE_PANIC := 25.0
 
 var _builder: RoomBuilder
-var _lights: Array = []           # [OmniLight3D, base_energy]
+var _lights: Array = []           # [OmniLight3D, base_energy, fixture_material]
+
+# Emission on a lamp's visible bulb at full brightness, driven down in step with
+# light_energy by _drive_lights() — including _ev_bedroom_dark, which kills the
+# bedroom lamp permanently, so its bulb goes visibly dead with it.
+# ⚠️ Must stay below 1.0 — Linear tonemapping with no glow clamps anything higher
+# to flat white. See the fuller note on level_1.gd's FIXTURE_EMISSION.
+const FIXTURE_EMISSION := 0.6
 var _window_pos: Vector3
 var _forest_fired: bool = false
 var _creak_timer: float = 0.0
@@ -181,7 +188,12 @@ func _build_cellar() -> void:
 	_box("CellarFloor", Vector3(c.x, CELLAR_Y - 0.15, c.y), Vector3(s.x, 0.3, s.y), _cellar_mat)
 	_box("CellarCeiling", Vector3(c.x, CELLAR_Y + CELLAR_H + 0.15, c.y), Vector3(s.x, 0.3, s.y), _cellar_mat)
 	# Side + far walls.
-	_box("CellarWallW", Vector3(x0, CELLAR_Y + CELLAR_H / 2.0, c.y), Vector3(0.2, CELLAR_H, s.y), _cellar_mat)
+	# ⚠️ Nudged 1 cm west. The cellar shell reaches y=+1.1 (CELLAR_Y + CELLAR_H), so
+	# above ground level it runs alongside the ground-floor walls, and this one shared
+	# a plane with a RoomBuilder wall — coincident faces z-fight. 1 cm cannot open a
+	# gap (the slab is 0.2 thick and still overlaps everything it did before), it just
+	# breaks the tie. Asserted by tests/check_wall_overlap.gd.
+	_box("CellarWallW", Vector3(x0 - 0.01, CELLAR_Y + CELLAR_H / 2.0, c.y), Vector3(0.2, CELLAR_H, s.y), _cellar_mat)
 	_box("CellarWallE", Vector3(x1, CELLAR_Y + CELLAR_H / 2.0, c.y), Vector3(0.2, CELLAR_H, s.y), _cellar_mat)
 	_box("CellarWallS", Vector3(c.x, CELLAR_Y + CELLAR_H / 2.0, z0), Vector3(s.x, CELLAR_H, 0.2), _cellar_mat)
 	# Near wall split for the ramp opening (1.6 wide at x=5).
@@ -271,7 +283,58 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float, color: Color) -> 
 	lamp.light_color = color
 	lamp.omni_range = 10.0
 	add_child(lamp)
-	_lights.append([lamp, energy])
+	_lights.append([lamp, energy, _add_fixture(lamp, color)])
+
+
+# A visible bulb-and-shade for a ceiling lamp — the domestic counterpart to the
+# Lab's fluorescent fitting. See the note in level_1.gd:_add_fixture for why this
+# matters: levels 1 and 2 were the only ones lighting rooms with lights that had
+# no geometry, and that (not brightness) is what made them read as empty.
+#
+# Ambient and light energy are unchanged; this only gives the eye a source.
+func _add_fixture(lamp: OmniLight3D, color: Color) -> StandardMaterial3D:
+	var flex := MeshInstance3D.new()
+	var fm := CylinderMesh.new()
+	fm.top_radius = 0.012
+	fm.bottom_radius = 0.012
+	fm.height = 0.34
+	flex.mesh = fm
+	var fmat := StandardMaterial3D.new()
+	fmat.albedo_color = Color(0.1, 0.09, 0.08)
+	flex.set_surface_override_material(0, fmat)
+	flex.position = Vector3(0, 0.3, 0)
+	lamp.add_child(flex)
+
+	var shade := MeshInstance3D.new()
+	var sm := CylinderMesh.new()
+	sm.top_radius = 0.07
+	sm.bottom_radius = 0.2
+	sm.height = 0.18
+	shade.mesh = sm
+	var smat := StandardMaterial3D.new()
+	# ⚠️ Dark albedo on purpose: the shade sits centimetres from its own point
+	# light, and a bright albedo renders as a blown-out white slab. See the note in
+	# level_1.gd:_add_fixture — the glow belongs to the bulb's emission.
+	smat.albedo_color = Color(0.16, 0.13, 0.1)
+	smat.roughness = 0.9
+	shade.set_surface_override_material(0, smat)
+	shade.position = Vector3(0, 0.1, 0)
+	lamp.add_child(shade)
+
+	var bulb := MeshInstance3D.new()
+	var bm := SphereMesh.new()
+	bm.radius = 0.05
+	bm.height = 0.1
+	bulb.mesh = bm
+	var bmat := StandardMaterial3D.new()
+	bmat.albedo_color = color.darkened(0.85)
+	bmat.emission_enabled = true
+	bmat.emission = color
+	bmat.emission_energy_multiplier = FIXTURE_EMISSION
+	bulb.set_surface_override_material(0, bmat)
+	bulb.position = Vector3(0, 0.02, 0)
+	lamp.add_child(bulb)
+	return bmat
 
 
 # ---------------------------------------------------------------- notes
@@ -303,12 +366,7 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> void:
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.32, 0.42, 0.01)
 	mesh.mesh = bm
-	var paper := StandardMaterial3D.new()
-	paper.albedo_color = Color(0.05, 0.05, 0.04) if not trap else Color(0.2, 0.05, 0.05)
-	paper.emission_enabled = true
-	paper.emission = Color(0.55, 0.5, 0.35) if not trap else Color(0.55, 0.12, 0.1)
-	paper.emission_energy_multiplier = 0.6
-	mesh.set_surface_override_material(0, paper)
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap))
 	note.add_child(mesh)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -345,11 +403,11 @@ func _spawn_lock_and_doors() -> void:
 
 	var exit := _make_door("ExitDoor", true, false)
 	exit.unlock_condition = _DOOR_SCRIPT.UnlockCondition.CODE_ENTERED
-	exit.position = Vector3(-0.7, 1.1, 18.9)
+	exit.position = Vector3(-0.7, 1.225, 18.9)
 	exit.rotation.y = PI
 
 	var back := _make_door("BackDoor", false, true)
-	back.position = Vector3(0, 1.1, -2.85)
+	back.position = Vector3(0, 1.225, -2.85)
 
 
 func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBody3D:
@@ -359,21 +417,10 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 	body.advances_level = advances
 	body.goes_back = goes_back
 	add_child(body)
-	var mesh := MeshInstance3D.new()
-	mesh.name = "DoorMesh"
-	var bm := BoxMesh.new()
-	bm.size = Vector3(1.0, 2.2, 0.15)
-	mesh.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.01, 0.01)
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.02, 0.02)
-	mat.emission_energy_multiplier = 1.5
-	mesh.set_surface_override_material(0, mat)
-	body.add_child(mesh)
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "house_door.png")
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, 2.2, 0.2)
+	shape.size = Vector3(1.25, 2.45, 0.2)
 	col.shape = shape
 	body.add_child(col)
 	return body
@@ -422,13 +469,26 @@ func _spawn_window() -> void:
 	var frame_mat := StandardMaterial3D.new()
 	frame_mat.albedo_color = Color(0.12, 0.08, 0.05)
 	frame_mat.roughness = 0.85
-	for bar_size in [Vector3(1.32, 0.08, 0.05), Vector3(0.08, 1.42, 0.05)]:
+	# Four bars around the PERIMETER of the 1.2 x 1.3 pane. Both bars used to be
+	# placed at the pane centre, which drew a cross through the middle of the glass
+	# instead of a frame around it. The window sits in the north wall (constant z),
+	# so the frame spans world X/Y and the offsets are literal.
+	const HALF_W := 0.6   # pane half-width
+	const HALF_H := 0.65  # pane half-height
+	const BAR := 0.08     # bar thickness
+	var bars := [
+		[Vector3(1.32, BAR, 0.05), Vector3(0, HALF_H + BAR / 2.0, 0)],   # top
+		[Vector3(1.32, BAR, 0.05), Vector3(0, -HALF_H - BAR / 2.0, 0)],  # bottom
+		[Vector3(BAR, 1.42, 0.05), Vector3(-HALF_W - BAR / 2.0, 0, 0)],  # left
+		[Vector3(BAR, 1.42, 0.05), Vector3(HALF_W + BAR / 2.0, 0, 0)],   # right
+	]
+	for entry in bars:
 		var bar := MeshInstance3D.new()
 		var bmesh := BoxMesh.new()
-		bmesh.size = bar_size
+		bmesh.size = entry[0]
 		bar.mesh = bmesh
 		bar.set_surface_override_material(0, frame_mat)
-		bar.position = _window_pos + Vector3(0, 0, -0.03)
+		bar.position = _window_pos + entry[1] + Vector3(0, 0, -0.03)
 		add_child(bar)
 
 
@@ -532,7 +592,10 @@ func _spawn_tv() -> void:
 func _spawn_bathroom_mirror() -> void:
 	# North wall — the west wall (Vector2(-1,0)) is the bathroom's only doorway, and the
 	# mirror's collider there blocks the entrance.
-	var pos: Vector3 = _builder.wall_point("Bathroom", Vector2(0, 1), 1.5, 0.1)
+	# ⚠️ 0.22 — see the note on the Lab's observation mirror. The figure hangs 0.05
+	# behind the glass, so the glass needs clearance for the figure as well or the
+	# figure ends up inside the wall and is never visible.
+	var pos: Vector3 = _builder.wall_point("Bathroom", Vector2(0, 1), 1.5, 0.22)
 	var mirror := LivingMirror.new()
 	mirror.position = pos
 	mirror.rotation.y = 0.0   # LivingMirror faces local -Z → into the room (-z)
@@ -544,7 +607,10 @@ func _spawn_music_box() -> void:
 
 
 # Solid furniture so each room reads as a place. No panic — these are just props.
-func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void:
+# A solid CSG prop. `tex_path` is optional and guarded, so a prop keeps its
+# flat-colour look until art for it exists — same contract as level_1.gd.
+func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0,
+		tex_path := "") -> CSGBox3D:
 	var b := CSGBox3D.new()
 	b.size = size
 	b.position = pos
@@ -553,8 +619,12 @@ func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
 	m.roughness = 0.8
+	if tex_path != "" and ResourceLoader.exists(tex_path):
+		m.albedo_texture = load(tex_path)
+		m.albedo_color = Color(1, 1, 1)
 	b.material = m
 	add_child(b)
+	return b
 
 
 func _spawn_room_props() -> void:
@@ -858,6 +928,11 @@ func _drive_lights() -> void:
 			lamp.light_energy = base * (0.05 + maxf(0.0, sin(t * 33.0) * sin(t * 9.0)) * 0.15)
 		else:
 			lamp.light_energy = base * (1.0 + sin(t * 7.0 + lamp.position.x) * 0.04)
+		# Keep the visible bulb in step with the light it stands for.
+		if entry.size() > 2 and entry[2] != null:
+			var fixture: StandardMaterial3D = entry[2]
+			var ratio: float = lamp.light_energy / base if base > 0.0 else 0.0
+			fixture.emission_energy_multiplier = FIXTURE_EMISSION * ratio
 
 
 func _random_room_point(y: float) -> Vector3:

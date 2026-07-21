@@ -31,7 +31,18 @@ const BLACKOUT_MIN := 20.0
 const BLACKOUT_MAX := 38.0
 
 var _builder: RoomBuilder
-var _lights: Array = []          # [OmniLight3D, base_energy]
+var _lights: Array = []          # [OmniLight3D, base_energy, fixture_material]
+
+# Emission on a lamp's visible diffuser at full brightness. Driven down in step
+# with light_energy by _drive_lights(), so a dead or blacked-out lamp also LOOKS
+# dead rather than staying a lit panel over a dark room.
+#
+# ⚠️ MUST stay below 1.0. The project renders with Linear tonemapping, exposure
+# 1.0 and no glow (see the shared Environment in assets/elements/environment.tscn),
+# so anything above 1.0 clamps to flat pure white with no detail. MazeKit uses 1.6
+# and gets away with it because Backrooms strips are only ever seen down a corridor;
+# these fittings hang 1.7 m above the player's head and fill the top of the frame.
+const FIXTURE_EMISSION := 0.55
 var _blackout_timer: float = 0.0
 var _pipe_timer: float = 0.0
 var _scheduled_blackout: float = 0.0
@@ -91,7 +102,13 @@ const ROOMS := [
 	{ "name": "Records", "pos": Vector2(-9, 12.5), "size": Vector2(6, 6) },
 	{ "name": "Morgue", "pos": Vector2(9.5, 12.5), "size": Vector2(7, 6) },
 	{ "name": "MainHall2", "pos": Vector2(0, 16.5), "size": Vector2(3, 5) },
-	{ "name": "Observation", "pos": Vector2(4, 17), "size": Vector2(5, 5) },
+	# ⚠️ Was pos(4,17) size(5,5) = x 1.5..6.5, z 14.5..19.5, which poked 0.5 m INTO
+	# the Morgue (x>=6) and into the ExitVestibule (z>=19). Overlapping rooms emit
+	# overlapping floor and ceiling slabs whose visible faces are both at y=0 / y=h,
+	# and coincident surfaces z-fight. Now x 1.5..6.0, z 14.5..19.0 — it abuts both
+	# neighbours instead of intersecting them. The MainHall2 doorway at (1.5, 17)
+	# still lands on the west wall, so the connection is unchanged.
+	{ "name": "Observation", "pos": Vector2(3.75, 16.75), "size": Vector2(4.5, 4.5) },
 	{ "name": "ExitVestibule", "pos": Vector2(0, 20.5), "size": Vector2(4, 3) },
 ]
 
@@ -171,7 +188,56 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float) -> void:
 	lamp.omni_range = 11.0
 	lamp.omni_attenuation = 1.0
 	add_child(lamp)
-	_lights.append([lamp, energy])
+	_lights.append([lamp, energy, _add_fixture(lamp)])
+
+
+# A visible fluorescent fitting for a ceiling lamp.
+#
+# The Lab and the House were the only levels lighting rooms with INVISIBLE point
+# lights. Corridor pairs every light with a flame mesh (torch_3d.gd, emission 3.0)
+# and the Backrooms with an emissive ceiling panel (maze_kit.gd light_strip) — that
+# pairing, not raw brightness, is why those levels read. Measured energy per m² is
+# the same in the Lab as in KONTUR.
+#
+# Light energy and ambient are deliberately NOT changed here: the rooms stay just
+# as dark, they simply gain a source to look at. The returned material is driven
+# from _drive_lights() so flicker, blackouts and the power-restore all reach it.
+func _add_fixture(lamp: OmniLight3D) -> StandardMaterial3D:
+	var housing := MeshInstance3D.new()
+	var hm := BoxMesh.new()
+	hm.size = Vector3(0.86, 0.08, 0.2)
+	housing.mesh = hm
+	var hmat := StandardMaterial3D.new()
+	# ⚠️ Keep fixture albedo DARK. These meshes sit ~0.25 m from their own point
+	# light, so a bright albedo receives enormous irradiance and renders as a solid
+	# blown-out white slab across the ceiling. The glow must come from EMISSION,
+	# which nearby lights don't affect — that also lets a blackout drive the fitting
+	# visibly dead, which a lit albedo could never do.
+	hmat.albedo_color = Color(0.12, 0.125, 0.12)
+	hmat.roughness = 0.8
+	housing.set_surface_override_material(0, hmat)
+	housing.position = Vector3(0, 0.29, 0)
+	lamp.add_child(housing)
+
+	var diffuser := MeshInstance3D.new()
+	var dm := BoxMesh.new()
+	dm.size = Vector3(0.76, 0.05, 0.15)
+	diffuser.mesh = dm
+	var dmat := StandardMaterial3D.new()
+	dmat.albedo_color = Color(0.1, 0.1, 0.095)   # dark on purpose — see _add_fixture note
+	dmat.emission_enabled = true
+	dmat.emission = Color(0.85, 0.9, 1.0)
+	dmat.emission_energy_multiplier = FIXTURE_EMISSION
+	if ResourceLoader.exists(TEX + "lab_light_fitting.png"):
+		var tex := load(TEX + "lab_light_fitting.png")
+		dmat.albedo_texture = tex
+		dmat.emission_texture = tex
+		dmat.albedo_color = Color(0.35, 0.35, 0.33)
+	diffuser.set_surface_override_material(0, dmat)
+	# Flush under the 3.0 m ceiling, matching MazeKit.light_strip's placement.
+	diffuser.position = Vector3(0, 0.25, 0)
+	lamp.add_child(diffuser)
+	return dmat
 
 
 # ---------------------------------------------------------------- notes
@@ -203,12 +269,7 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> void
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.32, 0.42, 0.01)
 	mesh.mesh = bm
-	var paper := StandardMaterial3D.new()
-	paper.albedo_color = Color(0.05, 0.05, 0.04) if not trap else Color(0.18, 0.05, 0.05)
-	paper.emission_enabled = true
-	paper.emission = Color(0.55, 0.5, 0.35) if not trap else Color(0.5, 0.12, 0.1)
-	paper.emission_energy_multiplier = 0.6
-	mesh.set_surface_override_material(0, paper)
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap))
 	note.add_child(mesh)
 
 	var col := CollisionShape3D.new()
@@ -244,6 +305,18 @@ func _spawn_power_quest() -> void:
 	sm.albedo_color = Color(0.25, 0.22, 0.2)
 	sm.metallic = 0.7
 	sm.roughness = 0.5
+	# Without a texture this is a 2.6 m featureless slab filling the morgue doorway
+	# — the single most conspicuous untextured surface in the level.
+	if ResourceLoader.exists(TEX + "lab_morgue_shutter.png"):
+		sm.albedo_texture = load(TEX + "lab_morgue_shutter.png")
+		sm.albedo_color = Color(1, 1, 1)
+		sm.metallic = 0.35
+		# The shutter is a thin CSGBox, so the faces the player can see are the ±X
+		# ones, and Godot mirrors box UVs across opposite faces — the stencilled
+		# "MORTUARY" text came out backwards. The player only ever approaches from
+		# the CrossHall (-x) side, since the morgue is sealed until this drops, so
+		# flipping U puts the lettering the right way round where it's read.
+		sm.uv1_scale = Vector3(-1, 1, 1)
 	_morgue_shutter.material = sm
 	add_child(_morgue_shutter)
 
@@ -361,13 +434,21 @@ func _spawn_morgue_keycard() -> void:
 	# Trigger objects flanking the card, sitting ON TOP of the cart (top = 0.8),
 	# instant fail on interact / 3 s gaze. The note warns: don't look at them.
 	_make_trigger(base + Vector3(-0.95, 0.86, 0), Vector3(0.6, 0.12, 0.4),
-		Color(0.6, 0.6, 0.62))                                   # surgical tray
-	_make_trigger(base + Vector3(0.95, 1.0, 0), Vector3(0.5, 0.4, 0.1),
-		Color(0.02, 0.03, 0.04), Color(0.1, 0.25, 0.15))         # monitor with a face
+		Color(0.6, 0.6, 0.62), Color(0, 0, 0),
+		"tray", TEX + "lab_surgical_tray.png")                   # surgical tray
+	# Sized like an actual CRT (and to the art's 4:3 aspect) rather than the old
+	# 0.5 x 0.4 x 0.1 slab, which was too thin to read as a monitor at all.
+	_make_trigger(base + Vector3(0.95, 1.0, 0), Vector3(0.5, 0.38, 0.34),
+		Color(0.02, 0.03, 0.04), Color(0.1, 0.25, 0.15),
+		"monitor", TEX + "lab_monitor_face.png")                 # monitor with a face
 
 	# A cursed portrait on the morgue's far wall — staring at it feeds panic.
-	_make_cursed_panel(Vector3(c.x, 1.6, c.z + 2.9), Vector2(0.9, 1.2), PI, 0.9,
-		TEX + "poster_lab.png")
+	# ⚠️ Use wall_point rather than a hand-computed offset. The old c.z + 2.9 landed
+	# exactly on the wall's inner face (the Morgue is 6 m deep, so half - 0.1), and
+	# the poster was sliced apart by the drawer texture z-fighting through it.
+	# wall_point now guarantees MIN_FACE_CLEAR off the face.
+	_make_cursed_panel(_builder.wall_point("Morgue", Vector2(0, 1), 1.6, 0.16),
+		Vector2(0.9, 1.2), PI, 0.9, TEX + "poster_lab.png")
 
 	# The guarded keycard, between them.
 	var key := StaticBody3D.new()
@@ -406,7 +487,17 @@ func _spawn_morgue_keycard() -> void:
 	add_child(trap)
 
 
-func _make_trigger(pos: Vector3, size: Vector3, albedo: Color, emission := Color(0, 0, 0)) -> void:
+# An instant-fail trigger prop.
+#
+# `detail` adds the geometry that makes the thing read as the object the morgue
+# note names ("Do not look at the tray. Do not look at the monitor."). Without it
+# both were anonymous slabs, so the note was warning the player about two bricks:
+#   "tray"    — a raised lip around the rim + a top-facing texture quad
+#   "monitor" — the box becomes the bezel and an inset screen quad faces the room
+# A BoxMesh takes one material across all six faces, so the artwork has to ride on
+# its own quad rather than on the box.
+func _make_trigger(pos: Vector3, size: Vector3, albedo: Color, emission := Color(0, 0, 0),
+		detail := "", tex_path := "") -> void:
 	var body := StaticBody3D.new()
 	body.set_script(_TRIGGER_SCRIPT)
 	body.position = pos
@@ -428,6 +519,67 @@ func _make_trigger(pos: Vector3, size: Vector3, albedo: Color, emission := Color
 	shape.size = size
 	col.shape = shape
 	body.add_child(col)
+
+	match detail:
+		"tray":
+			_add_tray_lip(body, size, albedo)
+			_add_face_quad(body, Vector2(size.x * 0.92, size.z * 0.92),
+				Vector3(0, size.y / 2.0 + 0.003, 0), Vector3(-PI / 2.0, 0, 0), tex_path)
+		"monitor":
+			# The art is a WHOLE CRT — bezel, stand and all — not just the glass, so
+			# it gets the full face rather than an inset "screen". It also carries its
+			# own glow: this is a monitor that is ON, and at 0.35 in a room lit to
+			# 0.45 it just read as a dark rectangle. Still under 1.0 so it doesn't
+			# clamp to white (see FIXTURE_EMISSION).
+			_add_face_quad(body, Vector2(size.x, size.y),
+				Vector3(0, 0, -size.z / 2.0 - 0.003), Vector3(0, PI, 0), tex_path, 0.85)
+
+
+# Four thin bars around the rim so a tray reads as a tray and not as a flat plate.
+func _add_tray_lip(body: Node3D, size: Vector3, albedo: Color) -> void:
+	var lip := 0.03
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = albedo.darkened(0.15)
+	mat.metallic = 0.6
+	mat.roughness = 0.4
+	var bars := [
+		[Vector3(size.x, lip, lip), Vector3(0, size.y / 2.0, size.z / 2.0)],
+		[Vector3(size.x, lip, lip), Vector3(0, size.y / 2.0, -size.z / 2.0)],
+		[Vector3(lip, lip, size.z), Vector3(size.x / 2.0, size.y / 2.0, 0)],
+		[Vector3(lip, lip, size.z), Vector3(-size.x / 2.0, size.y / 2.0, 0)],
+	]
+	for entry in bars:
+		var bar := MeshInstance3D.new()
+		var bmesh := BoxMesh.new()
+		bmesh.size = entry[0]
+		bar.mesh = bmesh
+		bar.set_surface_override_material(0, mat)
+		bar.position = entry[1]
+		body.add_child(bar)
+
+
+# A textured quad sitting just proud of one face of a prop. Unshaded + emissive so
+# it stays legible in a room lit at 0.45 energy — these are objects the player is
+# meant to recognise before deciding not to look at them.
+func _add_face_quad(body: Node3D, size: Vector2, offset: Vector3, rot: Vector3,
+		tex_path: String, emission := 0.35) -> void:
+	if tex_path == "" or not ResourceLoader.exists(tex_path):
+		return
+	var quad := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = size
+	quad.mesh = qm
+	var mat := StandardMaterial3D.new()
+	var tex := load(tex_path)
+	mat.albedo_texture = tex
+	mat.emission_enabled = true
+	mat.emission_texture = tex
+	mat.emission_energy_multiplier = emission
+	mat.roughness = 0.6
+	quad.set_surface_override_material(0, mat)
+	quad.position = offset
+	quad.rotation = rot
+	body.add_child(quad)
 
 
 # A gaze-panic panel: ScaryObject (ancestor) -> StaticBody (world transform) ->
@@ -465,8 +617,14 @@ func _make_cursed_panel(pos: Vector3, size: Vector2, y_rot: float, intensity: fl
 
 # ---------------------------------------------------------------- room props
 
-# A plain solid CSG prop (no panic), so each room reads as a place, not an empty box.
-func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void:
+# A solid CSG prop (no panic), so each room reads as a place, not an empty box.
+#
+# `tex_path` is optional and guarded the same way _make_cursed_panel does it, so a
+# prop keeps its flat-colour look until art for it exists. The colour is retained
+# as an albedo multiplier rather than being discarded, which keeps a textured prop
+# sitting in the same tonal range as its untextured neighbours.
+func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0,
+		tex_path := "") -> CSGBox3D:
 	var b := CSGBox3D.new()
 	b.size = size
 	b.position = pos
@@ -476,8 +634,13 @@ func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0) -> void
 	m.albedo_color = color
 	m.metallic = 0.3
 	m.roughness = 0.7
+	if tex_path != "" and ResourceLoader.exists(tex_path):
+		m.albedo_texture = load(tex_path)
+		m.albedo_color = Color(1, 1, 1)
+		m.metallic = 0.0
 	b.material = m
 	add_child(b)
+	return b
 
 
 func _accent_lamp(pos: Vector3, color: Color, energy: float, lrange := 6.0) -> void:
@@ -532,7 +695,12 @@ func _spawn_room_props() -> void:
 func _spawn_observation_mirror() -> void:
 	# One-way mirror on the far wall of the observation room — a figure stands in
 	# the glass when you are not looking straight at it.
-	var pos: Vector3 = _builder.wall_point("Observation", Vector2(1, 0), 1.5, 0.1)
+	# ⚠️ Inset 0.22, not the usual 0.16. LivingMirror hangs its figure 0.05 BEHIND
+	# the glass (it is supposed to appear inside the mirror), so the glass needs
+	# clearance for the figure too — at inset 0.1 the glass sat on the wall face and
+	# the figure was 0.05 INSIDE the wall, occluded by it. The one-way mirror's
+	# figure could never have been visible here. Asserted by check_wall_overlap.gd.
+	var pos: Vector3 = _builder.wall_point("Observation", Vector2(1, 0), 1.5, 0.22)
 	var mirror := LivingMirror.new()
 	mirror.position = pos
 	mirror.rotation.y = -PI / 2.0  # face back into the room (-x)
@@ -545,12 +713,12 @@ func _spawn_doors() -> void:
 	# Exit door at the north wall of the vestibule (needs the keycard).
 	var exit := _make_door("ExitDoor", true, false)
 	exit.unlock_condition = _DOOR_SCRIPT.UnlockCondition.KEYCARD
-	exit.position = Vector3(0, 1.1, 21.85)
+	exit.position = Vector3(0, 1.225, 21.85)
 	exit.rotation.y = PI
 
 	# Back door at the south wall of reception.
 	var back := _make_door("BackDoor", false, true)
-	back.position = Vector3(0, 1.1, -2.85)
+	back.position = Vector3(0, 1.225, -2.85)
 
 
 func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBody3D:
@@ -561,22 +729,11 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 	body.goes_back = goes_back
 	add_child(body)
 
-	var mesh := MeshInstance3D.new()
-	mesh.name = "DoorMesh"
-	var bm := BoxMesh.new()
-	bm.size = Vector3(1.0, 2.2, 0.15)
-	mesh.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.01, 0.01)
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.02, 0.02)
-	mat.emission_energy_multiplier = 1.5
-	mesh.set_surface_override_material(0, mat)
-	body.add_child(mesh)
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "lab_door.png")
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, 2.2, 0.2)
+	shape.size = Vector3(1.25, 2.45, 0.2)
 	col.shape = shape
 	col.position.y = 0.0
 	body.add_child(col)
@@ -692,6 +849,11 @@ func _drive_lights(delta: float) -> void:
 			lamp.light_energy = base * (0.04 + maxf(0.0, sin(t * 37.0) * sin(t * 8.1)) * 0.15)
 		else:
 			lamp.light_energy = base * (1.0 + sin(t * 11.3 + lamp.position.x) * 0.06)
+		# Keep the visible fitting in step with the light it stands for.
+		if entry.size() > 2 and entry[2] != null:
+			var fixture: StandardMaterial3D = entry[2]
+			var ratio: float = lamp.light_energy / base if base > 0.0 else 0.0
+			fixture.emission_energy_multiplier = FIXTURE_EMISSION * ratio
 
 
 func _random_room_point(y: float) -> Vector3:

@@ -7,31 +7,48 @@ const INTERACTABLE_LAYER := 2  # pass-through for player; raycast still hits thi
 @export var is_twist_note: bool = false
 
 
+const PAPER_TEX := "res://assets/textures/shared/note_paper.png"
+
+
 func _ready() -> void:
 	collision_layer = INTERACTABLE_LAYER
 	collision_mask = 0
-	# _style_mesh()
+	_style_mesh()
 	# _enlarge_collision()
 
 
-# func _style_mesh() -> void:
-# 	for child in get_children():
-# 		if not child is MeshInstance3D:
-# 			continue
-# 		var mat := StandardMaterial3D.new()
-# 		if is_trap:
-# 			# Trap notes: faint red tint
-# 			mat.albedo_color = Color(0.55, 0.15, 0.15, 1.0)
-# 			mat.emission_enabled = true
-# 			mat.emission = Color(0.4, 0.05, 0.05)
-# 			mat.emission_energy_multiplier = 0.5
-# 		else:
-# 			# Safe notes: near-black with warm paper glow so they're visible in dark
-# 			mat.albedo_color = Color(0.05, 0.05, 0.04, 1.0)
-# 			mat.emission_enabled = true
-# 			mat.emission = Color(0.55, 0.50, 0.35)
-# 			mat.emission_energy_multiplier = 0.6
-# 		child.set_surface_override_material(0, mat)
+# Build the material a note sheet should wear. Shared with the levels that spawn
+# notes procedurally (level_1.gd / level_2.gd `_make_note`) so a note looks the
+# same whether it came from a .tscn or from code.
+#
+# note_paper.png sat unused on disk while every note in the game rendered as a
+# flat near-black box — the khaki rectangle visible in the House living room.
+# The emission is what keeps a sheet of paper findable in these dark levels, so
+# it stays even now that there's a texture: albedo carries the paper, emission
+# carries the "look at me".
+static func paper_material(trap: bool) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.roughness = 0.95
+	if ResourceLoader.exists(PAPER_TEX):
+		mat.albedo_texture = load(PAPER_TEX)
+		mat.albedo_color = Color(0.6, 0.25, 0.25) if trap else Color(0.85, 0.82, 0.7)
+		mat.emission_enabled = true
+		mat.emission_texture = mat.albedo_texture
+		mat.emission = Color(0.5, 0.08, 0.08) if trap else Color(0.5, 0.46, 0.33)
+		mat.emission_energy_multiplier = 0.5 if trap else 0.6
+	else:
+		# Pre-texture fallback — the original flat look.
+		mat.albedo_color = Color(0.55, 0.15, 0.15) if trap else Color(0.05, 0.05, 0.04)
+		mat.emission_enabled = true
+		mat.emission = Color(0.4, 0.05, 0.05) if trap else Color(0.55, 0.5, 0.35)
+		mat.emission_energy_multiplier = 0.5 if trap else 0.6
+	return mat
+
+
+func _style_mesh() -> void:
+	for child in get_children():
+		if child is MeshInstance3D:
+			child.set_surface_override_material(0, paper_material(is_trap))
 
 
 # func _enlarge_collision() -> void:

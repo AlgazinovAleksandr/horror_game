@@ -14,7 +14,6 @@
 [ext_resource type="Material" uid="uid://dy68vhw8sxrwd" path="res://assets/materials/objects/note.tres" id="8_7gny6"]
 [ext_resource type="Script" uid="uid://c3lbhft83q7ts" path="res://scripts/scary_object.gd" id="12_7gny6"]
 [ext_resource type="Texture2D" uid="uid://de7ceqrda5ey" path="res://assets/textures/level_1_lab/poster_lab.png" id="13_7nomh"]
-[ext_resource type="Texture2D" uid="uid://ddfe1viol4v4q" path="res://assets/textures/level_1_lab/blood_lab.png" id="14_1s4pk"]
 [ext_resource type="PackedScene" uid="uid://boxjcorxxbiey" path="res://assets/elements/hud_canvas.tscn" id="14_2aecg"]
 
 [sub_resource type="BoxMesh" id="3"]
@@ -81,17 +80,6 @@ size = Vector3(1.2, 0.8, 0.01)
 [sub_resource type="BoxShape3D" id="BoxShape3D_go7sj"]
 size = Vector3(1.2, 0.8, 0.01)
 
-[sub_resource type="BoxMesh" id="15"]
-size = Vector3(1, 0.01, 0.8)
-
-[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_2aecg"]
-albedo_texture = ExtResource("14_1s4pk")
-uv1_scale = Vector3(1.5, 1.5, 1.5)
-uv1_offset = Vector3(-0.252, 0.35, 0)
-uv2_world_triplanar = true
-
-[sub_resource type="BoxShape3D" id="BoxShape3D_7gny6"]
-size = Vector3(0.5, 0.01, 0.4)
 
 [sub_resource type="CapsuleShape3D" id="2"]
 radius = 0.4
@@ -365,20 +353,6 @@ mesh = SubResource("14")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Poster" unique_id=753886529]
 shape = SubResource("BoxShape3D_go7sj")
-
-[node name="Blood" type="StaticBody3D" parent="." unique_id=1809883656]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 0.01, 2.7)
-script = ExtResource("12_7gny6")
-scare_intensity = 3.0
-metadata/_edit_group_ = true
-
-[node name="BloodLab" type="MeshInstance3D" parent="Blood" unique_id=928652630]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.20000005)
-mesh = SubResource("15")
-surface_material_override/0 = SubResource("StandardMaterial3D_2aecg")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Blood" unique_id=799605148]
-shape = SubResource("BoxShape3D_7gny6")
 
 [node name="HUDCanvas" parent="." unique_id=1319832927 instance=ExtResource("14_2aecg")]
 visible = false

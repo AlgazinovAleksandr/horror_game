@@ -19,6 +19,76 @@ enum UnlockCondition { NONE, KEYCARD, CODE_ENTERED, TWIST_READ }
 var _twist_activated: bool = false
 
 
+# The material an exit / back door should wear.
+#
+# Project convention (CLAUDE.md): exit and back doors glow blood-red so the player
+# can find the way on in the dark. Levels 1 and 2 implemented that as a flat red
+# emissive box with no texture at all, which read as a red brick rather than a door.
+# With a texture the albedo carries the door and the emission is tinted red THROUGH
+# that same texture, so the glow takes the door's shape and the blood-red signature
+# survives.
+#
+# emission stays enabled and starts at 1.5 in both branches because _flash_unlock()
+# tweens emission_energy_multiplier from wherever it is up to 10.0 and back to 3.0.
+# Build a door's visible geometry under `body` and return the node _flash_unlock()
+# should tween.
+#
+# ⚠️ The artwork goes on QUADS, not on the slab. A BoxMesh does not map the whole
+# texture onto each face, so a door textured directly on the box rendered a
+# magnified CROP of its own art — one hinge and a blank panel, no window, no push
+# bar. The tray and monitor in the morgue use quads and show their full textures,
+# which is what made the difference obvious. The slab stays as the dark edge/depth.
+#
+# Only the FRONT face is textured. Every door in the game is mounted against a solid
+# wall, so a second quad on the back is buried in that wall — dead geometry that also
+# trips the wall-prop assertion in tests/check_wall_overlap.gd. Leaving it off turns
+# that assertion into a useful check: a door built facing the wrong way has its front
+# quad inside the wall, and the test fails.
+static func build_visual(body: Node3D, size: Vector3, tex_path: String) -> MeshInstance3D:
+	var slab := MeshInstance3D.new()
+	slab.name = "DoorSlab"
+	var bm := BoxMesh.new()
+	bm.size = size
+	slab.mesh = bm
+	var edge := StandardMaterial3D.new()
+	edge.albedo_color = Color(0.09, 0.08, 0.08)
+	edge.roughness = 0.9
+	slab.set_surface_override_material(0, edge)
+	body.add_child(slab)
+
+	var face := MeshInstance3D.new()
+	face.name = "DoorMesh"   # _flash_unlock() looks this node up by name
+	var qm := QuadMesh.new()
+	qm.size = Vector2(size.x, size.y)
+	face.mesh = qm
+	face.set_surface_override_material(0, door_material(tex_path))
+	face.position = Vector3(0, 0, size.z / 2.0 + 0.004)
+	body.add_child(face)
+	return face
+
+
+static func door_material(tex_path: String = "") -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.emission_enabled = true
+	mat.emission_energy_multiplier = 1.5
+	if tex_path != "" and ResourceLoader.exists(tex_path):
+		var tex := load(tex_path)
+		mat.albedo_texture = tex
+		mat.albedo_color = Color(1, 1, 1)
+		mat.emission_texture = tex
+		# Very restrained on purpose. These levels are lit at ~0.45 energy, so a
+		# surface's albedo contributes far less than its emission — at 0.5 the red
+		# swamped the pale steel texture and the door rendered salmon pink. The
+		# glow only has to make the door findable; its shape does the rest.
+		mat.emission = Color(0.6, 0.09, 0.09)
+		mat.emission_energy_multiplier = 0.08
+		mat.roughness = 0.85
+	else:
+		mat.albedo_color = Color(0.15, 0.01, 0.01)
+		mat.emission = Color(0.35, 0.02, 0.02)
+	return mat
+
+
 func _process(_delta: float) -> void:
 	if unlock_condition == UnlockCondition.TWIST_READ and not _twist_activated and GameState.twist_read:
 		_twist_activated = true
