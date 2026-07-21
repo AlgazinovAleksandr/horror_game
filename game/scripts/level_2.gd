@@ -694,7 +694,10 @@ func _spawn_cellar_contents() -> void:
 	if ResourceLoader.exists(key_tex):
 		var kq := MeshInstance3D.new()
 		var qm := QuadMesh.new()
-		qm.size = Vector2(0.22, 0.10)
+		# ⚠️ Must match the art's aspect or the key renders squashed. house_cellar_key.png
+		# is cropped to its own alpha bounds at 1435x381 = 3.77:1; a 20 cm key is
+		# therefore 0.053 m tall. Re-crop the art and this number has to move with it.
+		qm.size = Vector2(0.20, 0.053)
 		kq.mesh = qm
 		var qmat := StandardMaterial3D.new()
 		var tex := load(key_tex)

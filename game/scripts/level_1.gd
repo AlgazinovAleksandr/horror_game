@@ -438,8 +438,13 @@ func _spawn_morgue_keycard() -> void:
 		"tray", TEX + "lab_surgical_tray.png")                   # surgical tray
 	# Sized like an actual CRT (and to the art's 4:3 aspect) rather than the old
 	# 0.5 x 0.4 x 0.1 slab, which was too thin to read as a monitor at all.
+	# ⚠️ The casing carries NO emission. It used to glow green so the slab was findable
+	# before the art existed; now the screen quad glows at 0.85 and the casing beside it
+	# read as a bright green lamp rather than as beige CRT plastic. Emission is most of
+	# a surface's colour in this project (Issue 21) — once a prop has a lit face, its
+	# body must go back to being an ordinary unlit object.
 	_make_trigger(base + Vector3(0.95, 1.0, 0), Vector3(0.5, 0.38, 0.34),
-		Color(0.02, 0.03, 0.04), Color(0.1, 0.25, 0.15),
+		Color(0.17, 0.165, 0.15), Color(0, 0, 0),
 		"monitor", TEX + "lab_monitor_face.png")                 # monitor with a face
 
 	# A cursed portrait on the morgue's far wall — staring at it feeds panic.
@@ -457,21 +462,25 @@ func _spawn_morgue_keycard() -> void:
 	add_child(key)
 	var km := MeshInstance3D.new()
 	var kb := BoxMesh.new()
-	kb.size = Vector3(0.1, 0.02, 0.15)
+	# ⚠️ Landscape, matching lab_keycard.png (1586x992 = 1.6:1) and a real ID card
+	# (85.6x54 mm). This slab used to be portrait (0.1 x 0.15), which would have
+	# rendered the card art rotated a quarter turn and squashed.
+	kb.size = Vector3(0.16, 0.02, 0.10)
 	km.mesh = kb
 	var kmat := StandardMaterial3D.new()
-	kmat.albedo_color = Color(0.2, 0.8, 0.3)
-	kmat.emission_enabled = true
-	kmat.emission = Color(0.1, 0.6, 0.2)
-	kmat.emission_energy_multiplier = 0.9
+	# Same lesson as the monitor casing: with the card art on top, this slab is only
+	# the card's EDGE. At the old bright green (0.2,0.8,0.3) emitting at 0.9 it out-shone
+	# the art and the card read as a green bar on the cart. Pale card stock, unlit —
+	# the glow now comes from the art quad, which is the part worth looking at.
+	kmat.albedo_color = Color(0.55, 0.56, 0.54)
 	km.set_surface_override_material(0, kmat)
 	key.add_child(km)
 	# The card art rides on a top-facing quad — the card lies flat on the cart, so
 	# its top is the only face the player ever sees. (A texture on the BoxMesh would
 	# render a crop; see door.gd:build_visual and Issue 24.) The green emissive box
 	# stays underneath as the edge and as the pre-texture fallback.
-	_add_face_quad(key, Vector2(0.1, 0.15), Vector3(0, 0.013, 0),
-		Vector3(-PI / 2.0, 0, 0), TEX + "lab_keycard.png", 0.55)
+	_add_face_quad(key, Vector2(0.16, 0.10), Vector3(0, 0.013, 0),
+		Vector3(-PI / 2.0, 0, 0), TEX + "lab_keycard.png", 0.7)
 	var kcol := CollisionShape3D.new()
 	var ks := BoxShape3D.new()
 	ks.size = Vector3(0.3, 0.3, 0.6)

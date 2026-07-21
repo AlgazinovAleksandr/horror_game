@@ -714,3 +714,58 @@ back quad was removed), this doubles as a check that no door is built facing int
 **General lesson.** When a helper takes an offset, be explicit in its name or docs about what the
 offset is measured FROM. "Inset from the room boundary" and "clearance from the wall face" differ by
 exactly the amount that turns a decal into a z-fight.
+
+---
+
+## Issue 27 — A prop's placeholder glow outlives the art it was standing in for
+
+**Symptom.** The Lab keycard, the Lab face-monitor and the KONTUR bait card all "looked weird" even
+after real art was generated for them. The keycard read as a green bar on the cart, the monitor as a
+glowing green box with a small face inset in it, and the bait card as a featureless pale-blue lozenge.
+
+**Cause.** Each of these props was built long before its texture existed, so each was given a bright
+`emission` on its *slab* purely as a findability affordance in a dark room — green for the keycard
+(`0.2, 0.8, 0.3` at 0.9), green for the monitor casing (`0.1, 0.25, 0.15`), blue for the bait card
+(at 0.9). When the art landed on a quad on top, the slab underneath did not stop glowing. Per
+Issue 21, emission is most of a surface's colour in this project, so the placeholder out-shone the
+artwork it was supposed to be replaced by.
+
+**Fix.** Once a prop has a lit face, its body goes back to being an ordinary unlit object and the
+**art quad carries the glow**:
+
+| Prop | Slab before | Slab after | Quad emission |
+|---|---|---|---|
+| Lab keycard | green, emission 0.9 | card stock `0.55,0.56,0.54`, unlit | 0.55 → 0.7 |
+| Lab monitor | green, emission 0.4 | CRT plastic `0.17,0.165,0.15`, unlit | 0.85 |
+| KONTUR bait card | blue, emission 0.9 | same blue, emission 0.25 (edge only) | 0.7 |
+
+The bait card keeps a little emission because its `OmniLight3D` and glow are load-bearing for the
+gate — it has to look worth taking.
+
+**General lesson.** A placeholder affordance is a debt. When you texture a prop that had a
+stand-in glow, tint or colour, delete the stand-in in the same change — otherwise it competes with
+the asset it was a placeholder for, and the symptom ("the new texture looks wrong") points at the
+art rather than at the code.
+
+---
+
+## Issue 28 — A single-sided art quad was on the face the player never sees
+
+**Symptom.** The KONTUR bait card rendered as a blank blue lozenge with no artwork, even though the
+texture had imported cleanly (real PNG, `.ctex` present) and the guard was passing.
+
+**Cause.** `offering_pedestal.gd` put the card art on one `QuadMesh` at local `+Z`. The KONTUR spine
+is walked from low z to high z, so the face the player actually sees is `-Z`. The art was on the
+back of the card the whole time.
+
+**Fix.** Build the art on **both** faces, mirroring the `-Z` copy with `rotation.y = PI` so its
+normal points outward. A pedestal is an object the player can circle, so committing to one viewing
+direction is the wrong shape of fix even when you guess the direction correctly.
+
+**How to spot it.** Identical symptom to a failed texture import (Issues 1 / 25), so check in this
+order: (1) `file` the PNG, (2) confirm the `.ctex` exists in `game/.godot/imported/`, (3) *then*
+suspect orientation. If the import is sound and the prop is still blank, you are looking at the
+untextured back of something.
+
+**General lesson.** Art on a quad has a facing. Any prop the player can walk around needs the art on
+every face they can reach, or an explicit reason in a comment why one face is enough.

@@ -41,10 +41,11 @@ func _build() -> void:
 	card_mat.albedo_color = Color(0.75, 0.85, 0.95)
 	card_mat.emission_enabled = true
 	card_mat.emission = Color(0.45, 0.75, 1.0)
-	# ⚠️ Was 2.2 — above 1.0 clamps to flat pure white under Linear tonemap with no
-	# glow, so the bait card was a featureless white lozenge (Issue 21). It still has
-	# to glow invitingly; 0.9 does that without erasing the art.
-	card_mat.emission_energy_multiplier = 0.9
+	# ⚠️ Was 2.2, then 0.9. Above 1.0 clamps to flat pure white under Linear tonemap
+	# with no glow (Issue 21), but even 0.9 left the SLAB out-shining the card art on
+	# top of it. This is only the card's edge now — the OmniLight below still sells the
+	# "lit offering", and the art quads carry the card itself.
+	card_mat.emission_energy_multiplier = 0.25
 
 	_card = MeshInstance3D.new()
 	var cbox := BoxMesh.new()
@@ -55,22 +56,30 @@ func _build() -> void:
 	_card.rotation = Vector3(deg_to_rad(-20.0), 0, 0)
 	add_child(_card)
 
-	# Card art on a quad on the up-tilted face — a texture on the box itself would
+	# Card art on quads either side of the slab — a texture on the box itself would
 	# render a magnified crop (Issue 24). Guarded, so the gate works untextured too.
+	#
+	# ⚠️ BOTH faces, deliberately. A single quad on +Z was invisible: the player walks
+	# the spine from low z, so the side they actually see is -Z, and the card read as a
+	# blank blue lozenge — exactly the symptom the art was meant to fix. A pedestal is
+	# an object you circle, so guessing one viewing direction is the wrong shape of fix.
 	if ResourceLoader.exists(CARD_TEX):
-		var face := MeshInstance3D.new()
-		var fq := QuadMesh.new()
-		fq.size = Vector2(0.16, 0.10)
-		face.mesh = fq
-		var fmat := StandardMaterial3D.new()
 		var tex := load(CARD_TEX)
-		fmat.albedo_texture = tex
-		fmat.emission_enabled = true
-		fmat.emission_texture = tex
-		fmat.emission_energy_multiplier = 0.7
-		face.set_surface_override_material(0, fmat)
-		face.position = Vector3(0, 0, 0.009)
-		_card.add_child(face)
+		for side in [1.0, -1.0]:
+			var face := MeshInstance3D.new()
+			var fq := QuadMesh.new()
+			fq.size = Vector2(0.16, 0.10)
+			face.mesh = fq
+			var fmat := StandardMaterial3D.new()
+			fmat.albedo_texture = tex
+			fmat.emission_enabled = true
+			fmat.emission_texture = tex
+			fmat.emission_energy_multiplier = 0.7
+			face.set_surface_override_material(0, fmat)
+			face.position = Vector3(0, 0, 0.009 * side)
+			# Quads face +Z by default; the -Z copy is turned to face outward too.
+			face.rotation.y = 0.0 if side > 0.0 else PI
+			_card.add_child(face)
 
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(0.55, 0.8, 1.0)
