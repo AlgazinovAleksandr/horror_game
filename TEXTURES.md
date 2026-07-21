@@ -11,11 +11,16 @@ Columns:
 ### intro/
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
-| `intro/wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed; small dark room feel | Intro Room — all 4 wall CSGBox3D nodes | done |
-| `intro/floor_intro.png` | Dark stone slab — faint cracks, slightly uneven; candlelit cellar feel | Intro Room — floor CSGBox3D node | done |
+| `intro/wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed | Intro Room (redesigned, Session — see INTRO.md) — all 6 wall/floor/ceiling CSGBox3D nodes of the big asylum ward, `uv1_scale=4.0` | done |
+| `intro/floor_intro.png` | Dark stone slab — faint cracks, slightly uneven | Intro Room — floor CSGBox3D node | done |
 | `intro/ceiling_intro.png` | Rough concrete ceiling — darker than walls, slight water stain | Intro Room — ceiling CSGBox3D node | done |
-| `intro/painting_intro.png` | Abstract unsettling painting — dark blurred figures, gold frame suggestion; hung on intro back wall | Intro Room — MeshInstance3D quad on back wall | done |
-| `intro/cobweb_intro.png` | Spider web — semi-transparent PNG, detailed silk strands with spider silhouette | Intro Room — MeshInstance3D quads in top corners | done |
+| `intro/painting_intro.png` | Abstract unsettling painting — dark blurred figures, gold frame suggestion | Intro Room — **currently unused.** Dropped when the room was rebuilt as a bigger asylum ward (INTRO.md); the old back-wall placement/rotation logic in `_apply_textures()` was tied to the small room's single Z-normal wall and wasn't worth carrying forward speculatively | to_be_added |
+| `intro/cobweb_intro.png` | Spider web — semi-transparent PNG, detailed silk strands with spider silhouette | Intro Room — MeshInstance3D quads in top corners (`_spawn_cobwebs()`, corner anchors now derived from `ROOM_SIZE`/`ROOM_HEIGHT`) | done |
+| `intro/nightmare_face.png` | Extreme close-up horror jumpscare — gaunt pale distorted face lunging out of darkness, mouth open mid-scream, hollow black eyes, harsh single-source underlighting | Main menu cold-open jumpscare on START (`main_menu.gd`) only — a follow-up pass removed the Intro Room's mid-walk "fumble jolt" flash so the level itself has no screamer, leaving this the sole use | done |
+| `intro/gurney_intro.png` | Old rusted hospital gurney mattress, top-down — stained vinyl, torn corners, water stains, loose restraint strap | Intro Room — top-facing QuadMesh over 3 gurney mattresses (`intro_room.gd:_build_gurney(pos)`, one texture reused across the player's own bed + 2 scattered empty ones, same reuse trick `_spawn_cobwebs()` uses) | done |
+| `intro/cabinet_intro.png` | Rusted metal medical cabinet, front elevation — dented steel, peeling green paint, wire-glass windows | Intro Room — background dressing cabinets along the side walls (`intro_room.gd:_build_cabinets()`), applied directly to the CSGBox3D (not a quad — optional decorative dressing, a magnified crop is an accepted tradeoff here) | done |
+| `intro/wheelchair_intro.png` | Old rusted wheelchair, 3/4 side view, isolated on a transparent background, dusty worn fabric seat, rust on wheel spokes and frame, dim horror-game prop lighting, clean alpha cutout | Intro Room — freestanding billboard cutout (`intro_room.gd:_build_wheelchair()`), open floor between the table and the exit door | done |
+| `intro/wall_chart_intro.png` | "RAVENCROFT COUNTY ASYLUM — PATIENT OBSERVATION CHART" pinned to a wall, front elevation, handwritten vitals/notes, water-stained edges, torn corner | Intro Room — wall decal on WallBack (`intro_room.gd:_build_wall_chart()`), clear of the exit door | done |
 
 ### level_1_lab/
 | file_name | texture_description | where_used | status |

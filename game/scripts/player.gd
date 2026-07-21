@@ -52,6 +52,8 @@ var _standstill_panic_enabled: bool = false
 var _standstill_timer: float = 0.0
 var _smiler_active: bool = false        # suspends standstill + dark ticks (Smiler runs its own dread)
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
+var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
+var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
 var _footstep_echo_enabled: bool = false
 var _echo_player: AudioStreamPlayer3D = null
 var _dead_click_player: AudioStreamPlayer = null
@@ -96,6 +98,8 @@ func _add_crosshair() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _input_frozen:
+		return
 	if NoteUI.is_open:
 		return
 
@@ -109,7 +113,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_flashlight"):
 		if flashlight.visible:
 			flashlight.visible = false
-		elif _battery > 0.0 and not _flashlight_dead:
+		elif _battery > 0.0 and not _flashlight_dead and not _flashlight_locked:
 			flashlight.visible = true
 		else:
 			_play_dead_click()  # dead battery — only a useless click answers
@@ -157,6 +161,8 @@ func _apply_gravity(delta: float) -> void:
 
 
 func _apply_movement() -> void:
+	if _input_frozen:
+		return
 	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
@@ -362,24 +368,51 @@ func enable_footstep_echo() -> void:
 	add_child(_echo_player)
 
 
+# Lazily builds the dead-battery click player shared by kill_flashlight() and
+# lock_flashlight() — either path can be the first to need it.
+func _ensure_dead_click_player() -> void:
+	if _dead_click_player:
+		return
+	_dead_click_player = AudioStreamPlayer.new()
+	var click := GameState.load_audio("light_pop")
+	if click:
+		_dead_click_player.stream = click
+	_dead_click_player.volume_db = -14.0
+	add_child(_dead_click_player)
+
+
 # Force the flashlight off for the rest of the scene; F now only clicks uselessly.
 func kill_flashlight() -> void:
 	_flashlight_dead = true
 	_battery = 0.0
 	flashlight.visible = false
-	if not _dead_click_player:
-		_dead_click_player = AudioStreamPlayer.new()
-		var click := GameState.load_audio("light_pop")
-		if click:
-			_dead_click_player.stream = click
-		_dead_click_player.volume_db = -14.0
-		add_child(_dead_click_player)
+	_ensure_dead_click_player()
 
 
 # The Smiler toggles this: while active, standstill + dark ticks pause and the
 # creature drives panic itself (see Q2 of the Backrooms design).
 func set_smiler_active(active: bool) -> void:
 	_smiler_active = active
+
+
+# Intro Room opt-ins (default off everywhere else). Reversible, unlike
+# kill_flashlight()'s permanent one-way lock — the Intro Room's switch un-locks it.
+func lock_flashlight() -> void:
+	_flashlight_locked = true
+	flashlight.visible = false
+	_ensure_dead_click_player()
+
+
+func unlock_flashlight() -> void:
+	_flashlight_locked = false
+
+
+func freeze_input() -> void:
+	_input_frozen = true
+
+
+func unfreeze_input() -> void:
+	_input_frozen = false
 
 
 func is_flashlight_on() -> bool:

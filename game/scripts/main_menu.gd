@@ -1,5 +1,11 @@
 extends Node
 
+const NIGHTMARE_IMAGE := "res://assets/textures/intro/nightmare_face.png"
+
+var _start_btn: Button
+var _quit_btn: Button
+
+
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_build_ui()
@@ -67,16 +73,19 @@ func _build_ui() -> void:
 	spacer.custom_minimum_size = Vector2(0, 20)
 	vbox.add_child(spacer)
 
-	var start_btn := Button.new()
-	start_btn.text = "START"
-	start_btn.pressed.connect(_on_start)
-	vbox.add_child(start_btn)
+	_start_btn = Button.new()
+	_start_btn.text = "START"
+	_start_btn.pressed.connect(_on_start)
+	vbox.add_child(_start_btn)
 
-	var quit_btn := Button.new()
-	quit_btn.text = "QUIT"
-	quit_btn.pressed.connect(get_tree().quit)
-	vbox.add_child(quit_btn)
+	_quit_btn = Button.new()
+	_quit_btn.text = "QUIT"
+	_quit_btn.pressed.connect(get_tree().quit)
+	vbox.add_child(_quit_btn)
 
 
 func _on_start() -> void:
+	_start_btn.disabled = true
+	_quit_btn.disabled = true
+	await Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.8)
 	get_tree().change_scene_to_file(GameState.SCENE_INTRO)

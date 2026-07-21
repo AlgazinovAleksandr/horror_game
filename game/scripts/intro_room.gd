@@ -4,80 +4,522 @@ const OPENING_NOTE := "You are Subject 47.\n\nThis is a psychological experiment
 
 const ENDING_NOTE := "This is not an experiment.\n\nThere is no exit.\n\nThey already know where you are."
 
-@onready var candle_light: OmniLight3D = $CandleLight
-@onready var note: Node = $Note
+const TEX := "res://assets/textures/intro/"
+const BASE_ENERGY := 1.8
+
+# Room + beat geometry (see INTRO.md for the full design). The room is a big,
+# hand-placed asylum ward — same CSGBox3D style as the original small room, just
+# scaled up — built at runtime, not baked into the .tscn (see PRESERVE below).
+const ROOM_SIZE := Vector2(12.0, 18.0)     # x, z
+const ROOM_HEIGHT := 3.6
+const WAKEUP_TWEEN_TIME := 1.8
+const NIGHTMARE_TEXT := "IT WAS ONLY A DREAM."
+const PATH_GLOW_ENERGY := 0.12
+const PATH_GLOW_RANGE := 1.4
+const PATH_GLOW_Y := 0.35          # fixed low "ankle" height — not the switch's mounting height
+const GURNEY_POS := Vector3(0, 0, 7.0)
+const GURNEY_TOP_Y := 0.6           # frame top 0.5, mattress top 0.6 — see _build_gurney()
+const SWITCH_POS := Vector3(-5.6, 1.3, -1.0)
+const TABLE_POS := Vector3(0, 0.4, 0.0)
+const EXIT_DOOR_POS := Vector3(0, 1.1, -8.5)
+const WHEELCHAIR_POS := Vector3(3.0, 0.55, -3.0)   # open floor between the table and the door
+const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door (spans x -0.5..0.5)
+const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
+
+# Nodes that must survive a clear-and-rebuild pass. This scene is never reloaded
+# mid-playthrough in the normal flow, but the twist ending reuses this same
+# scene/script, so the pattern is genuinely exercised, not just precautionary.
+const PRESERVE := ["Environment", "AmbientPlayer", "Player"]
+
+const _DOOR_SCRIPT := preload("res://scripts/door.gd")
+const _NOTE_SCRIPT := preload("res://scripts/note.gd")
+
+@onready var player: CharacterBody3D = $Player
+
+var candle_light: OmniLight3D
+var note: Node
 
 var _flicker_time: float = 0.0
-var _red_light: OmniLight3D = null  # ending only: slow blood-red throb
-const BASE_ENERGY := 1.8
+var _red_light: OmniLight3D = null   # ending only: slow blood-red throb
+var _candle_lit: bool = false        # gates _process()'s candle flicker until the switch flips
+var _env: Environment = null
+var _path_glow_lights: Array[OmniLight3D] = []
+var _path_glow_audio: AudioStreamPlayer3D = null
+var _ceiling_lights: Array[OmniLight3D] = []
 
 
 func _ready() -> void:
 	GameState.current_level = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_clear_old_scene()
+
+	_build_room()
+	_build_gurney(GURNEY_POS)                    # the player's own
+	_build_gurney(Vector3(4.5, 0, 6.0))          # scattered extra beds — the room isn't empty
+	_build_gurney(Vector3(-4.3, 0, 5.0))
+	_build_iv_stand(Vector3(0.8, 0, 6.5))
+	_build_iv_stand(Vector3(5.3, 0, 6.3))
+	_build_wheelchair()
+	_build_wall_chart()
+	_build_table_note_candle()
+	_build_exit_door()
+	_build_cabinets()
 	_apply_textures()
+	_spawn_cobwebs()
+	_start_ambience()
 
 	if GameState.is_ending:
 		note.note_text = ENDING_NOTE
 		NoteUI.closed.connect(_on_ending_note_closed, CONNECT_ONE_SHOT)
 		_corrupt_room()
-	else:
-		note.note_text = OPENING_NOTE
-		_show_controls_hint()
+		return
 
-	_spawn_cobwebs()
+	note.note_text = OPENING_NOTE
+	_darken_scene(0.0)
+	player.lock_flashlight()
+	player.freeze_input()
+	_play_wakeup_beat()
+
+
+func _clear_old_scene() -> void:
+	for child in get_children():
+		if not PRESERVE.has(child.name):
+			child.queue_free()
+
+
+func _start_ambience() -> void:
+	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
+	if ambient:
+		var s := GameState.load_audio("ambient_asylum")
+		if s:
+			ambient.stream = s
+		if ambient.stream:
+			ambient.finished.connect(ambient.play)
+			ambient.play()
+
+
+# ---------------------------------------------------------------- geometry
+
+func _make_box(box_name: String, size: Vector3, pos: Vector3) -> CSGBox3D:
+	var box := CSGBox3D.new()
+	box.name = box_name
+	box.size = size
+	box.position = pos
+	box.use_collision = true
+	add_child(box)
+	return box
+
+
+func _build_room() -> void:
+	_make_box("Floor", Vector3(ROOM_SIZE.x, 0.3, ROOM_SIZE.y), Vector3(0, -0.15, 0))
+	_make_box("Ceiling", Vector3(ROOM_SIZE.x, 0.3, ROOM_SIZE.y), Vector3(0, ROOM_HEIGHT + 0.15, 0))
+	_make_box("WallBack", Vector3(ROOM_SIZE.x, ROOM_HEIGHT, 0.3), Vector3(0, ROOM_HEIGHT / 2.0, -ROOM_SIZE.y / 2.0))
+	_make_box("WallFront", Vector3(ROOM_SIZE.x, ROOM_HEIGHT, 0.3), Vector3(0, ROOM_HEIGHT / 2.0, ROOM_SIZE.y / 2.0))
+	_make_box("WallLeft", Vector3(0.3, ROOM_HEIGHT, ROOM_SIZE.y), Vector3(-ROOM_SIZE.x / 2.0, ROOM_HEIGHT / 2.0, 0))
+	_make_box("WallRight", Vector3(0.3, ROOM_HEIGHT, ROOM_SIZE.y), Vector3(ROOM_SIZE.x / 2.0, ROOM_HEIGHT / 2.0, 0))
+
+	# Ceiling fluorescents — off until the switch is flipped, then flickered up
+	# in _on_switch_flipped(). No fixture mesh: this room reads as plain damp
+	# concrete, not a lab with a distinct fitting texture.
+	for z in [6.0, 0.0, -6.0]:
+		var light := OmniLight3D.new()
+		light.name = "CeilingLight"
+		light.position = Vector3(0, ROOM_HEIGHT - 0.3, z)
+		light.light_energy = 0.0
+		light.light_color = Color(0.75, 0.8, 0.85)
+		light.omni_range = 9.0
+		light.shadow_enabled = true
+		add_child(light)
+		_ceiling_lights.append(light)
+
+
+func _build_gurney(pos: Vector3) -> void:
+	var frame := CSGBox3D.new()
+	frame.name = "GurneyFrame"
+	frame.size = Vector3(0.9, 0.5, 2.0)
+	frame.position = pos + Vector3(0, 0.25, 0)
+	frame.use_collision = true
+	var fm := StandardMaterial3D.new()
+	fm.albedo_color = Color(0.12, 0.12, 0.13)
+	fm.metallic = 0.6
+	fm.roughness = 0.5
+	frame.material = fm
+	add_child(frame)
+
+	var mattress := CSGBox3D.new()
+	mattress.name = "GurneyMattress"
+	mattress.size = Vector3(0.85, 0.1, 1.9)
+	mattress.position = pos + Vector3(0, 0.55, 0)
+	mattress.use_collision = true
+	var mm := StandardMaterial3D.new()
+	mm.albedo_color = Color(0.35, 0.33, 0.3)
+	mm.roughness = 0.9
+	mattress.material = mm
+	add_child(mattress)
+
+	# The gurney art is a top-facing photo, not a texture wrapped around the box
+	# (a BoxMesh/CSGBox3D crops instead of fitting a whole image to one face —
+	# see the QuadMesh rule in CLAUDE.md). Sits a hair proud of the mattress top.
+	# Reused across all 3 gurneys — one texture, multiple placements, same trick
+	# _spawn_cobwebs() already uses.
+	var mtex_path := TEX + "gurney_intro.png"
+	if ResourceLoader.exists(mtex_path):
+		var decal := MeshInstance3D.new()
+		decal.name = "GurneyMattressArt"
+		var qm := PlaneMesh.new()
+		qm.size = Vector2(0.85, 1.9)
+		decal.mesh = qm
+		decal.position = pos + Vector3(0, 0.605, 0)
+		var dm := StandardMaterial3D.new()
+		dm.albedo_texture = load(mtex_path)
+		dm.roughness = 0.9
+		decal.set_surface_override_material(0, dm)
+		add_child(decal)
+
+
+# Thin pole + small "bag" + flat base — enough silhouette to read as an IV stand
+# without needing a texture (per the grill-me decision: too simple a shape to
+# justify one).
+func _build_iv_stand(pos: Vector3) -> void:
+	var pole := CSGCylinder3D.new()
+	pole.name = "IVStandPole"
+	pole.radius = 0.02
+	pole.height = 1.4
+	pole.position = pos + Vector3(0, 0.7, 0)
+	pole.use_collision = true
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.55, 0.55, 0.58)
+	pm.metallic = 0.7
+	pm.roughness = 0.4
+	pole.material = pm
+	add_child(pole)
+
+	var base := CSGCylinder3D.new()
+	base.name = "IVStandBase"
+	base.radius = 0.16
+	base.height = 0.03
+	base.position = pos + Vector3(0, 0.015, 0)
+	base.material = pm
+	add_child(base)
+
+	var bag := MeshInstance3D.new()
+	bag.name = "IVStandBag"
+	var sm := SphereMesh.new()
+	sm.radius = 0.07
+	sm.height = 0.16
+	bag.mesh = sm
+	bag.position = pos + Vector3(0, 1.42, 0)
+	var bm := StandardMaterial3D.new()
+	bm.albedo_color = Color(0.75, 0.7, 0.4, 0.75)
+	bm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	bag.set_surface_override_material(0, bm)
+	add_child(bag)
+
+
+# Billboard cutout, same technique as apparition_figure.png / the old painting:
+# a PlaneMesh tipped upright (rotation.x = -90, the proven rotation — reused
+# as-is rather than re-derived for a different wall axis) with culling disabled
+# so it reads from either side.
+func _build_wheelchair() -> void:
+	var tex_path := TEX + "wheelchair_intro.png"
+	if not ResourceLoader.exists(tex_path):
+		return
+	var cutout := MeshInstance3D.new()
+	cutout.name = "Wheelchair"
+	var qm := PlaneMesh.new()
+	qm.size = Vector2(0.8, 1.1)
+	cutout.mesh = qm
+	cutout.rotation_degrees.x = -90.0
+	cutout.position = WHEELCHAIR_POS
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load(tex_path)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	cutout.set_surface_override_material(0, mat)
+	add_child(cutout)
+
+
+# Same PlaneMesh + rotation.x=-90 pattern, mounted on WallBack (a Z-normal wall —
+# deliberately not a side wall, which would need a different, unverified
+# rotation axis to avoid the image rendering sideways).
+func _build_wall_chart() -> void:
+	var tex_path := TEX + "wall_chart_intro.png"
+	if not ResourceLoader.exists(tex_path):
+		return
+	var chart := MeshInstance3D.new()
+	chart.name = "WallChart"
+	var qm := PlaneMesh.new()
+	qm.size = Vector2(0.6, 0.9)
+	chart.mesh = qm
+	chart.rotation_degrees.x = -90.0
+	chart.position = WALL_CHART_POS
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load(tex_path)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	chart.set_surface_override_material(0, mat)
+	add_child(chart)
+
+
+func _build_table_note_candle() -> void:
+	var table := CSGBox3D.new()
+	table.name = "Table"
+	table.size = Vector3(1.2, 0.8, 0.6)
+	table.position = TABLE_POS
+	table.use_collision = true
+	const TABLE_MAT_PATH := "res://assets/materials/objects/table.tres"
+	if ResourceLoader.exists(TABLE_MAT_PATH):
+		table.material = load(TABLE_MAT_PATH)
+	add_child(table)
+
+	candle_light = OmniLight3D.new()
+	candle_light.name = "CandleLight"
+	candle_light.position = TABLE_POS + Vector3(0.3, 2.2, 0)
+	candle_light.light_color = Color(1, 0.58, 0.18, 1)
+	candle_light.light_energy = BASE_ENERGY
+	candle_light.shadow_enabled = true
+	candle_light.omni_range = 5.5
+	add_child(candle_light)
+
+	# Matches level_1.gd:_make_note()'s exact ordering: the note is added to the
+	# tree (triggering note.gd's _ready()) before its mesh/collision children are
+	# attached — this is the proven-working pattern elsewhere in the project.
+	note = StaticBody3D.new()
+	note.name = "Note"
+	note.set_script(_NOTE_SCRIPT)
+	note.position = TABLE_POS + Vector3(0, 0.4, 0)
+	add_child(note)
+
+	var note_mesh := MeshInstance3D.new()
+	var nbm := BoxMesh.new()
+	nbm.size = Vector3(0.21, 0.005, 0.297)
+	note_mesh.mesh = nbm
+	note.add_child(note_mesh)
+
+	var note_col := CollisionShape3D.new()
+	var nbs := BoxShape3D.new()
+	nbs.size = Vector3(0.21, 0.005, 0.297)
+	note_col.shape = nbs
+	note.add_child(note_col)
+
+
+func _build_exit_door() -> void:
+	var body := StaticBody3D.new()
+	body.name = "ExitDoor"  # _corrupt_room() looks this up by name — keep it exact
+	body.set_script(_DOOR_SCRIPT)
+	body.unlock_condition = _DOOR_SCRIPT.UnlockCondition.NONE
+	body.advances_level = true
+	# The door glows blood-red (findable in the dark, per project convention) and
+	# would otherwise be walkable the instant the player wakes up, skipping the
+	# whole dark-fumble/switch/reveal beat entirely — extra_lock seals it until
+	# _on_switch_flipped() clears it, same mechanism KONTUR uses for its exit.
+	body.extra_lock = not GameState.is_ending
+	body.locked_message = "Find the light switch first."
+	body.position = EXIT_DOOR_POS
+	add_child(body)
+
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.0, 2.2, 0.15), "")
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(1.0, 2.2, 0.2)
+	col.shape = shape
+	body.add_child(col)
+
+
+func _build_cabinets() -> void:
+	var cabinet_tex_path := TEX + "cabinet_intro.png"
+	var cabinet_tex: Texture2D = load(cabinet_tex_path) if ResourceLoader.exists(cabinet_tex_path) else null
+	var positions := [
+		Vector3(-5.55, 0.9, 4.0),
+		Vector3(5.55, 0.9, 2.0),
+		Vector3(5.55, 0.9, -4.0),
+	]
+	for i in range(positions.size()):
+		var pos: Vector3 = positions[i]
+		var body := CSGBox3D.new()
+		body.name = "Cabinet%d" % i
+		body.size = Vector3(0.6, 1.8, 0.5)
+		body.position = pos
+		body.use_collision = true
+		var bm := StandardMaterial3D.new()
+		if cabinet_tex:
+			bm.albedo_texture = cabinet_tex
+			bm.uv1_scale = Vector3(1.0, 1.0, 1.0)
+		else:
+			bm.albedo_color = Color(0.14, 0.18, 0.14)
+		bm.metallic = 0.4
+		bm.roughness = 0.7
+		body.material = bm
+		add_child(body)
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load("res://assets/textures/intro/wall_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/wall_intro.png") else null
-	var floor_tex: Texture2D = load("res://assets/textures/intro/floor_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/floor_intro.png") else null
-	var ceiling_tex: Texture2D = load("res://assets/textures/intro/ceiling_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/ceiling_intro.png") else null
-	var painting_tex: Texture2D = load("res://assets/textures/intro/painting_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/painting_intro.png") else null
-	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
+	var wall_tex: Texture2D = load(TEX + "wall_intro.png") if ResourceLoader.exists(TEX + "wall_intro.png") else null
+	var floor_tex: Texture2D = load(TEX + "floor_intro.png") if ResourceLoader.exists(TEX + "floor_intro.png") else null
+	var ceiling_tex: Texture2D = load(TEX + "ceiling_intro.png") if ResourceLoader.exists(TEX + "ceiling_intro.png") else null
 	for child in get_children():
-		var n: String = child.name.to_lower()
 		if child is CSGBox3D:
-			var mat := StandardMaterial3D.new()
-			mat.uv1_scale = Vector3(2.0, 2.0, 2.0)
+			var n: String = child.name.to_lower()
+			var tex: Texture2D = null
 			if n.contains("ceiling"):
-				if ceiling_tex:
-					mat.albedo_texture = ceiling_tex
-					child.material = mat
+				tex = ceiling_tex
 			elif n.contains("floor"):
-				if floor_tex:
-					mat.albedo_texture = floor_tex
-					child.material = mat
+				tex = floor_tex
 			elif n.contains("wall"):
-				if wall_tex:
-					mat.albedo_texture = wall_tex
-					child.material = mat
-		elif child is MeshInstance3D:
-			var mat := StandardMaterial3D.new()
-			mat.uv1_scale = Vector3(1.0, 1.0, 1.0)
-			if n.contains("painting"):
-				if painting_tex:
-					var plane := PlaneMesh.new()
-					plane.size = Vector2(1.0, 0.8)
-					child.mesh = plane
-					child.rotation_degrees.x = -90.0
-					mat.albedo_texture = painting_tex
-					mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-					child.set_surface_override_material(0, mat)
-			elif n.contains("cobweb"):
-				if cobweb_tex:
-					mat.albedo_texture = cobweb_tex
-					mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-					child.set_surface_override_material(0, mat)
+				tex = wall_tex
+			if tex:
+				var mat := StandardMaterial3D.new()
+				mat.uv1_scale = Vector3(4.0, 4.0, 4.0)
+				mat.albedo_texture = tex
+				child.material = mat
 
+
+# ---------------------------------------------------------------- darkness / reveal beat
+
+func _darken_scene(energy: float) -> void:
+	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
+	if we and we.environment:
+		_env = we.environment.duplicate()
+		_env.ambient_light_energy = energy
+		we.environment = _env
+	if candle_light:
+		candle_light.light_energy = 0.0
+		candle_light.visible = false
+
+
+func _play_wakeup_beat() -> void:
+	player.global_position = GURNEY_POS + Vector3(0, GURNEY_TOP_Y, 0)
+	player.rotation.y = 0.0  # identity already faces -Z, same side the table/door are on
+	player.camera.position.y = 1.0
+	player.camera.rotation.x = -0.25
+
+	var creak := GameState.load_audio("gurney_creak")
+	if creak:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = creak
+		p.position = GURNEY_POS
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+
+	var t := create_tween()
+	t.set_parallel(true)
+	t.tween_property(player.camera, "position:y", 1.65, WAKEUP_TWEEN_TIME)
+	t.tween_property(player.camera, "rotation:x", 0.0, WAKEUP_TWEEN_TIME)
+	t.finished.connect(_on_wakeup_finished)
+
+
+func _on_wakeup_finished() -> void:
+	player.unfreeze_input()
+	ScreenText.scrawl(get_tree(), NIGHTMARE_TEXT, 4.0)
+	_spawn_path_glow()
+	_spawn_light_switch()
+
+
+func _spawn_path_glow() -> void:
+	var g0 := Vector2(GURNEY_POS.x, GURNEY_POS.z)
+	var g1 := Vector2(SWITCH_POS.x, SWITCH_POS.z)
+	for progress in [0.2, 0.45, 0.7, 0.9]:
+		var xz := g0.lerp(g1, progress)
+		var light := OmniLight3D.new()
+		light.name = "PathGlow"
+		light.position = Vector3(xz.x, PATH_GLOW_Y, xz.y)
+		light.light_energy = PATH_GLOW_ENERGY
+		light.omni_range = PATH_GLOW_RANGE
+		light.light_color = Color(0.6, 0.45, 0.3)
+		add_child(light)
+		_path_glow_lights.append(light)
+
+	var hum := GameState.load_audio("emergency_hum")
+	if hum:
+		_path_glow_audio = AudioStreamPlayer3D.new()
+		_path_glow_audio.stream = hum
+		_path_glow_audio.volume_db = -18.0
+		var mid := g0.lerp(g1, 0.5)
+		_path_glow_audio.position = Vector3(mid.x, PATH_GLOW_Y, mid.y)
+		add_child(_path_glow_audio)
+		_path_glow_audio.finished.connect(_path_glow_audio.play)
+		_path_glow_audio.play()
+
+
+func _spawn_light_switch() -> void:
+	var sw := LightSwitch.new()
+	sw.position = SWITCH_POS
+	sw.flipped.connect(_on_switch_flipped)
+	add_child(sw)
+
+
+func _on_switch_flipped() -> void:
+	var clunk := GameState.load_audio("switch_clunk")
+	if clunk:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = clunk
+		p.position = SWITCH_POS
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+
+	player.unlock_flashlight()
+
+	var exit_door := get_node_or_null("ExitDoor")
+	if exit_door:
+		exit_door.extra_lock = false
+
+	for light in _path_glow_lights:
+		var t := create_tween()
+		t.tween_property(light, "light_energy", 0.0, 0.6)
+		t.finished.connect(light.queue_free)
+	_path_glow_lights.clear()
+
+	if _path_glow_audio:
+		_path_glow_audio.finished.disconnect(_path_glow_audio.play)
+		var at := create_tween()
+		at.tween_property(_path_glow_audio, "volume_db", -40.0, 0.6)
+		at.finished.connect(_path_glow_audio.queue_free)
+		_path_glow_audio = null
+
+	for light in _ceiling_lights:
+		_flicker_on(light, 0.9)
+
+	var ct := create_tween()
+	ct.tween_property(candle_light, "light_energy", BASE_ENERGY, 1.0)
+	ct.finished.connect(func(): _candle_lit = true)
+
+	var buzz := GameState.load_audio("fluorescent_buzz_on")
+	if buzz:
+		var bp := AudioStreamPlayer3D.new()
+		bp.stream = buzz
+		bp.position = Vector3(0, ROOM_HEIGHT - 0.3, 0)
+		add_child(bp)
+		bp.finished.connect(bp.queue_free)
+		bp.play()
+
+	if _env:
+		var et := create_tween()
+		et.tween_property(_env, "ambient_light_energy", NORMAL_AMBIENT, 1.2)
+
+	_show_controls_hint()
+
+
+func _flicker_on(light: OmniLight3D, target: float) -> void:
+	var t := create_tween()
+	for i in range(3):
+		t.tween_property(light, "light_energy", target * randf_range(0.15, 0.6), 0.05)
+		t.tween_property(light, "light_energy", 0.0, 0.05)
+	t.tween_property(light, "light_energy", target, 0.3)
+
+
+# ---------------------------------------------------------------- twist ending (unchanged)
 
 # The twist ending: same room, visibly wrong. The candle is dead, the room
 # throbs blood-red, the exit is boarded over, and the new note is the only
 # brightly lit thing left.
+#
+# NOT updated for the bigger room in this pass — see INTRO.md §7/§8. The plank/
+# red-light/spotlight positions below are still relative to the OLD 5.6 m room
+# and will read as visibly wrong (planks floating mid-room, spotlight missing
+# the relocated table) until a dedicated follow-up recomputes them against
+# ROOM_SIZE/ROOM_HEIGHT/EXIT_DOOR_POS/TABLE_POS. Deliberately deferred.
 func _corrupt_room() -> void:
 	candle_light.light_energy = 0.0
 	candle_light.visible = false
@@ -153,17 +595,21 @@ func _show_controls_hint() -> void:
 	tween.tween_callback(canvas.queue_free)
 
 
-# Room is 5.6 m square -> walls at +-2.8, ceiling at 3.0. Webs nestle into the
-# top corners (each spanning the two walls + ceiling) with per-web variation in
-# size, tilt, roll and position so they read as grown, not stamped. Seeded for
+# Room is ROOM_SIZE wide/deep, ceiling at ROOM_HEIGHT -> webs nestle into the top
+# corners (each spanning the two walls + ceiling) with per-web variation in size,
+# tilt, roll and position so they read as grown, not stamped. Seeded for
 # reproducibility.
 func _spawn_cobwebs() -> void:
-	var cobweb_tex: Texture2D = load("res://assets/textures/intro/cobweb_intro.png") \
-		if ResourceLoader.exists("res://assets/textures/intro/cobweb_intro.png") else null
+	var cobweb_tex: Texture2D = load(TEX + "cobweb_intro.png") \
+		if ResourceLoader.exists(TEX + "cobweb_intro.png") else null
 	if not cobweb_tex:
 		return
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 870261 if not GameState.is_ending else 870262
+
+	var corner_x := ROOM_SIZE.x / 2.0 - 0.1
+	var corner_z := ROOM_SIZE.y / 2.0 - 0.1
+	var y_anchor := ROOM_HEIGHT - 0.05
 
 	# Top corners as (x sign, z sign). The opening room only webs the two back
 	# corners; the corrupted ending fills all four, denser.
@@ -175,15 +621,15 @@ func _spawn_cobwebs() -> void:
 	for c in corners:
 		var count := rng.randi_range(1, 2) if not GameState.is_ending else rng.randi_range(2, 3)
 		for i in range(count):
-			_make_cobweb(cobweb_tex, c.x, c.y, rng)
+			_make_cobweb(cobweb_tex, c.x, c.y, rng, corner_x, corner_z, y_anchor)
 		# In the ending, a few extra webs sag lower down the corner walls.
 		if GameState.is_ending and rng.randf() < 0.7:
-			_make_cobweb(cobweb_tex, c.x, c.y, rng, rng.randf_range(1.2, 1.9))
+			_make_cobweb(cobweb_tex, c.x, c.y, rng, corner_x, corner_z, rng.randf_range(1.2, 1.9))
 
 
 func _make_cobweb(tex: Texture2D, sx: float, sz: float, rng: RandomNumberGenerator,
-		y_anchor: float = 2.95) -> void:
-	var corner := Vector3(sx * 2.7, y_anchor, sz * 2.7)
+		corner_x: float, corner_z: float, y_anchor: float) -> void:
+	var corner := Vector3(sx * corner_x, y_anchor, sz * corner_z)
 	var inward := Vector3(-sx, 0, -sz).normalized()
 	# Pull inward off the exact corner and drop a little, with jitter.
 	var pos: Vector3 = corner + inward * rng.randf_range(0.08, 0.55) \
@@ -229,6 +675,8 @@ func _process(delta: float) -> void:
 		_red_light.light_energy = 0.5 \
 			+ maxf(0.0, sin(_flicker_time * 1.7)) * 0.35 \
 			+ sin(_flicker_time * 0.6) * 0.1
+		return
+	if not candle_light or not _candle_lit:
 		return
 	candle_light.light_energy = BASE_ENERGY \
 		+ sin(_flicker_time * 7.3) * 0.18 \
