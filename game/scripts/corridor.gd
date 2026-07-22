@@ -35,8 +35,23 @@ const BEARTRAPS := [  # [distance, lateral offset]
 	[150.0, 0.45], [155.0, -0.6], [162.0, 0.55], [168.0, 0.0], [245.0, -0.5],
 ]
 
-const DARK_ZONES := [Vector2(145.0, 172.0), Vector2(240.0, 318.0)]
-const DREAD_ZONE := Vector2(230.0, 320.0)  # Zone C: weak decay + constant pressure
+# ⚠️ Difficulty fix: DARK_ZONES used to have a second entry, Vector2(240, 318),
+# which sat entirely INSIDE the dread zone below. player.gd's _update_panic()
+# treats dark-zone and dread-zone pressure as ADDITIVE (dark tax is +3/s on top
+# of the unconditional +2/s dread pressure), so any stretch tagged as both was a
+# guaranteed +5/s with the flashlight off — and the noclip ending (_ev_noclip_onset)
+# FORCE-KILLS the flashlight for the final ~10 m with zero player agency to avoid
+# it. A long level with beartrap QTEs earlier can also burn through the 240 s
+# battery before reaching here, forcing the same double tax by attrition rather
+# than choice. Either way it made the ending an unavoidable panic spike report
+# read as "impossible." Dropped entirely — the dread zone's own pressure is
+# already this stretch's difficulty signature; it doesn't need a second, stacking
+# mechanic under it.
+const DARK_ZONES := [Vector2(145.0, 172.0)]
+# Shortened from 230 (90 m of flat/no-recovery pressure) to 260 (60 m) — gives
+# the player real decay time after the silhouette/floor-crack events instead of
+# carrying whatever panic they had straight into the endurance stretch.
+const DREAD_ZONE := Vector2(260.0, 320.0)  # Zone C tail: weak decay + constant pressure
 
 # The Manager: a survivable scare that strikes once while you walk — a flash, a
 # scream, a panic spike to ride out. Distance-triggered (not wall-time) at a
