@@ -29,6 +29,8 @@ const SHOTS := {
 	"level_2_1": [
 		[Vector3(-0.8, 0, 5.8), Vector3(-0.8, 1.6, 7.96), "house_window_forest"],
 		[Vector3(0.6, 0, 6.4), Vector3(-0.8, 1.6, 7.96), "house_window_angle"],
+		[Vector3(-0.7, 0, 16.5), Vector3(-0.7, 0.9, 18.9), "house_lock_on_door"],
+		[Vector3(-0.7, 0, 15.5), Vector3(-0.7, 1.2, 18.9), "house_exit_door_wide"],
 	],
 	"level_3": [
 		[Vector3(0, 0, -2), Vector3(0, 1.4, 1.0), "void_spawn_creature"],

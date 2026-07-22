@@ -32,8 +32,8 @@ const TEACH_PANIC := 18.0    # panic spike when the taught version "rushes"
 const TELEGRAPH_TIME := 0.22 # the lurch-forward warning before the rush lands
 const TELEGRAPH_LUNGE := 0.35 # metres the figure jerks toward you as the tell
 
-const FIG_BASE := "res://assets/textures/level_1_lab/apparition_figure"
-const RUSH_BASE := "res://assets/textures/level_1_lab/screamer_apparition"
+const FIG_BASE := "res://assets/textures/screamers/shared_screamer_figure"
+const RUSH_BASE := "res://assets/textures/screamers/shared_screamer"
 
 var rule: int = Rule.HOLD
 var teach: bool = false

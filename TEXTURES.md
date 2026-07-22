@@ -11,7 +11,8 @@ Columns:
 ### intro/
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
-| `intro/wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed | Intro Room (redesigned, Session — see INTRO.md) — all 6 wall/floor/ceiling CSGBox3D nodes of the big asylum ward, `uv1_scale=4.0` | done |
+| `intro/wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed | Intro Room — **superseded by `intro_wall.png`** below; kept on disk, no longer referenced by `_apply_textures()` | to_be_added |
+| `intro/intro_wall.png` | Cold dark concrete/stone, peeling institutional wallpaper over damp plaster — a sharper, more detailed replacement for `wall_intro.png` | Intro Room — all wall CSGBox3D nodes, `uv1_scale=4.0` (`intro_room.gd:_apply_textures()`) | done |
 | `intro/floor_intro.png` | Dark stone slab — faint cracks, slightly uneven | Intro Room — floor CSGBox3D node | done |
 | `intro/ceiling_intro.png` | Rough concrete ceiling — darker than walls, slight water stain | Intro Room — ceiling CSGBox3D node | done |
 | `intro/painting_intro.png` | Abstract unsettling painting — dark blurred figures, gold frame suggestion | Intro Room — **currently unused.** Dropped when the room was rebuilt as a bigger asylum ward (INTRO.md); the old back-wall placement/rotation logic in `_apply_textures()` was tied to the small room's single Z-normal wall and wasn't worth carrying forward speculatively | to_be_added |
@@ -19,8 +20,10 @@ Columns:
 | `intro/nightmare_face.png` | Extreme close-up horror jumpscare — gaunt pale distorted face lunging out of darkness, mouth open mid-scream, hollow black eyes, harsh single-source underlighting | Main menu cold-open jumpscare on START (`main_menu.gd`) only — a follow-up pass removed the Intro Room's mid-walk "fumble jolt" flash so the level itself has no screamer, leaving this the sole use | done |
 | `intro/gurney_intro.png` | Old rusted hospital gurney mattress, top-down — stained vinyl, torn corners, water stains, loose restraint strap | Intro Room — top-facing QuadMesh over 3 gurney mattresses (`intro_room.gd:_build_gurney(pos)`, one texture reused across the player's own bed + 2 scattered empty ones, same reuse trick `_spawn_cobwebs()` uses) | done |
 | `intro/cabinet_intro.png` | Rusted metal medical cabinet, front elevation — dented steel, peeling green paint, wire-glass windows | Intro Room — background dressing cabinets along the side walls (`intro_room.gd:_build_cabinets()`), applied directly to the CSGBox3D (not a quad — optional decorative dressing, a magnified crop is an accepted tradeoff here) | done |
-| `intro/wheelchair_intro.png` | Old rusted wheelchair, 3/4 side view, isolated on a transparent background, dusty worn fabric seat, rust on wheel spokes and frame, dim horror-game prop lighting, clean alpha cutout | Intro Room — freestanding billboard cutout (`intro_room.gd:_build_wheelchair()`), open floor between the table and the exit door | done |
-| `intro/wall_chart_intro.png` | "RAVENCROFT COUNTY ASYLUM — PATIENT OBSERVATION CHART" pinned to a wall, front elevation, handwritten vitals/notes, water-stained edges, torn corner | Intro Room — wall decal on WallBack (`intro_room.gd:_build_wall_chart()`), clear of the exit door | done |
+| `intro/wheelchair_intro.png` | Old rusted wheelchair, 3/4 side view, isolated on a transparent background, dusty worn fabric seat, rust on wheel spokes and frame, dim horror-game prop lighting, clean alpha cutout | Intro Room — **superseded.** The billboard cutout read as visibly 2D from an angle, so `_build_wheelchair()` was rebuilt as a full 3D CSG prop (seat/backrest/armrests/wheels/casters/footrest, same level of detail as `_build_gurney()`/`_build_cabinets()`) with flat-tinted materials; this texture is no longer loaded | to_be_added |
+| `intro/wall_chart_intro.png` | "RAVENCROFT COUNTY ASYLUM — PATIENT OBSERVATION CHART" pinned to a wall, front elevation, handwritten vitals/notes, water-stained edges, torn corner | Intro Room — wall decal on WallBack (`intro_room.gd:_build_wall_chart()`), clear of the exit door. `PlaneMesh` tipped upright via `rotation_degrees.x = 90.0` (flipped from an initial `-90.0`, which rendered it upside down — see `_build_wall_chart()`) | done |
+| `intro/intro_switch.png` | Rusted institutional wall light switch plate, front elevation, "WARD 4" stencil, peeling paint, grime | Intro Room — the `LightSwitch` prop the player must find in the dark (`light_switch.gd:_build()`), `PlaneMesh` face at `rotation_degrees.x = 90.0`, bright emission (`emission_energy_multiplier = 0.9`) so it's actually findable. The `LightSwitch` node itself gets `rotation.y = PI/2.0` in `intro_room.gd:_spawn_light_switch()` — without it the plate stood parallel to WallLeft (edge-on to the player) instead of flush against it | done |
+| `intro/intro_note.png` | Aged handwritten note on lined paper — Subject 47 opening briefing, water stains, torn edge | Intro Room — the note prop on the table (`intro_room.gd:_build_table_note_candle()`). The note previously had **no texture at all**: `note.gd`'s `_style_mesh()` runs in `_ready()`, before the intro's mesh child exists (deliberate add-to-tree-before-children ordering), so it silently never applied one. Applied directly here instead of through the shared `note.gd:paper_material()` (which backs every other level's notes) | done |
 
 ### level_1_lab/
 | file_name | texture_description | where_used | status |
@@ -41,8 +44,8 @@ Columns:
 | `level_1_lab/lab_oneway_mirror.png` | Dark observation glass with a faint reflection; panel | Level 1 + Level 2 — the `LivingMirror` glass (`living_mirror.gd` `GLASS_TEX`, wired Session 15; previously a flat metallic `StandardMaterial3D`). ⚠️ Its call sites must use `wall_point(..., 0.22)`: the figure hangs 0.05 behind the glass, and at the old 0.1 it sat **inside the wall and was never visible** | done |
 | `level_1_lab/lab_breaker_panel.png` | Grey electrical fuse box, open; panel/decal | Level 1 (The Lab) — applied to the 3 `Breaker` panel meshes (`breaker.gd` `PANEL_TEX`) so switches read as real load-centres | done |
 | `level_1_lab/lab_warning_sign.png` | Faded "QUARANTINE / DO NOT ENTER" sign; decal | Level 1 (The Lab) — decal panel on the Records room wall (`level_1.gd:_spawn_room_props()`) | done |
-| `level_1_lab/apparition_figure.png` | Tall pale gaunt skeletal wraith, front-on, on a TRANSPARENT background (billboard cutout) | Levels 1–2 — the `Apparition` figure (`apparition.gd`) AND the `LivingMirror` figure. 1024×1536 RGBA, real alpha (corners α=0); renders as a clean cutout in-game. The old white-background `.jpg` is superseded (`Apparition._resolve_tex` prefers `.png`) | done |
-| `level_1_lab/screamer_apparition.jpg` | Close-up screaming face for the apparition's fatal rush (fullscreen) | Levels 1–2 — `Apparition._rush()` fatal `Screamer.trigger()` AV (`RUSH_BASE`). Fullscreen overlay (no alpha needed); a `.png` is still preferred for consistency | done |
+| `level_1_lab/apparition_figure.png` / `.jpg` | Tall pale gaunt skeletal wraith, front-on, on a TRANSPARENT background (billboard cutout) | **Superseded by `screamers/shared_screamer_figure.png`** below — `apparition.gd`'s `FIG_BASE` and `living_mirror.gd`'s `FIG_BASE` were repointed at the new shared asset so the figure could be swapped project-wide from one place; kept on disk, no longer loaded | to_be_added |
+| `level_1_lab/screamer_apparition.jpg` | Close-up screaming face for the apparition's fatal rush (fullscreen) | **Superseded by `screamers/shared_screamer.png`** below — `apparition.gd`'s `RUSH_BASE` repointed; kept on disk, no longer loaded | to_be_added |
 | `level_1_lab/screamer_lab.png` | Lab-specific fatal screamer face | Level 1 (The Lab) — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[1]` | done |
 
 ### level_2_house/
@@ -58,7 +61,9 @@ Columns:
 | `level_2_house/house_bathroom_tile.png` | Cracked white bathroom tile, mildew; seamless | Level 2 (The House) — the Bathroom room's walls (per-room `wall_mat` override) | done |
 | `level_2_house/house_wood_stairs.png` | Worn wooden staircase texture; seamless | Level 2 (The House) — the cellar ramp surface (`level_2.gd:_build_cellar()`) | done |
 | `level_2_house/child_drawing.png` | Unsettling crayon child's drawing (a figure with too many limbs); decal | Level 2 (The House) — cursed decal on the child's-room east wall (`level_2.gd:_spawn_room_props()`) | done |
-| `level_2_house/lock_face.png` | Combination lock face — digits/dial for the exit lock UI | Level 2 (The House) — combination lock mesh in `level_2_1.tscn` | done |
+| `level_2_house/lock_face.png` | Combination lock face — digits/dial for the exit lock UI | Level 2 (The House) — second-line fallback in `_spawn_lock_and_doors()`, behind `house_lock_transparent.png` and `house_lock.png` | done |
+| `level_2_house/house_lock.png` | Rusted combination padlock mounted on a weathered metal backing plate, front elevation | Level 2 (The House) — **superseded by `house_lock_transparent.png`** below; kept as the fallback if that file is ever missing | done |
+| `level_2_house/house_lock_transparent.png` | Rusted combination padlock, no background — real alpha (1024×1024 RGBA, verified via PIL: alpha extrema 0–255) | Level 2 (The House) — the exit combination lock, mounted as a **child of the exit door** (`level_2.gd:_spawn_lock_and_doors()`) instead of a separate panel 1.4 m away. `TRANSPARENCY_ALPHA_SCISSOR`, no backing plate needed since it's genuinely transparent — hangs directly against the door's own wood texture. Sized down to `0.36 x 0.45` (was `0.8 x 1.0` — read as too big against the door) | done |
 | `level_2_house/house_cellar_key.png` | Old iron cellar key seen **top-down**, on a fully TRANSPARENT background (alpha cutout) — long shaft, ornate bow, worn warded bit, rust | Level 2 — the cellar key (`level_2.gd`), on a face-up quad with `ALPHA_SCISSOR`. ⚠️ Must have real alpha; a JPEG or flattened PNG renders as a rectangle. **Cropped to its own alpha bounds** (1435x381 = 3.77:1); the quad is `0.20 x 0.053` to match, and must move if the art is re-cropped | done |
 | `level_2_house/house_door.png` | Old six-panel domestic interior door, flat elevation — yellowed cream paint flaking to bare wood, tarnished brass rim lock | Level 2 — exit + back doors (`door.gd:build_visual()`). **On a QuadMesh, not the box** | done |
 | `level_2_house/forest.png` | Moonlit treeline behind the window glass — faint, self-illuminated so it reads in the dark room | Level 2 (The House) — `WindowForest` quad built in `level_2.gd` `_spawn_window()` | done |
@@ -127,6 +132,8 @@ Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — th
 |-----------|---------------------|------------|--------|
 | `screamers/screamer.png` | Distorted human face — high contrast, wide mouth, horror screamer | Screamer overlay — **intro/ending fallback pool only** (random pick). Levels 1–4 use their own per-level screamer (`LEVEL_SCREAMERS` in `screamer.gd`) | done |
 | `screamers/screamer_2.png` | Second distorted face variant — alternate horror expression | Screamer overlay — intro/ending fallback pool only (random pick) | done |
+| `screamers/shared_screamer_figure.png` | Gaunt scarred humanoid wraith, front-on, standing — the shared `Apparition`/`LivingMirror` figure | Every level that uses the shared apparition (Lab, House, KONTUR) — `apparition.gd`'s `FIG_BASE` and `living_mirror.gd`'s `FIG_BASE`. ⚠️ Shipped with a **fake checkerboard "transparency" baked into opaque RGB pixels**, not a real alpha channel (`file`/PIL both showed no alpha) — a billboard needs real alpha or it renders as a solid checkered rectangle. Fixed in place with a color-threshold cutout (light/desaturated pixels → alpha 0, eroded 1px + blurred to kill the white fringe) rather than a border-flood-fill, since the gap between the figure's arm and torso is an *enclosed* background pocket, not one connected to the image edge. Also feeds the intro/ending random fallback pool (harmless there — see the `screamer.gd` note below) | done |
+| `screamers/shared_screamer.png` | Close-up screaming face, mouth open, same figure as `shared_screamer_figure.png` — the apparition's rush/fatal look | `apparition.gd`'s `RUSH_BASE`, shown in `Apparition._rush()`'s teach-branch `flash_scare()`. Fullscreen overlay (no alpha needed) — also plain RGB but that's fine for this use | done |
 
 ### shared/
 | file_name | texture_description | where_used | status |
@@ -213,12 +220,17 @@ and the `tv_static_face` path fix are all live now. **Both former `requires_revi
 resolved in Session 15:** `lab_oneway_mirror` is wired into `living_mirror.gd`, and `blood_lab` was
 confirmed dead (its scene node was being freed on load) and removed from `level_1.tscn`.
 
-### ⚠️ `apparition_figure` must be a transparent PNG
-`apparition.gd` and `living_mirror.gd` both billboard `apparition_figure`. A `.jpg` has no alpha, so
-the cutout renders as a solid rectangle; the transparent `.png` is now on disk and
-`Apparition._resolve_tex()` prefers `.png` over `.jpg`. The same caveat applies to any future
-billboard art — and note this is a *different* failure from Integrity rule 1 above: there the file is
-JPEG **data** wearing a `.png` name, which fails to load at all rather than losing its alpha.
+### ⚠️ The shared apparition figure must be a transparent PNG
+`apparition.gd` and `living_mirror.gd` both billboard `screamers/shared_screamer_figure.png` (moved
+from `level_1_lab/apparition_figure.png` — see that row). A `.jpg`, or a PNG with no alpha *channel*,
+renders the cutout as a solid rectangle; `Apparition._resolve_tex()` prefers `.png` over `.jpg` but
+that only helps if the `.png` actually has alpha. **A checkerboard pattern visible in an image
+preview is not proof of real transparency** — an AI image generator asked for "transparent
+background" can paint a fake checkerboard onto opaque RGB pixels instead of setting alpha. Verify
+with PIL (`Image.open(path).mode` should include `'A'`, and `getchannel('A').getextrema()` should
+NOT be `(255, 255)`), not by eyeballing the Read-tool preview — that renders real transparency the
+same checkered way. Note this is a *different* failure from Integrity rule 1 above: there the file
+is JPEG **data** wearing a `.png` name, which fails to load at all rather than losing its alpha.
 
 ### Draft textures
 `level_1_lab/draft/`, `level_2_house/draft/` hold earlier/lower-quality versions (`wall_lab`, `floor_lab`, `wall_house`, etc.) kept for reference; the live textures are the `*_wall.png` / `*_floor.png` files in the parent folders. Not referenced by any script.

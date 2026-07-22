@@ -19,10 +19,10 @@ const PATH_GLOW_RANGE := 1.4
 const PATH_GLOW_Y := 0.35          # fixed low "ankle" height — not the switch's mounting height
 const GURNEY_POS := Vector3(0, 0, 7.0)
 const GURNEY_TOP_Y := 0.6           # frame top 0.5, mattress top 0.6 — see _build_gurney()
-const SWITCH_POS := Vector3(-5.6, 1.3, -1.0)
+const SWITCH_POS := Vector3(-5.77, 1.3, -1.0)  # snug against WallLeft's inner face (-5.85)
 const TABLE_POS := Vector3(0, 0.4, 0.0)
 const EXIT_DOOR_POS := Vector3(0, 1.1, -8.5)
-const WHEELCHAIR_POS := Vector3(3.0, 0.55, -3.0)   # open floor between the table and the door
+const WHEELCHAIR_POS := Vector3(3.0, 0.0, -3.0)    # floor anchor — open floor between the table and the door
 const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door (spans x -0.5..0.5)
 const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
 
@@ -216,27 +216,118 @@ func _build_iv_stand(pos: Vector3) -> void:
 	add_child(bag)
 
 
-# Billboard cutout, same technique as apparition_figure.png / the old painting:
-# a PlaneMesh tipped upright (rotation.x = -90, the proven rotation — reused
-# as-is rather than re-derived for a different wall axis) with culling disabled
-# so it reads from either side.
+# Full 3D CSG build — same level of detail as _build_gurney()/_build_cabinets(),
+# replacing the earlier flat billboard cutout (which read as visibly 2D from an
+# angle). Wheels are CSGCylinder3D tipped on their side: the default cylinder
+# axis is local Y (stands like a can), so rotation.z=90 lays it over onto a
+# horizontal axis — the flat round faces then point left/right, like a real
+# wheel, instead of up/down.
 func _build_wheelchair() -> void:
-	var tex_path := TEX + "wheelchair_intro.png"
-	if not ResourceLoader.exists(tex_path):
-		return
-	var cutout := MeshInstance3D.new()
-	cutout.name = "Wheelchair"
-	var qm := PlaneMesh.new()
-	qm.size = Vector2(0.8, 1.1)
-	cutout.mesh = qm
-	cutout.rotation_degrees.x = -90.0
-	cutout.position = WHEELCHAIR_POS
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load(tex_path)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	cutout.set_surface_override_material(0, mat)
-	add_child(cutout)
+	var frame_mat := StandardMaterial3D.new()
+	frame_mat.albedo_color = Color(0.1, 0.09, 0.09)
+	frame_mat.metallic = 0.75
+	frame_mat.roughness = 0.45
+
+	var fabric_mat := StandardMaterial3D.new()
+	fabric_mat.albedo_color = Color(0.16, 0.13, 0.11)
+	fabric_mat.roughness = 0.9
+
+	var rim_mat := StandardMaterial3D.new()
+	rim_mat.albedo_color = Color(0.5, 0.48, 0.45)
+	rim_mat.metallic = 0.8
+	rim_mat.roughness = 0.4
+
+	var wc := Node3D.new()
+	wc.name = "Wheelchair"
+	wc.position = WHEELCHAIR_POS
+	add_child(wc)
+
+	var seat := CSGBox3D.new()
+	seat.size = Vector3(0.46, 0.05, 0.46)
+	seat.position = Vector3(0, 0.48, 0)
+	seat.use_collision = true
+	seat.material = fabric_mat
+	wc.add_child(seat)
+
+	var back := CSGBox3D.new()
+	back.size = Vector3(0.46, 0.5, 0.05)
+	back.position = Vector3(0, 0.74, -0.23)
+	back.use_collision = true
+	back.material = fabric_mat
+	wc.add_child(back)
+
+	# Armrests + their support posts (front + back, tying them to the seat).
+	for sx in [-1.0, 1.0]:
+		var arm := CSGBox3D.new()
+		arm.size = Vector3(0.035, 0.045, 0.42)
+		arm.position = Vector3(sx * 0.25, 0.62, -0.02)
+		arm.material = frame_mat
+		wc.add_child(arm)
+		var post_front := CSGCylinder3D.new()
+		post_front.radius = 0.014
+		post_front.height = 0.14
+		post_front.position = Vector3(sx * 0.25, 0.55, 0.18)
+		post_front.material = frame_mat
+		wc.add_child(post_front)
+		var post_back := CSGCylinder3D.new()
+		post_back.radius = 0.014
+		post_back.height = 0.24
+		post_back.position = Vector3(sx * 0.25, 0.6, -0.22)
+		post_back.material = frame_mat
+		wc.add_child(post_back)
+		# Seat-to-axle side rail.
+		var rail := CSGBox3D.new()
+		rail.size = Vector3(0.03, 0.03, 0.5)
+		rail.position = Vector3(sx * 0.25, 0.3, -0.05)
+		rail.material = frame_mat
+		wc.add_child(rail)
+
+	# Big rear wheels + hand rims.
+	for sx in [-1.0, 1.0]:
+		var wheel := CSGCylinder3D.new()
+		wheel.radius = 0.27
+		wheel.height = 0.035
+		wheel.rotation_degrees.z = 90.0
+		wheel.position = Vector3(sx * 0.28, 0.27, -0.1)
+		wheel.use_collision = true
+		wheel.material = frame_mat
+		wc.add_child(wheel)
+		var rim := CSGCylinder3D.new()
+		rim.radius = 0.22
+		rim.height = 0.015
+		rim.rotation_degrees.z = 90.0
+		rim.position = Vector3(sx * 0.30, 0.27, -0.1)
+		rim.material = rim_mat
+		wc.add_child(rim)
+
+	# Small front casters + their forks.
+	for sx in [-1.0, 1.0]:
+		var caster := CSGCylinder3D.new()
+		caster.radius = 0.06
+		caster.height = 0.03
+		caster.rotation_degrees.z = 90.0
+		caster.position = Vector3(sx * 0.19, 0.06, 0.21)
+		caster.material = frame_mat
+		wc.add_child(caster)
+		var fork := CSGCylinder3D.new()
+		fork.radius = 0.012
+		fork.height = 0.14
+		fork.position = Vector3(sx * 0.19, 0.13, 0.21)
+		fork.material = frame_mat
+		wc.add_child(fork)
+
+	# Footrest.
+	var footrest := CSGBox3D.new()
+	footrest.size = Vector3(0.36, 0.025, 0.11)
+	footrest.position = Vector3(0, 0.11, 0.3)
+	footrest.material = frame_mat
+	wc.add_child(footrest)
+	var footrest_post := CSGCylinder3D.new()
+	footrest_post.radius = 0.012
+	footrest_post.height = 0.3
+	footrest_post.position = Vector3(0, 0.25, 0.3)
+	footrest_post.material = frame_mat
+	wc.add_child(footrest_post)
 
 
 # Same PlaneMesh + rotation.x=-90 pattern, mounted on WallBack (a Z-normal wall —
@@ -251,7 +342,7 @@ func _build_wall_chart() -> void:
 	var qm := PlaneMesh.new()
 	qm.size = Vector2(0.6, 0.9)
 	chart.mesh = qm
-	chart.rotation_degrees.x = -90.0
+	chart.rotation_degrees.x = 90.0
 	chart.position = WALL_CHART_POS
 	var mat := StandardMaterial3D.new()
 	mat.albedo_texture = load(tex_path)
@@ -289,11 +380,39 @@ func _build_table_note_candle() -> void:
 	note.position = TABLE_POS + Vector3(0, 0.4, 0)
 	add_child(note)
 
-	var note_mesh := MeshInstance3D.new()
+	# Slab for edge/depth + a QuadMesh for the art (CLAUDE.md rule — a BoxMesh
+	# crops instead of showing the whole texture per face; door.gd:build_visual()
+	# is the house pattern). The note had no texture applied at all until now —
+	# note.gd's _style_mesh() runs in _ready(), before this mesh exists (see the
+	# add-to-tree-before-children comment above), so it never touched it.
+	var note_slab := MeshInstance3D.new()
 	var nbm := BoxMesh.new()
 	nbm.size = Vector3(0.21, 0.005, 0.297)
-	note_mesh.mesh = nbm
-	note.add_child(note_mesh)
+	note_slab.mesh = nbm
+	var slab_mat := StandardMaterial3D.new()
+	slab_mat.albedo_color = Color(0.7, 0.67, 0.58)
+	note_slab.set_surface_override_material(0, slab_mat)
+	note.add_child(note_slab)
+
+	var note_face := MeshInstance3D.new()
+	# PlaneMesh lies flat facing +Y by default — no rotation needed, same
+	# technique _build_gurney()'s mattress art uses.
+	var nqm := PlaneMesh.new()
+	nqm.size = Vector2(0.21, 0.297)
+	note_face.mesh = nqm
+	note_face.position = Vector3(0, 0.0035, 0)
+	var note_mat := StandardMaterial3D.new()
+	var note_tex_path := TEX + "intro_note.png"
+	if ResourceLoader.exists(note_tex_path):
+		var ntex := load(note_tex_path)
+		note_mat.albedo_texture = ntex
+		note_mat.emission_enabled = true
+		note_mat.emission_texture = ntex
+		note_mat.emission_energy_multiplier = 0.5
+	else:
+		note_mat.albedo_color = Color(0.85, 0.82, 0.7)
+	note_face.set_surface_override_material(0, note_mat)
+	note.add_child(note_face)
 
 	var note_col := CollisionShape3D.new()
 	var nbs := BoxShape3D.new()
@@ -354,7 +473,7 @@ func _build_cabinets() -> void:
 
 
 func _apply_textures() -> void:
-	var wall_tex: Texture2D = load(TEX + "wall_intro.png") if ResourceLoader.exists(TEX + "wall_intro.png") else null
+	var wall_tex: Texture2D = load(TEX + "intro_wall.png") if ResourceLoader.exists(TEX + "intro_wall.png") else null
 	var floor_tex: Texture2D = load(TEX + "floor_intro.png") if ResourceLoader.exists(TEX + "floor_intro.png") else null
 	var ceiling_tex: Texture2D = load(TEX + "ceiling_intro.png") if ResourceLoader.exists(TEX + "ceiling_intro.png") else null
 	for child in get_children():
@@ -445,6 +564,10 @@ func _spawn_path_glow() -> void:
 func _spawn_light_switch() -> void:
 	var sw := LightSwitch.new()
 	sw.position = SWITCH_POS
+	# The switch's own local +Z is its face normal; WallLeft is at x=-6.0 so "into
+	# the room" is +X. Without this the plate stood parallel to the wall instead
+	# of flush against it — visible edge-on, not as a mounted switch.
+	sw.rotation.y = PI / 2.0
 	sw.flipped.connect(_on_switch_flipped)
 	add_child(sw)
 

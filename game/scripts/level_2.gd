@@ -377,34 +377,57 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> void:
 
 # ---------------------------------------------------------------- lock + doors
 
-func _spawn_lock_and_doors() -> void:
-	# Exit + combination lock on the north wall of the child's room.
-	var lock := StaticBody3D.new()
-	lock.set_script(_LOCK_SCRIPT)
-	lock.position = Vector3(0.7, 1.3, 18.85)
-	add_child(lock)
-	var lmesh := MeshInstance3D.new()
-	var lbm := BoxMesh.new()
-	lbm.size = Vector3(0.6, 0.8, 0.15)
-	lmesh.mesh = lbm
-	var lmat := StandardMaterial3D.new()
-	if ResourceLoader.exists(TEX + "lock_face.png"):
-		lmat.albedo_texture = load(TEX + "lock_face.png")
-	lmat.metallic = 0.3
-	lmat.roughness = 0.9
-	lmesh.set_surface_override_material(0, lmat)
-	lock.add_child(lmesh)
-	var lcol := CollisionShape3D.new()
-	var ls := BoxShape3D.new()
-	ls.size = Vector3(0.6, 0.8, 0.15)
-	lcol.shape = ls
-	lock.add_child(lcol)
-	_add_lamp("Lock", Vector3(0.7, 1.8, 18.6), 0.5, Color(0.8, 0.6, 0.4))
+const LOCK_SIZE := Vector2(0.36, 0.45)
 
+
+func _spawn_lock_and_doors() -> void:
 	var exit := _make_door("ExitDoor", true, false)
 	exit.unlock_condition = _DOOR_SCRIPT.UnlockCondition.CODE_ENTERED
 	exit.position = Vector3(-0.7, 1.225, 18.9)
 	exit.rotation.y = PI
+
+	# The combination lock, mounted directly on the exit door as a CHILD of it
+	# (local coordinates -> inherits the door's position/rotation automatically)
+	# instead of a separate wall panel 1.4 m away. Local z=0.1 sits proud of
+	# the door's own face quad (at local z=0.079) so it doesn't z-fight and is
+	# the first thing the interact raycast hits.
+	var lock := StaticBody3D.new()
+	lock.set_script(_LOCK_SCRIPT)
+	lock.position = Vector3(0.0, -0.35, 0.1)
+	exit.add_child(lock)
+
+	# Artwork on a QuadMesh (CLAUDE.md rule — a BoxMesh crops instead of showing
+	# the whole texture). house_lock_transparent.png has a real alpha channel (no
+	# backing plate needed — it hangs directly against the door's own wood
+	# texture); house_lock.png/lock_face.png stay as opaque fallbacks.
+	var lface := MeshInstance3D.new()
+	var lqm := QuadMesh.new()
+	lqm.size = LOCK_SIZE
+	lface.mesh = lqm
+	lface.position = Vector3(0, 0, 0.01)
+	var lmat := StandardMaterial3D.new()
+	var lock_tex_path := TEX + "house_lock_transparent.png"
+	if not ResourceLoader.exists(lock_tex_path):
+		lock_tex_path = TEX + "house_lock.png"
+	if not ResourceLoader.exists(lock_tex_path):
+		lock_tex_path = TEX + "lock_face.png"
+	if ResourceLoader.exists(lock_tex_path):
+		lmat.albedo_texture = load(lock_tex_path)
+	lmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	lmat.alpha_scissor_threshold = 0.5
+	lmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	lmat.metallic = 0.3
+	lmat.roughness = 0.7
+	lface.set_surface_override_material(0, lmat)
+	lock.add_child(lface)
+
+	var lcol := CollisionShape3D.new()
+	var ls := BoxShape3D.new()
+	ls.size = Vector3(LOCK_SIZE.x, LOCK_SIZE.y, 0.15)
+	lcol.shape = ls
+	lock.add_child(lcol)
+
+	_add_lamp("Lock", Vector3(-0.7, 1.5, 18.75), 0.4, Color(0.8, 0.6, 0.4))
 
 	var back := _make_door("BackDoor", false, true)
 	back.position = Vector3(0, 1.225, -2.85)

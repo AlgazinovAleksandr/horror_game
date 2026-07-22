@@ -132,6 +132,39 @@ func _process(delta: float) -> bool:
 		"wheelchair_chart":
 			if _t > 0.3:
 				_capture("08_wheelchair_and_chart")
+				var chart_pos: Vector3 = _room.get("WALL_CHART_POS")
+				_player.global_position = Vector3(chart_pos.x, 0.0, chart_pos.z + 1.4)
+				_player.velocity = Vector3.ZERO
+				_player.rotation.y = 0.0  # identity faces -Z, toward the chart
+				_player.camera.rotation.x = -0.1
+				_t = 0.0
+				_state = "wallchart_closeup"
+
+		"wallchart_closeup":
+			if _t > 0.3:
+				_capture("09_wallchart_closeup")
+				var wc_pos: Vector3 = _room.get("WHEELCHAIR_POS")
+				_player.global_position = Vector3(wc_pos.x + 1.4, 0.0, wc_pos.z)
+				_player.velocity = Vector3.ZERO
+				_player.rotation.y = PI / 2.0  # face -X, toward the wheelchair
+				_player.camera.rotation.x = -0.1
+				_t = 0.0
+				_state = "wheelchair_closeup"
+
+		"wheelchair_closeup":
+			if _t > 0.3:
+				_capture("10_wheelchair_closeup")
+				var sw_pos: Vector3 = _room.get("SWITCH_POS")
+				_player.global_position = Vector3(sw_pos.x + 1.3, 0.0, sw_pos.z)
+				_player.velocity = Vector3.ZERO
+				_player.rotation.y = PI / 2.0  # face -X, toward the switch on WallLeft
+				_player.camera.rotation.x = -0.1
+				_t = 0.0
+				_state = "switch_closeup"
+
+		"switch_closeup":
+			if _t > 0.3:
+				_capture("11_switch_closeup")
 				return true
 
 	return false

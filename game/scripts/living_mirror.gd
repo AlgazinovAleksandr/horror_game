@@ -9,7 +9,7 @@ class_name LivingMirror
 
 const LOOK_DOT := 0.8       # how head-on the camera must be to "clear" the glass
 const REVEAL_SPEED := 5.0   # alpha lerp rate
-const FIG_BASE := "res://assets/textures/level_1_lab/apparition_figure"
+const FIG_BASE := "res://assets/textures/screamers/shared_screamer_figure"
 const GLASS_TEX := "res://assets/textures/level_1_lab/lab_oneway_mirror.png"
 const GAZE_INTENSITY := 0.7
 

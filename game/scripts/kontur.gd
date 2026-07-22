@@ -62,6 +62,13 @@ const VOID_Y := -4.0              # same threshold the Void uses (level_3.gd)
 const AIRLOCK_CYCLE := 9.0        # seconds of stillness the decontamination needs
 const STILL_SPEED := 0.35         # m/s below which the player counts as still
 
+# The shared "hold your nerve" apparition (Lab/House already have it; the Void,
+# Corridor and Backrooms deliberately don't — they run their own bespoke scares).
+# By level 5 the player has been taught the rule twice already, so this is
+# fatal from the first appearance, same as the Lab/House DEBUG_APPARITION tick.
+const DEBUG_APPARITION := true
+const DEBUG_APPAR_INTERVAL := 45.0
+
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy]
 var _strikes: int = 0
@@ -98,6 +105,8 @@ var _airlock_t: float = 0.0
 var _in_airlock: bool = false
 var _airlock_meter: MeshInstance3D
 var _airlock_seal: CSGBox3D
+
+var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 
 func _ready() -> void:
@@ -939,6 +948,23 @@ func _spawn_creature() -> void:
 	add_child(c)
 
 
+# A fresh FATAL apparition each cycle (teach=false — the player already learned
+# the rule in the Lab and had it reinforced in the House): hold still and it
+# fades, but sprint or back away and it rushes -> the real screamer + restart.
+# Position-agnostic (appear() spawns ahead of wherever the player is looking),
+# so it works anywhere along the spine without a scripted trigger volume.
+func _tick_debug_apparition(delta: float) -> void:
+	if not DEBUG_APPARITION:
+		return
+	_dbg_appar_timer -= delta
+	if _dbg_appar_timer > 0.0:
+		return
+	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
+	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
+	if a:
+		a.appear()
+
+
 # ---------------------------------------------------------------- signs
 
 func _spawn_signs() -> void:
@@ -1164,6 +1190,7 @@ func _process(delta: float) -> void:
 	_check_void_fall()
 	_tick_airlock(delta)
 	_update_dark_seams()
+	_tick_debug_apparition(delta)
 
 	# Fluorescent unsteadiness in the facility half, a slow sick pulse in the Soviet half.
 	var t := Time.get_ticks_msec() * 0.001
