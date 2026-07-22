@@ -1,0 +1,31 @@
+# Idea History
+
+Persistent record of every idea raised in an `idea-generator` skill session, its verdict, and why.
+Read this before every new idea session — never re-pitch a rejected idea without saying so
+explicitly. See `.agents/skills/idea-generator/SKILL.md` for the workflow that produces this file,
+and `REPORT.md` at the repo root for the most recent session's full writeup (design detail lives
+there; this table is the durable index across sessions).
+
+| Date | Idea | Verdict | Reason | Session report |
+|------|------|---------|--------|-----------------|
+| 2026-07-22 | Adaptive Director pacing (calm-time-gated scares, Alien: Isolation-style) | Accepted | User flagged it as exciting in the mechanics triage; no objection raised. Open: roll out to all 4 timer-driven levels at once or pilot on the Lab first. | REPORT.md (2026-07-22) |
+| 2026-07-22 | Hide the panic meter (deceptive HUD readout) | Accepted | Selected in triage; scoped to KONTUR only (its no-decay economy makes a precise readout exploitable). | REPORT.md (2026-07-22) |
+| 2026-07-22 | Checkpoint/save granularity | Accepted | User chose "persistent progress save" specifically over "harsher fail-back" or both — the ask is remembering furthest level across app restarts, not a new punishment mechanic. | REPORT.md (2026-07-22) |
+| 2026-07-22 | Falling/collapsing props (physics startle beats) | Accepted | Selected in triage; revives a TODO.md item (painting-falls) that had never been built. | REPORT.md (2026-07-22) |
+| 2026-07-22 | Misdirection pairing (decoy sound, real scare lands elsewhere) | Accepted | Selected in triage; no objection raised. | REPORT.md (2026-07-22) |
+| 2026-07-22 | Hide-and-search set-piece | Superseded | User explicitly chose "new dedicated interlude" over grafting onto the Void or KONTUR's Escort corridor. **Session 2 (same day): user chose to merge this into the broader "Unified chase & evasion system" rather than keep it standalone** — see that row below. Do not re-build this as a separate one-off. | REPORT.md, Session 1 (2026-07-22) |
+| 2026-07-22 | Pre-scare silence dip (generalized bus-ducking) | Accepted | Selected in triage; low cost, reuses the existing Backrooms zone-2 SilenceZone pattern. | REPORT.md (2026-07-22) |
+| 2026-07-22 | TTS-narrated notes | Accepted | Selected in triage; revives a TODO.md item (Spartak's audio-text idea) that had never been built. | REPORT.md (2026-07-22) |
+| 2026-07-22 | Wall-maze mini-game (mouse-traced, climactic beat) | Accepted | Selected in triage; revives a TODO.md item (#8, the on-wall maze). Placement (Void vs. Twist Ending) not yet confirmed. | REPORT.md, Session 1 (2026-07-22) |
+| 2026-07-22 | Item combination puzzles (2-4 slot inventory) | Accepted | User's framing this session: existing levels lean too heavily on avoidance-only agency; wants active multi-step verbs. Selected in triage, no objection. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Cipher puzzles (code derived from two separate clues) | Accepted | Selected in triage; generalizes KONTUR's existing single-note "47" code pattern into a repeatable puzzle type. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Sequence fuse/valve puzzle | Accepted | User chose "replace the Lab's breaker quest" specifically over adding a new puzzle elsewhere — the Lab's power-restore quest was judged the natural home rather than duplicating the beat. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Deliberate backtracking (item found late unlocks a door found early) | Accepted | Selected in triage; near-zero cost since it reuses door.gd's existing unlock framework as-is — a sequencing change, not a new system. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Unified chase & evasion system (slam doors / hide / vault + persistent roaming stalker) | Accepted | User chose to explicitly merge this with Session 1's hide-and-search set-piece into one system, and chose to pilot it in an existing level (not the new pursuit level) first, directly answering the "not enough action" complaint. Which existing level (House proposed) still undecided. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Hidden passages (secret rooms behind wall decor) | Accepted | Selected in triage; scoped as optional/lore-only, not a progression gate. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Optional lore collectibles (photos/audio logs, no progression gate) | Accepted | Selected in triage; rewards exploration without stalling flow per environmental-storytelling research. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Light-as-weapon repel (sustained aimed flashlight wounds a creature) | Accepted | User chose "a new level" for this over an existing level, specifically to avoid contradicting CreatureSmiler's opposite light-rule in Backrooms. Folded into the Nemesis pursuit level's design rather than built standalone. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Environmental takedown (lure a threat into a player-set trap) | Accepted | Selected in triage; reuses Session 1's FallingProp mechanic as the literal trap. Folded into the Nemesis pursuit level as one of its defeat paths rather than built standalone. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Nemesis-style pursuit level (new level) | Accepted | Biggest pitch this session — productizes the chase system, light-as-weapon repel, and environmental takedown into one level. User confirmed light-as-weapon and environmental-takedown should live here rather than standalone. Needs a dedicated scoping pass before implementation. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Investigation/deduction level (new level, Obra Dinn-style) | Accepted | Selected in triage; reuses KONTUR's strike-and-forfeit economy rather than inventing new fail math, leans on the project's existing environmental-storytelling strength. | REPORT.md, Session 2 (2026-07-22) |
+| 2026-07-22 | Shifting-architecture level (new level, Layers of Fear-style) | Accepted | Selected in triage; user's own framing ranks it below the pursuit/investigation levels since it's more atmosphere than new action-density, but kept on the backlog for its narrative fit with the twist ending. | REPORT.md, Session 2 (2026-07-22) |
