@@ -32,8 +32,8 @@ const TEACH_PANIC := 18.0    # panic spike when the taught version "rushes"
 const TELEGRAPH_TIME := 0.22 # the lurch-forward warning before the rush lands
 const TELEGRAPH_LUNGE := 0.35 # metres the figure jerks toward you as the tell
 
-const FIG_BASE := "res://assets/textures/screamers/shared_screamer_figure"
-const RUSH_BASE := "res://assets/textures/screamers/shared_screamer"
+const FIG_BASE := "res://assets/textures/screamers/shared_screamer_showing_up"  # the figure's look
+const RUSH_BASE := "res://assets/textures/screamers/shared_screamer_2"          # its screamer image
 
 var rule: int = Rule.HOLD
 var teach: bool = false
@@ -210,11 +210,11 @@ func _rush() -> void:
 		return
 	_done = true
 	rushed.emit()
+	var img := _resolve_tex(RUSH_BASE)
+	if img == "":
+		img = _resolve_tex(FIG_BASE)
 	if teach:
 		# A survivable lesson: it lunges, you flinch, you live — learn not to run.
-		var img := _resolve_tex(RUSH_BASE)
-		if img == "":
-			img = _resolve_tex(FIG_BASE)
 		Screamer.flash_scare(img, "all_levels_screamer", 0.7)
 		if _player:
 			_player.jolt_camera(0.1, 0.4)
@@ -223,7 +223,7 @@ func _rush() -> void:
 	else:
 		if _player:
 			_player.jolt_camera(0.12, 0.4)
-		Screamer.trigger()  # fatal (uses the level's screamer image)
+		Screamer.trigger(img)  # fatal — the apparition's own screamer image
 
 
 func _survive() -> void:

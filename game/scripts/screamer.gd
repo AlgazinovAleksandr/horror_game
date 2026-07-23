@@ -104,7 +104,7 @@ func _freeze_player() -> void:
 		p.process_mode = Node.PROCESS_MODE_DISABLED
 
 
-func trigger() -> void:
+func trigger(image_override: String = "") -> void:
 	if _is_triggering:
 		return
 	_is_triggering = true
@@ -112,6 +112,8 @@ func trigger() -> void:
 	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_apply_level_av()
+	if image_override != "" and ResourceLoader.exists(image_override):
+		_screamer_image.texture = load(image_override)
 	_black_panel.visible = true
 	if _audio.stream:
 		_audio.play()
@@ -121,7 +123,10 @@ func trigger() -> void:
 	GameState.restart_current_level()
 
 
-func trigger_to_menu() -> void:
+# image_override lets a caller force a specific fatal image regardless of the
+# per-level lookup — used for the twist ending, which must always show the
+# same screamer no matter which level state it fires from.
+func trigger_to_menu(image_override: String = "") -> void:
 	if _is_triggering:
 		return
 	_is_triggering = true
@@ -129,6 +134,8 @@ func trigger_to_menu() -> void:
 	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_apply_level_av()
+	if image_override != "" and ResourceLoader.exists(image_override):
+		_screamer_image.texture = load(image_override)
 	_black_panel.visible = true
 	if _audio.stream:
 		_audio.play()

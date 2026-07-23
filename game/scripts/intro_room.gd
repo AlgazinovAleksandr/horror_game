@@ -809,4 +809,6 @@ func _process(delta: float) -> void:
 
 func _on_ending_note_closed() -> void:
 	await get_tree().create_timer(2.0).timeout
-	Screamer.trigger_to_menu()
+	# The twist ending is the ONLY death that uses this image — never the random
+	# intro/ending fallback pool.
+	Screamer.trigger_to_menu("res://assets/textures/screamers/shared_screamer.png")
