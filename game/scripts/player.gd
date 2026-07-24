@@ -25,6 +25,9 @@ const STANDSTILL_GRACE := 4.0      # seconds still before the maze starts punish
 const STANDSTILL_PANIC_RATE := 3.0 # panic per second while standing still too long
 const FOOTSTEP_ECHO_DELAY := 0.4   # phantom step plays this long after each real one
 const FOOTSTEP_ECHO_VOLUME_DB := -11.0
+const HIDE_PEEK_LIMIT := deg_to_rad(50)  # restricted look while hidden (a locker-door crack)
+const HIDE_FOV := 35.0                   # narrowed FOV while hidden — peering through a gap
+const HIDE_FOV_TWEEN_TIME := 0.25
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -54,6 +57,11 @@ var _smiler_active: bool = false        # suspends standstill + dark ticks (Smil
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
 var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
+var _hidden: bool = false               # inside a HidingSpot — movement blocked, look restricted
+var _hide_spot: Node = null
+var _hide_yaw_center: float = 0.0
+var _hide_overlay: Control = null
+var _base_fov: float = 75.0
 var _footstep_echo_enabled: bool = false
 var _echo_player: AudioStreamPlayer3D = null
 var _dead_click_player: AudioStreamPlayer = null
@@ -85,6 +93,42 @@ func _ready() -> void:
 	add_child(_panic_hud)
 
 	_add_crosshair()
+	_base_fov = camera.fov
+	_build_hide_overlay()
+
+
+# Four opaque bars leaving a rectangular gap in the screen centre — a "peering
+# through a door crack" read, built from plain ColorRects rather than a new shader
+# (safer to get right without live visual iteration, same visual family as the
+# existing panic_blur/vignette shader overlays but far simpler to author).
+func _build_hide_overlay() -> void:
+	var interact_ui: CanvasLayer = $InteractUI
+	_hide_overlay = Control.new()
+	_hide_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_hide_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hide_overlay.visible = false
+	interact_ui.add_child(_hide_overlay)
+
+	var c := Color(0.0, 0.0, 0.0, 0.96)
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.0, 1.0, 0.32))    # top
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.68, 1.0, 1.0))    # bottom
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.32, 0.30, 0.68))  # left
+	_hide_overlay.add_child(_make_hide_bar(c, 0.70, 0.32, 1.0, 0.68))  # right
+
+
+func _make_hide_bar(color: Color, l: float, t: float, r: float, b: float) -> ColorRect:
+	var rect := ColorRect.new()
+	rect.color = color
+	rect.anchor_left = l
+	rect.anchor_top = t
+	rect.anchor_right = r
+	rect.anchor_bottom = b
+	rect.offset_left = 0.0
+	rect.offset_top = 0.0
+	rect.offset_right = 0.0
+	rect.offset_bottom = 0.0
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return rect
 
 
 func _add_crosshair() -> void:
@@ -98,7 +142,10 @@ func _add_crosshair() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _input_frozen:
+	# _input_frozen also covers "hidden" (movement must stay blocked — see
+	# _apply_movement), but a hidden player still needs to look around (restricted,
+	# see _rotate_camera) and press E to come back out, so hiding is exempted here.
+	if _input_frozen and not _hidden:
 		return
 	if NoteUI.is_open:
 		return
@@ -150,7 +197,13 @@ func _tick_battery(delta: float) -> void:
 
 
 func _rotate_camera(mouse_delta: Vector2) -> void:
-	rotate_y(-mouse_delta.x * MOUSE_SENSITIVITY)
+	if _hidden:
+		# Peeking through a crack: yaw is clamped around the angle you were facing
+		# when you hid, pitch stays free (matches "looking out" more than "turning").
+		var new_yaw := rotation.y - mouse_delta.x * MOUSE_SENSITIVITY
+		rotation.y = clamp(new_yaw, _hide_yaw_center - HIDE_PEEK_LIMIT, _hide_yaw_center + HIDE_PEEK_LIMIT)
+	else:
+		rotate_y(-mouse_delta.x * MOUSE_SENSITIVITY)
 	_pitch = clamp(_pitch - mouse_delta.y * MOUSE_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
 	camera.rotation.x = _pitch
 
@@ -216,6 +269,11 @@ func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:
 
 
 func _try_interact() -> void:
+	# While hidden, the interact ray originates from inside the spot's own
+	# collider (unreliable to hit-test), so route E straight to it instead.
+	if _hidden and _hide_spot and _hide_spot.has_method("interact"):
+		_hide_spot.interact()
+		return
 	if _interact_target and _interact_target.has_method("interact"):
 		_interact_target.interact()
 
@@ -415,6 +473,53 @@ func unfreeze_input() -> void:
 	_input_frozen = false
 
 
+# ------------------------------------------------------------------ hiding
+
+# HidingSpot.interact() calls these. Movement blocks via the existing
+# _input_frozen gate (_apply_movement already early-returns on it); look is
+# exempted from that gate above and instead clamped to a peek cone in
+# _rotate_camera(). A pursuing creature should query is_hidden() to skip
+# detection entirely while true.
+func enter_hiding(spot: Node) -> void:
+	if _hidden:
+		return
+	_hidden = true
+	_hide_spot = spot
+	if spot.has_method("hide_anchor"):
+		global_position = spot.hide_anchor()
+	_hide_yaw_center = rotation.y
+	velocity = Vector3.ZERO
+	_input_frozen = true
+	lock_flashlight()
+	if _hide_overlay:
+		_hide_overlay.visible = true
+	var tween := create_tween()
+	tween.tween_property(camera, "fov", HIDE_FOV, HIDE_FOV_TWEEN_TIME)
+
+
+func exit_hiding() -> void:
+	_hidden = false
+	_hide_spot = null
+	_input_frozen = false
+	unlock_flashlight()
+	if _hide_overlay:
+		_hide_overlay.visible = false
+	var tween := create_tween()
+	tween.tween_property(camera, "fov", _base_fov, HIDE_FOV_TWEEN_TIME)
+
+
+func is_hidden() -> bool:
+	return _hidden
+
+
+# Cosmetic only (e.g. SlamDoor picking a "slammed while fleeing" audio variant) —
+# never gameplay-gating.
+func get_horizontal_speed() -> float:
+	var v := velocity
+	v.y = 0.0
+	return v.length()
+
+
 func is_flashlight_on() -> bool:
 	return flashlight.visible
 
@@ -441,5 +546,8 @@ func _update_heartbeat() -> void:
 
 
 func _update_interact_prompt() -> void:
+	if _hidden:
+		interact_label.visible = true  # always "press E to come out" while hidden
+		return
 	_interact_target = _get_raycast_target()
 	interact_label.visible = _interact_target != null and _interact_target.has_method("interact")

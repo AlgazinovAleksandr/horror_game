@@ -15,7 +15,7 @@ The player wakes in a dark room as **Subject 47** — a participant in a psychol
 
 ### Structure
 ```
-Intro room → Level 1 (The Lab) → Level 2 (The House) → Level 3 (The Corridor) → Level 4 (The Backrooms) → Level 5 (KONTUR) → Level 6 (The Void) → Twist Ending
+Intro room → Level 1 (The Lab) → Level 2 (The House) → Level 3 (The Corridor) → Level 4 (The Backrooms) → Level 5 (KONTUR) → Level 6 (The Breach) → Level 7 (The Void) → Twist Ending
 ```
 
 Each level: explore the environment, find clues/items, unlock the exit door. Fail = screamer + restart that level. Pass = enter the next door.
@@ -178,10 +178,81 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   level otherwise rewards: walking up to something for a better look
 - **Objectives never state an answer** — `GameState.set_objective()` runs in protocol register
   ("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT", "DECONTAMINATION REQUIRED", …)
-- Win: **all eight** gates → exit door → The Void. Fail: three strikes, the Perëkozhnik, a forfeited
+- Win: **all eight** gates → exit door → The Breach. Fail: three strikes, the Perëkozhnik, a forfeited
   run, or the wrong door (which banishes rather than kills)
 
-**Level 6 — The Void (surreal broken geometry)**
+**Level 6 — THE BREACH (Object 12, Loose)** — `level_6_breach.gd` + `level_6_breach.tscn` — a
+Nemesis/Mr.X-style pursuit level, direct continuation of KONTUR's facility: Object 12, the subject
+KONTUR was built around, is now loose in a deeper containment wing. Built the same
+`.tscn`-minimal / `PRESERVE`-whitelist / `RoomBuilder` pattern as `kontur.gd`, from a 13-room graph
+(a main spine plus two bypass loops — WardA east of Atrium/Junction2, ArchiveA/B west of
+Junction2/WardB — so route-planning and breaking line-of-sight actually mean something). Visual arc
+extends KONTUR's two-tier skin system to three: facility → structural rupture → organic decay,
+ending at a scorched-steel Incinerator.
+- **Familiarization window** (`FAMILIARIZATION_TIME=50s`, level-owned): Object 12 stays dormant at
+  its Junction1 spawn until the timer elapses (Mr.X pacing — learn the layout before the threat
+  appears), then `activate()`s and roams the level for the rest of the run
+- **`creature_object12.gd`** (`class_name CreatureObject12`) — a five-state machine
+  (`PATROL → INVESTIGATE → CHASE → SEARCH → STAGGERED`), structurally descended from
+  `creature_stalker.gd`'s build pattern (`ScaryObject → StaticBody3D → CollisionShape3D`, GLB
+  load/arm-pose) but reusing `Void_creature.glb` **retinted** via `material_override` (sickly
+  grey-green + red vein emission) rather than a new 3D asset. **CHASE moves directly toward the
+  player every frame, unconditionally** — the deliberate opposite of `creature_stalker.gd`'s
+  "freeze while observed" rule, which would let a persistent chaser be cheesed by simply staring at
+  it. Losing the player doesn't reset straight to PATROL: `SEARCH` walks to the last-seen position
+  and scans there for `SEARCH_TIME=8s` first — the one Mr.X/Alien:Isolation lesson worth stealing,
+  since it's what makes hiding feel tense rather than a free reset. `CHASE_SPEED=5.0` sits
+  deliberately between the player's walk (4.0) and sprint (6.4) — beatable only by sprinting, which
+  costs `SPRINT_PANIC_RATE`. Contact within `CONTACT_DIST=1.0` is **instant-fatal**
+  (`Screamer.trigger()`), exactly like every other creature in the game — no grab/struggle QTE.
+  ⚠️ The FOV/facing check is deliberately **horizontal-only**: dotting the creature's (horizontal)
+  facing against the *full 3D* direction to the player mixes in the CHEST(0.9)-vs-eye-height(~1.65)
+  vertical gap, which can fail the dot-product test regardless of facing once the gap is a large
+  fraction of a close-range distance — found by `tests/test_creature_object12.gd`, where a SEARCH
+  scan converging on the stub player produced exactly this false-blind result
+- **Light-as-weapon** (`apply_light_damage()`, driven every frame by `level_6_breach.gd`'s
+  `_tick_light_weapon()`, which owns the geometric "is the player aiming a lit flashlight at it
+  within FOV+LOS" check — the creature script itself stays graph/geometry-agnostic): sustained aim
+  drains a `SHIELD_MAX=100` pool at `SHIELD_DRAIN_RATE=40/s` (~2.5s to empty); hitting 0 drops it
+  into `STAGGERED` for `STAGGER_DURATION=25s` — a **temporary repel, not a kill** (shield fully
+  regenerates on recovery). This is a survival/distance tool, not a win condition — reused
+  `creature_stalker.gd`-style FOV/raycast code, but the CHASE *behavior* is intentionally not
+  reused (see above)
+- **Hiding** (`hiding_spot.gd`, 6 lockers/cabinets/desks spread across the rooms, never two in the
+  same room): walk up + press E to hide/unhide — the existing `_try_interact()` path, no new input
+  action. `player.gd` gained `enter_hiding()`/`exit_hiding()`/`is_hidden()`: movement blocks via the
+  existing `_input_frozen` flag, but look is exempted and clamped to a ±50° peek cone
+  (`_rotate_camera`'s `_hidden` branch) instead of the full range. Footstep audio is silenced for
+  free by the existing `_is_moving`-gated chain — no separate suppression flag needed. The
+  creature's own `_detect_player()` short-circuits `false` whenever `is_hidden()` is true
+- **Door-slam** (`slam_door.gd`, 4 interior doors at chokepoints, never on a dead-end): press E
+  while passing through to slam it shut; `level_6_breach.gd::_tick_slam_doors()` scans every frame
+  whether a closed door lies on the creature's path to its current CHASE/SEARCH/INVESTIGATE target
+  (`check_blocks_path()`, a segment/AABB test) and calls `start_battering()`, which pauses the
+  creature's movement (`force_block()`, any state, no state change) for `batter_time≈10s` while it
+  "batters" the door down — a temporary delay, not a permanent block. Deliberately **not** built on
+  `door.gd` — its `UnlockCondition`/`extra_lock` machinery is irrelevant baggage for a non-exit door
+- **The Purge Chamber** (`purge_chamber.gd`, one-shot, at the PurgeAnte↔Incinerator threshold) — the
+  **only permanent win condition**. A heavier blast-door escalation of `slam_door.gd`; `interact()`
+  slams it shut, then confirms the creature's **actual** position against a world-space
+  `trap_bounds` AABB (never a flag) before running the purge sequence (reuses `acid_hiss.wav` from
+  `level_5_kontur` — `GameState.load_audio()` already scans every subdir, no file copy needed) and
+  calling `creature.lure_into_trap()` (permanent). A mistimed lure just re-opens the door with a
+  toast ("IT ISN'T IN THERE") — retryable, not a run-ender
+- **Exit lock**: `_exit_door.extra_lock` stays true until `PurgeChamber.creature_trapped` flips a
+  single `_creature_defeated` flag (this level needs one boolean, not KONTUR's eight-gate ledger),
+  mirroring `kontur.gd`'s `_refresh_exit()` pattern
+- **Fail economy**: deliberately **no** `DreadZone`/`DarkZone` and **no** additional trap props — the
+  level's identity is the chase itself; the existing sprint-panic economy already supplies the
+  "escape costs something" pressure. Fails: creature contact, panic bar fills (standard system)
+- **Audio**: `ambient_breach.wav` (procedural, primary `AmbientPlayer` bed, `-8dB`) plus a secondary
+  layer at `-14dB` mirroring `kontur.gd`'s optional `kontur_music` node — this is where the
+  user-provided `mystical_sound.mp3` lives (as `ambient_breach_layer.mp3`), deliberately **never**
+  the primary bed since an arbitrary sourced `.mp3` isn't guaranteed loop-clean. SFX generated by
+  `tools/make_sfx_level6.py` into `game/assets/audio/level_6_breach/`
+- Win: lure Object 12 into the Purge Chamber and seal it. Fail: creature contact, panic bar fills
+
+**Level 7 — The Void (surreal broken geometry)**
 - Corridors loop, geometry distorted, floating tiles, floor text
 - 8 notes total (5 safe, 3 trap). One safe note is the **twist note** (`is_twist_note = true`)
 - **Stalking creatures** (`creature_stalker.gd`, 4 of them, Weeping-Angel logic): each is a Mixamo GLB figure (`Void_creature.glb`) rendered as a dark shadow with blue eye glow via `material_override`. It freezes while in your FOV + line-of-sight (`ENGAGE_DIST=8m`, `FOV_DOT=0.55`), advances at 1.25 m/s the moment you look away, and lunges → `Screamer.trigger()` on contact. Staring also feeds gaze panic (`GAZE_INTENSITY=0.6`, ~12/s at full) — you can't just watch one forever. `START_GRACE=5s` keeps the opening safe; `CreatureA` stands dead ahead of spawn as a teaching beat. **Stare-off mechanic**: watch any creature continuously for `STARE_OFF_TIME=4s` and it backs off 3m, resets to dormant — costs ~48 panic; demands nerve. Falls back to procedural capsule silhouette if GLB missing. **⚠️ GLB requirements**: the GLB must have **no embedded textures** (export with "No Textures" in Blender) and **no animations** (or disable the AnimationPlayer in the scene after instantiate). Mixamo's default export embeds a skin texture and auto-plays animations, which breaks the dark-material override and causes erratic movement.
@@ -253,8 +324,8 @@ Registered in `game/project.godot`. Access directly by name from any script.
 
 | Autoload | File | What it owns |
 |----------|------|-------------|
-| `GameState` | `scripts/game_state.gd` | Level state (`current_level`: 0=intro, 1=lab, 2=house, **3=corridor, 4=backrooms, 5=kontur, 6=void, 7=ending**), `has_keycard`, `level2_code_correct`, `twist_read`, `is_ending`; `advance_level()`; `go_back()` (both call `start_current_level()` → `reset_level_state()`); `restart_current_level()`; `go_to_main_menu()`; `load_audio(base_name)` (audio subdirs include `level_backrooms`, `level_5_kontur`) |
-| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` / `_is_flashing` bools guard `trigger()`, `trigger_to_menu()` and `flash_scare()` against re-entry. **Per-level fatal AV**: `_apply_level_av()` picks the image + scream by `GameState.current_level` from `LEVEL_SCREAMERS` (1 lab `screamer_lab`, 2 house `screamer_house`, 3 corridor `screamer_hotel`/`screamer_corridor`, 4 backrooms `screamer_smiler`/`jumpscare`, 5 kontur `screamer_kontur`, 6 void `screamer_void`); intro/ending fall back to a random `screamers/` `.png` (DirAccess scan at startup) + the shared `jumpscare`. **`flash_scare(image_path, audio_base, hold)`** — a SURVIVABLE scare: fullscreen image + sound for `hold` s, no pause/restart (the caller adds its own panic). Used by the House forest scare, the Corridor Manager, and the Corridor turn mirrors. |
+| `GameState` | `scripts/game_state.gd` | Level state (`current_level`: 0=intro, 1=lab, 2=house, **3=corridor, 4=backrooms, 5=kontur, 6=breach, 7=void, 8=ending**), `has_keycard`, `level2_code_correct`, `twist_read`, `is_ending`; `advance_level()`; `go_back()` (both call `start_current_level()` → `reset_level_state()`); `restart_current_level()`; `go_to_main_menu()`; `load_audio(base_name)` (audio subdirs include `level_backrooms`, `level_5_kontur`, `level_6_breach`) |
+| `Screamer` | `scripts/screamer.gd` | `trigger()` — black flash → screamer image → audio burst → scene reload. `process_mode = PROCESS_MODE_ALWAYS` (must not freeze during tree pause). `_is_triggering` / `_is_flashing` bools guard `trigger()`, `trigger_to_menu()` and `flash_scare()` against re-entry. **Per-level fatal AV**: `_apply_level_av()` picks the image + scream by `GameState.current_level` from `LEVEL_SCREAMERS` (1 lab `screamer_lab`, 2 house `screamer_house`, 3 corridor `screamer_hotel`/`screamer_corridor`, 4 backrooms `screamer_smiler`/`jumpscare`, 5 kontur `screamer_kontur`, 6 breach `screamer_breach`, 7 void `screamer_void`); intro/ending fall back to a random `screamers/` `.png` (DirAccess scan at startup) + the shared `jumpscare`. **`flash_scare(image_path, audio_base, hold)`** — a SURVIVABLE scare: fullscreen image + sound for `hold` s, no pause/restart (the caller adds its own panic). Used by the House forest scare, the Corridor Manager, and the Corridor turn mirrors. |
 | `NoteUI` | `scripts/note_ui.gd` | Fullscreen note overlay. `show_note(text, trap_rate := 0.0)` / `is_open` bool. Built entirely in GDScript — no .tscn. Guard `is_open` in player before any interaction logic. While `trap_rate > 0` and the note is open, feeds `player.add_panic()` per frame and tints the text toward red; auto-drops the overlay if the tree unpauses (= a screamer fired) |
 
 ### Key scripts
@@ -300,6 +371,11 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `escort_gate.gd` | `class_name EscortGate` — KONTUR Gate 4. `Area3D`; per-frame check of the camera heading against `forward`, `LOOK_LIMIT_DEG=100`, `COOLDOWN=3.0`, `signal broken`. Drives the `breathing_behind` player pinned just behind the player's head |
 | `creature_shapechanger.gd` | `class_name CreatureShapechanger` — the Perëkozhnik. Y-billboard mimic that never moves; gaze panic via the `ScaryObject → StaticBody3D` chain (world transform seeded on the BODY — Issue 10), `Screamer.trigger()` within `KILL_DIST=2 m` |
 | `key_item.gd` | `class_name KeyItem` (Session 10) — generic pickup; `interact()` emits `picked_up` + label + frees itself. House cellar gate uses it |
+| `level_6_breach.gd` | Level 6 — THE BREACH. Builds the 13-room spine (main + two bypass loops) via `RoomBuilder`, the facility→rupture→organic three-tier skins, lights, the familiarization timer (`_tick_familiarization`), the creature/hiding-spot/slam-door/purge-chamber spawns, and the per-frame orchestration (`_tick_slam_doors`, `_tick_light_weapon`, `_tick_noise`) that keeps `creature_object12.gd` graph-agnostic. Owns the single `_creature_defeated` flag + `_refresh_exit()` |
+| `creature_object12.gd` | `class_name CreatureObject12` (Session — Nemesis pursuit level) — Object 12's 5-state machine (`PATROL/INVESTIGATE/CHASE/SEARCH/STAGGERED`). Reuses `Void_creature.glb` retinted via `material_override`; CHASE closes distance unconditionally (does NOT reuse `creature_stalker.gd`'s freeze-while-watched behavior); `SEARCH` walks to the last-seen position and scans before giving up; `apply_light_damage()`/`force_block()`/`notify_noise()`/`lure_into_trap()` are the level's hooks into it. FOV check is horizontal-only (see Level 6 write-up for why) |
+| `hiding_spot.gd` | `class_name HidingSpot` — Level 6 locker/cabinet/desk; `interact()` toggles `player.enter_hiding()/exit_hiding()`. Self-building mesh, same convention as `beartrap.gd`/`key_item.gd` |
+| `slam_door.gd` | `class_name SlamDoor` — Level 6 interior chase door, deliberately not built on `door.gd`. `interact()` slams shut; `check_blocks_path()` + `start_battering()` let the level pause a pursuing creature's movement (`force_block()`) for a few seconds without changing its state |
+| `purge_chamber.gd` | `class_name PurgeChamber` — Level 6's one-shot permanent win trigger. `interact()` slams a heavy blast door, then confirms the creature's actual position against a `trap_bounds` AABB before purging (physics-driven, never a flag) |
 
 ### Level scenes
 | Scene | Unlock condition | Notes |
@@ -311,7 +387,8 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `corridor.tscn` | NONE (reach the door) | Minimal scene: root + Environment + AmbientPlayer + Player at (0,0,2) facing +z — everything else built by `corridor.gd` in `_ready()`. Exit door 217 at d=320 m; BackDoor at the start returns to The House |
 | `backrooms.tscn` | NONE (three down-turns → glitch wall) | Level 4. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0,−5) facing +z — the cyclic maze, lights, arrows, zones, props all built by `backrooms.gd` in `_ready()`. Sets `current_level = 4` |
 | `kontur.tscn` | `extra_lock` — all eight gates | Level 5 — KONTUR. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−3) facing +z — the 8-room spine, gates, signs, creature and doors all built by `kontur.gd` in `_ready()`. Sets `current_level = 5`; BackDoor returns to the Backrooms |
-| `level_3.tscn` | TWIST_READ | The Void (level 6). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 6` |
+| `level_6_breach.tscn` | `extra_lock` — creature defeated | Level 6 — THE BREACH. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−2) facing +z — the 13-room spine + bypass loops, Object 12, hiding spots, slam doors and the purge chamber all built by `level_6_breach.gd` in `_ready()`. Sets `current_level = 6`; BackDoor returns to KONTUR |
+| `level_3.tscn` | TWIST_READ | The Void (level 7). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 7` |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 
 ## ⚠️ Building a level without coincident-surface bugs (READ THIS FIRST)
@@ -410,7 +487,7 @@ horror_game/
 ```
 
 ### Audio import
-New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees them: `/Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import` (or open the editor and let the scan run). Corridor SFX (`clock_chime`, `glass_shatter`, `beartrap_snap`, `door_slam`, `whispers`) are generated by `tools/make_sfx.py` (seeded, reproducible); `ghost_house.wav` is the corridor ambience. House SFX (`lock_buzz`, `footsteps_above`) are generated by `tools/make_sfx_house.py` (same stdlib-only conventions). Backrooms SFX (`fluorescent_hum` looping ambience, `light_pop`, `rotary_ring`, `phone_whisper`) are generated by `tools/make_sfx_backrooms.py` into `game/assets/audio/level_backrooms/`. **KONTUR SFX** are generated by `tools/make_sfx_kontur.py` into `game/assets/audio/level_5_kontur/` (`ambient_kontur` looping bed, `breathing_behind`, `door_seal`, `acid_hiss`, `pedestal_alarm`, `kontur_flash`, `screamer_kontur`). **Session 10 SFX** are generated by `tools/make_sfx_extra.py` (uv-venv-friendly, still stdlib-only): `pipe_groan` + `apparition_drone` → `shared/`, `breaker_throw` → `level_1_lab/`, and `tv_static` + `music_box` + `water_drip` → `level_2_house/`.
+New `.wav`/`.ogg` files need a Godot import pass before `ResourceLoader` sees them: `/Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import` (or open the editor and let the scan run). Corridor SFX (`clock_chime`, `glass_shatter`, `beartrap_snap`, `door_slam`, `whispers`) are generated by `tools/make_sfx.py` (seeded, reproducible); `ghost_house.wav` is the corridor ambience. House SFX (`lock_buzz`, `footsteps_above`) are generated by `tools/make_sfx_house.py` (same stdlib-only conventions). Backrooms SFX (`fluorescent_hum` looping ambience, `light_pop`, `rotary_ring`, `phone_whisper`) are generated by `tools/make_sfx_backrooms.py` into `game/assets/audio/level_backrooms/`. **KONTUR SFX** are generated by `tools/make_sfx_kontur.py` into `game/assets/audio/level_5_kontur/` (`ambient_kontur` looping bed, `breathing_behind`, `door_seal`, `acid_hiss`, `pedestal_alarm`, `kontur_flash`, `screamer_kontur`). **Session 10 SFX** are generated by `tools/make_sfx_extra.py` (uv-venv-friendly, still stdlib-only): `pipe_groan` + `apparition_drone` → `shared/`, `breaker_throw` → `level_1_lab/`, and `tv_static` + `music_box` + `water_drip` → `level_2_house/`. **Level 6 (THE BREACH) SFX** are generated by `tools/make_sfx_level6.py` into `game/assets/audio/level_6_breach/` (`ambient_breach` looping bed, `door_slam`/`door_batter`/`door_break`/`blast_door_slam`, `shield_stagger`/`shield_drain_loop`, `screamer_breach`, `creature_growl_near`); the level's `acid_hiss` reuses KONTUR's file directly via `GameState.load_audio()`'s subdir scan. The user-provided `mystical_sound.mp3` lives here too, as `ambient_breach_layer.mp3` — a secondary ambience layer, never the primary bed (see the Level 6 write-up).
 
 **Large sourced audio was converted `.wav` → `.ogg` to keep the repo lightweight** (2026-07-21): the big ambient beds and long screamer/scream clips (`ambient_lab`, `ambient_house`, `ambient_void`, `ambient_kontur`, `ghost_house`, `pa_trial4`, `screamer_forest`, `footstep`, `heartbeat` — several were tens of MB as `.wav`) were re-encoded to `.ogg` and the `.wav` originals deleted; the `.ogg` versions are 10–40× smaller. `GameState.load_audio(base_name)` already tries `.wav`/`.ogg`/`.mp3` by extension, so no script changes were needed. The small procedurally-generated SFX from the `tools/make_sfx*.py` scripts (jump-scare stingers, door slams, drips, etc.) were **left as `.wav`** — they're already small (KBs, not MBs) and regenerating them re-emits `.wav`, so converting them would just be undone by the next `tools/make_sfx*.py` run.
 

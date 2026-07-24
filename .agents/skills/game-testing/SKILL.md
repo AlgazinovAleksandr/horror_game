@@ -41,12 +41,19 @@ Ask the user where to start if they haven't said. Scenes:
 | 3 Corridor | `res://scenes/corridor.tscn` | |
 | 4 Backrooms | `res://scenes/backrooms.tscn` | 3 zones in one scene |
 | 5 KONTUR | `res://scenes/kontur.tscn` | |
-| 6 The Void | `res://scenes/level_3.tscn` | ⚠️ name does not match the level number |
+| 6 The Breach | `res://scenes/level_6_breach.tscn` | Object 12 pursuit level |
+| 7 The Void | `res://scenes/level_3.tscn` | ⚠️ name does not match the level number |
 | Menu | `res://scenes/main_menu.tscn` | |
 
 Starting mid-game means the player has **none** of the earlier levels' context. KONTUR in particular
 plants all four of its answers in levels 1–4, so a cold start there is expected to be brutal — that
 is not a finding. Say so up front, and brief the user on what the level expects.
+
+**Tell the user about the debug-capture hotkey before they start playing.** Pressing **J** at any
+point takes a screenshot immediately, then pauses and opens a one-line note box (Enter to save,
+Esc to skip — the screenshot is kept either way). This is the highest-signal input you'll get: it's
+the user pointing at the exact frame and moment something looked or felt wrong, in their own words,
+instead of a post-session recap from memory. Encourage them to use it liberally.
 
 ## Step 2 — Launch
 
@@ -54,8 +61,10 @@ is not a finding. Say so up front, and brief the user on what the level expects.
 # 1. If any asset (.wav/.png/.gd class_name) changed since last run:
 /Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import
 
-# 2. Clear the previous log so you don't diagnose a stale session:
+# 2. Clear the previous log AND any stale debug-capture screenshots, so you don't
+#    diagnose a prior session's findings as if they were this one's:
 rm -f "$HOME/Library/Application Support/Godot/app_userdata/horror_game/playtest_log.txt"
+rm -rf "$HOME/Library/Application Support/Godot/app_userdata/horror_game/debug_captures"
 
 # 3. Launch WINDOWED, in the background, filtering to log lines:
 /Applications/Godot.app/Contents/MacOS/Godot --path game res://scenes/<SCENE>.tscn 2>&1 \
@@ -77,6 +86,21 @@ became separable).
 ```bash
 grep -E "^LOG|SCRIPT ERROR" <output-file>
 ```
+
+**Triage `DEBUG CAPTURE` lines first.** These are the user pressing J — user-flagged, not inferred,
+and paired with an exact screenshot:
+
+```bash
+grep "DEBUG CAPTURE" "$HOME/Library/Application Support/Godot/app_userdata/horror_game/playtest_log.txt"
+```
+
+Each line has the form `DEBUG CAPTURE #N -> user://debug_captures/00N.png | scene=... pos=... |
+note: "..."`. Resolve the `user://` path with `ProjectSettings.globalize_path()`'s printed
+equivalent — in practice that's always
+`$HOME/Library/Application Support/Godot/app_userdata/horror_game/debug_captures/00N.png` — and
+`Read` the PNG directly alongside the note text before looking at anything else in the log. A
+`(screamer interrupted)` suffix means a real death cut the note short; the screenshot and whatever
+was typed are both still valid signal.
 
 ### Reading panic numbers
 

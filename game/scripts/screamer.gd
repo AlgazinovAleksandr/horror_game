@@ -20,7 +20,8 @@ const LEVEL_SCREAMERS := {
 	3: ["res://assets/textures/level_3_corridor/screamer_hotel.png", "screamer_corridor"],
 	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "all_levels_screamer"],
 	5: ["res://assets/textures/level_5_kontur/screamer_kontur.png", "kontur_scream"],
-	6: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
+	6: ["res://assets/textures/level_6_breach/screamer_breach.png", "screamer_breach"],
+	7: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
 }
 
 const FALLBACK_AUDIO := "all_levels_screamer"  # intro / ending levels with no dedicated scream
@@ -87,6 +88,19 @@ func set_screamer_audio(stream: AudioStream) -> void:
 	_audio.stream = stream
 
 
+# Single source of truth for playtest death logging (see debug_log.gd::record_death for
+# the full story — the old panic-collapse heuristic missed every death that didn't go
+# through the panic system, e.g. instant creature contact). Runs once per real trigger,
+# guarded by the _is_triggering check both callers already do before calling this.
+func _log_death() -> void:
+	var dbg := get_node_or_null("/root/DebugLog")
+	if not dbg:
+		return
+	var p := get_tree().get_first_node_in_group("player")
+	var pos: Vector3 = p.global_position if p else Vector3.ZERO
+	dbg.record_death(pos, "level %d" % GameState.current_level)
+
+
 # Death has to actually STOP the player.
 #
 # trigger() deliberately UNPAUSES the tree — NoteUI pauses while a note is open and
@@ -108,6 +122,7 @@ func trigger(image_override: String = "") -> void:
 	if _is_triggering:
 		return
 	_is_triggering = true
+	_log_death()
 	get_tree().paused = false
 	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -130,6 +145,7 @@ func trigger_to_menu(image_override: String = "") -> void:
 	if _is_triggering:
 		return
 	_is_triggering = true
+	_log_death()
 	get_tree().paused = false
 	_freeze_player()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)

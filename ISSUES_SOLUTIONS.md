@@ -769,3 +769,102 @@ untextured back of something.
 
 **General lesson.** Art on a quad has a facing. Any prop the player can walk around needs the art on
 every face they can reach, or an explicit reason in a comment why one face is enough.
+
+---
+
+## Issue 29 — Level 6's win condition disabled the threat only AFTER it had time to kill you
+
+**Symptom.** A scripted end-to-end test (`tests/walk_level6_breach.gd`) placed the player just past
+the Purge Chamber and the creature just behind it, let the creature detect and chase for real, and
+sealed the door the instant its body entered the trap AABB — the exact sequence a player who
+correctly solves the level would produce. Result: a real `Screamer.trigger()` fired and the level
+reloaded before `_creature_defeated` ever became true. Doing everything right still got you killed.
+
+**Cause.** `purge_chamber.gd:interact()` slammed the door, then waited `CLOSE_TO_CONFIRM_DELAY`
+(1.2s) to confirm the creature was inside, then another `PURGE_SEQUENCE_DELAY` (2.5s) for the audio
+cue, and only *then* called `creature.lure_into_trap()` — the only thing that stops the creature
+from moving or killing. `CHASE_SPEED` (5.0) closes a few metres in well under a second, so across
+that ~3.7s gap between "player commits to sealing the door" and "creature is actually disabled," a
+creature that had just been lured within arm's reach had more than enough time to land the kill.
+
+**Fix.** Split "stop the creature from being able to hurt you" from "confirm whether the trap
+worked." `creature_object12.gd` gained `freeze_for_purge()` / `unfreeze_for_purge()` (thin wrappers
+around the same `_block_t` pause `force_block()` already uses — all ticking, including the contact
+check, stops). `purge_chamber.gd:interact()` now calls `freeze_for_purge()` **immediately**, before
+either delay; `_confirm_trap()` either proceeds to the permanent `lure_into_trap()` (success) or
+calls `unfreeze_for_purge()` before reopening the door (a failed lure resumes the chase, it doesn't
+leave the creature inexplicably frozen forever).
+
+**General lesson.** A win condition that depends on a fast, lethal AI being "not dangerous anymore"
+must make that true at the moment the player commits the winning action, not at the moment the game
+finishes confirming it. Any gap between the two is a window where correct play still loses — and
+because the fail state (a screamer + reload) looks identical to any other death, this class of bug
+is invisible unless something drives the *exact* winning sequence and checks that the game agrees
+it won. Regular play-testing might report "I keep dying near the end" without ever landing on this
+as the mechanical cause; a scripted, physics-driven win-path test (never one that reaches the win
+condition by calling the signal directly) is what actually catches it.
+
+---
+
+## Issue 30 — `E` never worked on either Level 6 door: a disabled collider is invisible to raycasts too
+
+**Symptom.** Two real players independently reported the same thing across several sessions: "I lured
+it into the last room but pressing E did nothing" / "I think the button doesn't work." The level was
+**completely unwinnable for everyone, always** — not a difficulty problem, a total mechanical dead
+end. The fix for Issue 29 above didn't help, because the player could never get far enough to trigger
+it: `interact()` itself never fired.
+
+**Cause.** `slam_door.gd` and `purge_chamber.gd` both built a single `CollisionShape3D`, set
+`disabled = true` at `_ready()` (meant to represent "door is open, not physically blocking"), and
+only flipped it to `disabled = false` from *inside* `_set_closed()` — which is only ever called from
+inside `interact()`. But Godot's raycasts **never report a hit against a disabled
+`CollisionShape3D`** — it's excluded from physics queries entirely, not just from movement collision.
+`player.gd`'s interact ray (`_get_raycast_target()`) could therefore never find either body in the
+first place: no hit → `_interact_target` stays null → the "Press E" prompt never even appears →
+`interact()` can never run → the collider that was supposed to enable itself never gets the chance. A
+closed loop with no way in.
+
+**Why the automated win-path test (`walk_level6_breach.gd`) didn't catch it initially.** That test
+called `_purge.call("interact")` directly — the exact method the bug prevented the player from ever
+reaching — so it validated the internal confirm/freeze/purge *logic* perfectly while never once
+exercising the actual input path a real E-press uses. It passed cleanly while the game was, in
+practice, unwinnable. Same shape of gap as Issue 16 (KONTUR's exit having no unlock condition): the
+mechanic *worked*, and nobody had asked whether it was *reachable*.
+
+**Fix.** Split each door into two bodies, since `collision_layer`/`collision_mask` apply to a whole
+`CollisionObject3D`, not per-shape — one body can't be "always raycastable, sometimes physically
+solid" on its own:
+- The door's own body keeps an **always-enabled** `CollisionShape3D` on `collision_layer = 2`
+  (`note.gd`'s existing "pass-through interactable" convention — raycast-hittable, invisible to
+  normal movement collision) so `E` can find it in any state.
+- A **new child `StaticBody3D`** holds the actual physical blocker, on the default layer (1), with
+  its `disabled` flag toggled by `_set_closed()` exactly as before — this is what stops the player/
+  creature from walking through a *closed* door.
+
+**A second-order bug this exposed.** Making the interact collider *always* enabled means it also
+always answers raycasts — including the creature's own line-of-sight check and the light-weapon
+beam check, which would now treat an *open* door as an opaque wall (it never used to, since the
+always-disabled collider never blocked anything). Fixed by adding `query.collision_mask = 1` to
+`creature_object12.gd:_has_los()` and `level_6_breach.gd:_has_clear_los()`, so detection/light only
+care about genuinely solid (layer 1) geometry — a locker or cabinet still correctly blocks sight
+(it's real opaque furniture, deliberately layer 1), but a door's interact marker doesn't.
+`tests/check_level6_breach.gd`'s doorway-clearance probe needed the identical mask fix for the same
+reason — it started (correctly!) flagging the new always-there interact colliders as "something is
+in the doorway," which is true but no longer the failure mode that check exists to catch.
+
+**How this was actually found.** Not by reasoning about the code — by a scripted test
+(`tests/walk_level6_breach.gd`) driving the *real* `player._try_interact()` path instead of calling
+`interact()` directly, after two live players independently reported the symptom. The very first
+attempt at that harder test failed with a THIRD, unrelated bug in the test itself (positioning the
+player parallel to, but 0.5m outside, the door's 0.15m-thick collision slab, so the ray geometrically
+could never cross it regardless of range or facing) — worth remembering when a "should clearly work"
+raycast test keeps returning null: check the query geometry against the *actual* collider bounds
+before suspecting the game code.
+
+**General lesson.** `disabled = true` on a `CollisionShape3D` is not "invisible to physics but still
+visible to queries" — it is invisible to *everything*, raycasts included. Any pattern of "start
+disabled, enable from inside the handler that a raycast is supposed to trigger" is a deadlock by
+construction. If a collider's enabled-state needs to differ between "can this be interacted with"
+and "does this physically block movement," those are two different bodies, because layer/mask (the
+tool that would otherwise let one shape serve both purposes) is a body-level property, not a
+shape-level one.
