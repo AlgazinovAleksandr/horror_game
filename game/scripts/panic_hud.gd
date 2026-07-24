@@ -54,3 +54,45 @@ func set_panic_ratio(ratio: float) -> void:
 	ratio = clampf(ratio, 0.0, 1.0)
 	_blur_material.set_shader_parameter("blur_amount", ratio * max_blur_strength)
 	_tint_material.set_shader_parameter("blend_amount", ratio * max_tint_blend)
+
+
+var _breaker_meter_bg: ColorRect = null
+var _breaker_meter_fill: ColorRect = null
+
+
+func _build_breaker_meter() -> void:
+	_breaker_meter_bg = ColorRect.new()
+	_breaker_meter_bg.color = Color(0.05, 0.05, 0.05, 0.7)
+	_breaker_meter_bg.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_breaker_meter_bg.offset_left = -110.0
+	_breaker_meter_bg.offset_right = 110.0
+	_breaker_meter_bg.offset_top = -70.0
+	_breaker_meter_bg.offset_bottom = -52.0
+	_breaker_meter_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_breaker_meter_bg.visible = false
+	add_child(_breaker_meter_bg)
+
+	var fill := ColorRect.new()
+	fill.color = Color(0.3, 0.4, 0.9, 0.9)
+	fill.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fill.anchor_right = 0.0
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_breaker_meter_bg.add_child(fill)
+	_breaker_meter_fill = fill
+
+
+# Lab dark-room feature: a live "hot/cold" proximity readout toward the hidden
+# breaker, distance-only (no direction) — makes audio-only navigation read as an
+# active mini-game rather than ambient noise, without trivializing the actual
+# direction-finding with an on-screen compass. ratio < 0 hides the meter
+# entirely (the caller sends this once on leaving the dark wing).
+func set_breaker_proximity(ratio: float) -> void:
+	if not _breaker_meter_bg:
+		_build_breaker_meter()
+	if ratio < 0.0:
+		_breaker_meter_bg.visible = false
+		return
+	ratio = clampf(ratio, 0.0, 1.0)
+	_breaker_meter_bg.visible = true
+	_breaker_meter_fill.anchor_right = ratio
+	_breaker_meter_fill.color = Color(0.3, 0.4, 0.9).lerp(Color(0.95, 0.15, 0.1), ratio)

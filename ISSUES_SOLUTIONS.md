@@ -868,3 +868,27 @@ construction. If a collider's enabled-state needs to differ between "can this be
 and "does this physically block movement," those are two different bodies, because layer/mask (the
 tool that would otherwise let one shape serve both purposes) is a body-level property, not a
 shape-level one.
+
+## Issue 31 — Issue 24 recurred: KONTUR's ChoiceDoors put art directly on a BoxMesh
+
+**Symptom.** A full playtest (`game-testing` skill, session covering Intro through all of KONTUR)
+flagged both Gate 1 doors — the black one and the red one — as "texture looks corrupted" via two
+separate `J` debug captures, one per door. In-game they read as flat, mostly-featureless panels: no
+visible window, no hinge detail, nothing recognisable as `door_black.png` / `door_red.png`.
+
+**Cause.** `choice_door.gd:_build()` applied `texture_path` directly to a `BoxMesh` sized
+`WIDTH x HEIGHT x THICK` — the exact fault Issue 24 already named and fixed once in `door.gd`, just
+never generalised to this second, independently-written door script. A BoxMesh does not map a whole
+texture per face, so the art rendered as a magnified sub-rect instead of the full image.
+
+**Fix.** Same pattern as `door.gd:build_visual()`, adapted for `ChoiceDoor`'s hinge-at-origin layout
+(the panel is offset `WIDTH/2` from the body, not centred on it): the `BoxMesh` keeps a plain dark
+unlit material for edge/depth only; two `QuadMesh` children — one at local `z = THICK/2 + 0.004`
+facing +z, one at `z = -THICK/2 - 0.004` facing -z (`rotation.y = PI`) — carry the actual
+`texture_path` art, so the door reads correctly from either side of the swing.
+
+**General lesson.** A documented fix in one prop script does not protect a second, independently
+built prop script that happens to share the same "art on a box" shortcut. `CLAUDE.md`'s own
+"artwork goes on a QuadMesh, never a BoxMesh face" rule is stated once at the top level for exactly
+this reason — grep for `BoxMesh` + `albedo_texture` co-occurring in the same function across the
+whole `scripts/` directory before trusting that a fixed bug can't reappear elsewhere.

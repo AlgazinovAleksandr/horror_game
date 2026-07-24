@@ -346,6 +346,10 @@ func get_panic_ratio() -> float:
 	return clampf(_panic / PANIC_MAX, 0.0, 1.0)
 
 
+func get_panic_hud() -> Node:
+	return _panic_hud
+
+
 func add_panic(amount: float) -> void:
 	_panic += amount
 	if _panic >= PANIC_MAX:

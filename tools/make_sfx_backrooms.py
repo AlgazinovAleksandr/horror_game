@@ -92,6 +92,30 @@ def make_fluorescent_hum():
     return out
 
 
+# --------------------------------------------------------------------- sprawl hum
+
+def make_sprawl_wall_hum():
+    """Low, slightly irregular breathing drone — Zone 2's (the Sprawl) positive
+    audible tell at the real glitch wall (BUG_FIX.md 3.5). Deliberately NOT built
+    from mains-multiple partials like fluorescent_hum, so the two read as two
+    different sounds rather than blending into one. Seamless 4 s loop."""
+    dur = 4.0
+    n = int(SR * dur)
+    out = [0.0] * n
+    # Two closely-detuned low oscillators beat softly against each other. Both
+    # frequencies are multiples of 0.25 Hz so a whole number of cycles fits the
+    # 4 s loop and the seam is silent.
+    f1, f2 = 88.0, 88.5
+    for i in range(n):
+        t = i / SR
+        s = 0.55 * math.sin(TAU * f1 * t) + 0.45 * math.sin(TAU * f2 * t)
+        s += 0.12 * math.sin(TAU * f1 * 2.0 * t)
+        # Slow organic swell, 0.5 Hz -> 2 whole cycles in 4 s.
+        breathe = 0.75 + 0.25 * math.sin(TAU * 0.5 * t)
+        out[i] = s * breathe * 0.5
+    return out
+
+
 # --------------------------------------------------------------------- pop
 
 def make_light_pop():
@@ -119,12 +143,16 @@ def make_light_pop():
 
 def make_rotary_ring():
     """Old electromechanical bell: two clappers striking a ~1100/1400 Hz bell
-    in a fast trill, gated into the classic ring-ring ... pause pattern."""
-    dur = 4.0
+    in a fast trill. Playtest follow-up: the old 2 x 0.9s bursts (~2s of audible
+    ring inside a 4s one-shot clip, retriggered every RING_INTERVAL=7s) read as
+    too brief to register. Now 4 bursts back to back with short gaps between —
+    ~5.3s of near-continuous ring, unmistakable. Not a seamless loop (this clip
+    is one-shot per interval in rotary_phone.gd, never manually looped), so no
+    trailing silence is needed."""
+    bursts = [(0.10, 1.1), (1.40, 1.1), (2.70, 1.1), (4.00, 1.1)]  # (start_s, length_s)
+    dur = 5.4
     n = int(SR * dur)
     out = [0.0] * n
-    # ring bursts: (start_s, length_s)
-    bursts = [(0.15, 0.9), (1.25, 0.9)]  # two rings, then silence to loop
     for start, length in bursts:
         bn = int(SR * length)
         chunk = [0.0] * bn
@@ -142,7 +170,7 @@ def make_rotary_ring():
     lp = OnePole(2600)
     for i in range(n):
         out[i] = lp.tick(out[i])
-    # seamless loop fade
+    # click-free start/end fade (one-shot clip, not a loop)
     fade = int(SR * 0.25)
     for i in range(fade):
         g = i / fade
@@ -203,6 +231,7 @@ def make_phone_whisper():
 def main():
     random.seed(404)  # the level not found — reproducible builds
     write_wav("fluorescent_hum.wav", make_fluorescent_hum())
+    write_wav("sprawl_wall_hum.wav", make_sprawl_wall_hum())
     write_wav("light_pop.wav", make_light_pop())
     write_wav("rotary_ring.wav", make_rotary_ring())
     write_wav("phone_whisper.wav", make_phone_whisper())

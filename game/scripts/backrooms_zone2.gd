@@ -42,6 +42,8 @@ var _ceil_mat: StandardMaterial3D
 var _origin: Vector3
 var _walls := {}                   # side -> GlitchWall
 var _silence: SilenceZone
+var _tell_water: AudioStreamPlayer3D    # the positive tell (BUG_FIX.md 3.5) at the real wall
+var _tell_whisper: AudioStreamPlayer3D  # layered with it, closer/quieter
 var _real_side: String = "N"
 var _lights: Array = []
 
@@ -181,6 +183,46 @@ func _randomise_real_wall() -> void:
 	_silence = SilenceZone.new()
 	MazeKit.zone_box(self, _silence, axis * (HALF - 5.0) + Vector3(0, HEIGHT / 2.0, 0),
 		Vector3(11.0, HEIGHT, 11.0), "SilencePocket")
+
+	# The positive tell (BUG_FIX.md 3.5, revised after playtest): silence alone tested
+	# as too subtle, and the first version of this tell (a procedural hum) used
+	# unit_size=4.5 — audible only once you were basically already at the correct
+	# wall, in a 40x40 m room with 4 identical ones. Two layers now, both MUCH wider
+	# range so there's something to actually walk toward from across the hall:
+	# `water` carries from far off as a background cue, `whisper` confirms up close.
+	# Both sit at the wall itself (not the wider silence pocket) and stay OFF the
+	# "Backrooms" bus on purpose — routing through the bus SilenceZone ducks would
+	# have the pocket mute the very tell it's supposed to provide.
+	if is_instance_valid(_tell_water):
+		_tell_water.queue_free()
+	if is_instance_valid(_tell_whisper):
+		_tell_whisper.queue_free()
+
+	_tell_water = AudioStreamPlayer3D.new()
+	var water_stream := GameState.load_audio("water")
+	if water_stream:
+		_tell_water.stream = water_stream
+		_tell_water.unit_size = 16.0
+		_tell_water.volume_db = 0.0
+		_tell_water.bus = "Master"
+		_tell_water.finished.connect(_tell_water.play)
+	add_child(_tell_water)
+	_tell_water.position = _walls[_real_side].position
+	if _tell_water.stream:
+		_tell_water.play()
+
+	_tell_whisper = AudioStreamPlayer3D.new()
+	var whisper_stream := GameState.load_audio("whisper")
+	if whisper_stream:
+		_tell_whisper.stream = whisper_stream
+		_tell_whisper.unit_size = 9.0
+		_tell_whisper.volume_db = 1.0
+		_tell_whisper.bus = "Master"
+		_tell_whisper.finished.connect(_tell_whisper.play)
+	add_child(_tell_whisper)
+	_tell_whisper.position = _walls[_real_side].position
+	if _tell_whisper.stream:
+		_tell_whisper.play()
 
 
 func _on_wall_touched(is_real: bool, side: String) -> void:

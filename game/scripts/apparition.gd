@@ -242,8 +242,13 @@ func _fade_out() -> void:
 	t.tween_callback(queue_free)
 
 
+# BUG_FIX.md 3.3, corrected after playtest: the scary-sound gap was here, at the
+# moment it first appears — not at the rush (below). Plays a purpose-made snarl
+# instead of the old generic drone, falling back to the drone if it's ever missing.
 func _play_drone() -> void:
-	var stream := GameState.load_audio("apparition_drone")
+	var stream := GameState.load_audio("apparition_snarl")
+	if not stream:
+		stream = GameState.load_audio("apparition_drone")
 	if not stream:
 		return
 	var p := AudioStreamPlayer3D.new()
@@ -257,6 +262,8 @@ func _play_drone() -> void:
 
 
 # A short sharp sting the instant it decides to rush — the audio half of the tell.
+# Reuses the generic door "creak" pitched up, unchanged (the fatal Screamer.trigger()
+# scream that follows is the "screamer" proper, and stays untouched too).
 func _play_sting() -> void:
 	var stream := GameState.load_audio("creak")
 	if not stream:

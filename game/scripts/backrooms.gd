@@ -671,6 +671,14 @@ func _spawn_mirage_doors() -> void:
 func _spawn_phone() -> void:
 	var phone := RotaryPhone.new()
 	phone.position = Vector3(-0.95, 0, -2.2)  # entry arm carpet, beside the clue note
+	# Playtest reported the ring as inaudible three times running — two tuning
+	# passes on the procedural `rotary_ring` (duration, then volume/range) didn't
+	# fix it, so the synthesized tone itself was likely the problem, not the mix.
+	# Switched to the same `phone_ringing` KONTUR already uses successfully for its
+	# own Gate 6 phone, at the same proven volume/range.
+	phone.ring_audio = "phone_ringing"
+	phone.ring_volume_db = 0.0
+	phone.ring_unit_size = 12.0
 	add_child(phone)
 
 

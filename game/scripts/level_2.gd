@@ -81,7 +81,11 @@ func _ready() -> void:
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
-	GameState.set_objective("Find the cellar key, hidden in the kitchen")
+	# BUG_FIX.md 4.3 moved the key out of the Kitchen into a 2-drawer search in the
+	# Landing — this text still said "kitchen" and was actively misdirecting players
+	# away from where the search now lives. Vague on purpose (still a search, not an
+	# answer) but no longer pointing at the wrong room.
+	GameState.set_objective("Find the cellar key, hidden somewhere upstairs")
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_blackout_clock = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
@@ -658,6 +662,7 @@ func _spawn_room_props() -> void:
 	# Bathroom: a bathtub.
 	var bc: Vector3 = _builder.room_center("Bathroom")
 	_make_prop(Vector3(bc.x + 1.4, 0.3, bc.z), Vector3(0.9, 0.6, 2.2), Color(0.7, 0.72, 0.72))
+	_spawn_bathroom_map(bc)
 	# Bedroom: a bed (the cursed painting is already here).
 	var bd: Vector3 = _builder.room_center("Bedroom")
 	_make_prop(Vector3(bd.x - 1.6, 0.3, bd.z), Vector3(2.2, 0.5, 1.5), Color(0.3, 0.22, 0.2))
@@ -669,6 +674,26 @@ func _spawn_room_props() -> void:
 		# East wall (the north wall holds the exit lock/door; the west holds a note).
 		_make_cursed_body(_builder.wall_point("ChildRoom", Vector2(1, 0), 1.5, 0.06),
 			Vector2(0.7, 0.7), -PI / 2.0, 0.6, Color(0.6, 0.55, 0.5), drawing)
+
+
+# The Bathroom map-and-chase minigame (new feature, replaces the Landing 2-drawer
+# search — briefly lived on the Kitchen counter first, moved here per playtest:
+# "this room has nothing except the [trap] note, put the map there"). The trap
+# note ("it got in it got in...") is on the east wall; the bathtub occupies
+# roughly x:7.45-8.35, z:11.4-13.6. One small stand sits clear of both and of the
+# west-wall doorway's swing (x=4, z:11.8-13.2). Playtest: "once I pass the maze,
+# the map should disappear and the key spawn instead of it" — HouseMap now
+# queue_frees itself on a win (house_map_prop.gd), so the key reuses this exact
+# stand/position rather than a separate one.
+func _spawn_bathroom_map(bc: Vector3) -> void:
+	var map_pos := Vector3(bc.x - 1.0, 0.65, bc.z - 1.5)
+	_make_prop(Vector3(map_pos.x, 0.3, map_pos.z), Vector3(0.5, 0.6, 0.4), Color(0.55, 0.5, 0.45))
+	var map := HouseMap.new()
+	map.position = map_pos
+	map.won.connect(func() -> void:
+		_build_cellar_key(map_pos)
+	)
+	add_child(map)
 
 
 func _spawn_cellar_contents() -> void:
@@ -702,17 +727,24 @@ func _spawn_cellar_contents() -> void:
 	_cellar_gate.material = gm
 	add_child(_cellar_gate)
 
+	# The key itself is no longer a straight pickup — see _spawn_kitchen_map()
+	# (new feature), a 2D map-and-chase minigame in the Kitchen. Winning it calls
+	# _build_cellar_key() below directly; the Landing 2-drawer search from the
+	# previous pass has been removed (Landing reverts to being an empty
+	# pass-through — a deliberate trade for this bigger quest living in the
+	# Kitchen instead).
+
+
+# The key's own visual — an alpha-cutout quad lying flat, same trick as the
+# apparition billboard, with a gold-box fallback if the art is missing. Unchanged
+# from the version that used to sit on a Kitchen stand; only the calling site and
+# position moved.
+func _build_cellar_key(pos: Vector3) -> void:
 	var key := KeyItem.new()
 	key.label_text = "Cellar key"
-	# On top of the stand (top y=0.9), clear of it so the interaction ray hits the
-	# key, not the stand. A small gold glow makes it findable in the dark kitchen.
-	key.position = _builder.room_center("Kitchen") + Vector3(2.0, 1.05, 1.6)
+	key.position = pos
 	key.picked_up.connect(_open_cellar_gate)
 	add_child(key)
-	# A key is not box-shaped, so unlike the keycards this one cannot be sold with a
-	# face texture on a slab — it needs an ALPHA CUTOUT on a flat quad lying face-up,
-	# the same trick as the apparition billboard. If the art is missing we fall back
-	# to the old gold box so the level stays completable.
 	var key_tex := TEX + "house_cellar_key.png"
 	if ResourceLoader.exists(key_tex):
 		var kq := MeshInstance3D.new()
@@ -726,13 +758,13 @@ func _spawn_cellar_contents() -> void:
 		var tex := load(key_tex)
 		qmat.albedo_texture = tex
 		# ALPHA_SCISSOR, not ALPHA: a scissored cutout still writes depth, so the key
-		# sorts correctly against the stand and the cellar gloom instead of blending.
+		# sorts correctly against the drawer and the room gloom instead of blending.
 		qmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 		qmat.alpha_scissor_threshold = 0.5
 		qmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		qmat.emission_enabled = true
 		qmat.emission_texture = tex
-		qmat.emission_energy_multiplier = 0.5   # findable in a dark kitchen
+		qmat.emission_energy_multiplier = 0.5   # findable in the dim Landing
 		kq.set_surface_override_material(0, qmat)
 		kq.rotation = Vector3(-PI / 2.0, 0, 0)  # lie flat, face up
 		key.add_child(kq)
@@ -759,16 +791,6 @@ func _spawn_cellar_contents() -> void:
 	glow.light_energy = 0.35
 	glow.omni_range = 2.5
 	key.add_child(glow)
-	# A small visual stand so the key isn't floating. NO collision — otherwise its
-	# box intercepts the interaction raycast and the key can't be picked up.
-	var stand := CSGBox3D.new()
-	stand.size = Vector3(0.5, 0.9, 0.5)
-	stand.position = key.position - Vector3(0, 0.6, 0)
-	stand.use_collision = false
-	var stm := StandardMaterial3D.new()
-	stm.albedo_color = Color(0.2, 0.14, 0.08)
-	stand.material = stm
-	add_child(stand)
 
 
 func _open_cellar_gate() -> void:
@@ -898,7 +920,7 @@ func _process(delta: float) -> void:
 	_tick_tv_card(delta)
 
 
-const TV_CARD_HOLD := 4.5
+const TV_CARD_HOLD := 8.0  # BUG_FIX.md 2.2: was 4.5 — playtest read it as gone too fast
 const TV_CARD_GAP_MIN := 16.0
 const TV_CARD_GAP_MAX := 26.0
 

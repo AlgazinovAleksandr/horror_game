@@ -109,6 +109,34 @@ def make_breaker_throw():
     return out
 
 
+def make_breaker_spark():
+    """Brief electrical crackle — a few quick sputtering pops, under 0.5s. The
+    audio tell for the Lab's hidden breaker (BUG_FIX.md 4.1): findable by ear
+    without being immediately visible like the other two."""
+    random.seed(4711)
+    dur = 0.45
+    n = int(SR * dur)
+    out = [0.0] * n
+    # 3-5 short arc pops scattered across the clip.
+    t0 = 0.0
+    while t0 < dur - 0.05:
+        off = int(t0 * SR)
+        plen = int(random.uniform(0.02, 0.06) * SR)
+        for i in range(plen):
+            if off + i >= n:
+                break
+            t = i / SR
+            crackle = random.uniform(-1.0, 1.0) * math.exp(-t * 90.0)
+            out[off + i] += crackle
+        t0 += random.uniform(0.06, 0.14)
+    fade = int(0.01 * SR)
+    for i in range(fade):
+        g = i / fade
+        out[i] *= g
+        out[n - 1 - i] *= g
+    return out
+
+
 def make_tv_static():
     """CRT hiss bed with a faint high whine — loopable."""
     random.seed(7)
@@ -194,6 +222,7 @@ def main():
     write_wav("shared", "pipe_groan.wav", make_pipe_groan())
     write_wav("shared", "apparition_drone.wav", make_apparition_drone())
     write_wav("level_1_lab", "breaker_throw.wav", make_breaker_throw())
+    write_wav("level_1_lab", "breaker_spark.wav", make_breaker_spark())
     write_wav("level_2_house", "tv_static.wav", make_tv_static())
     write_wav("level_2_house", "music_box.wav", make_music_box())
     write_wav("level_2_house", "water_drip.wav", make_water_drip())

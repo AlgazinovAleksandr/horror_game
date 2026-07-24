@@ -11,11 +11,15 @@ extends Node3D
 #   Gate 2  THE SHELF       use         <- the L2 House TV static card
 #   Gate 5  THE ROSTER      recall      <- the INTRO note ("You are Subject 47")
 #   Gate 3  THE OFFERING    abstain     <- the L3 Corridor door plate
-#   Gate 6  THE PHONE       ignore      <- the L4 Backrooms phone (a read-to-die trap)
+#   Gate 6  THE PHONE       destroy     <- the L4 Backrooms phone (a read-to-die trap);
+#                                          was "ignore" until BUG_FIX.md 4.6 — a hammer
+#                                          waits in Landing, and the ring itself now
+#                                          drains panic until it's smashed
 #   Gate 7  THE DARK ROOM   unlight     <- the L4 Backrooms Flood (light hides the way)
-#   Gate 8  THE AIRLOCK     wait        <- self-taught (it INVERTS the Backrooms rule
-#                                          that standing still kills you, so it has to
-#                                          teach itself with a visible cycle meter)
+#   Gate 8  THE AIRLOCK     catch       <- self-taught. Was a 9 s stillness hold ("wait")
+#                                          until BUG_FIX.md 4.7 replaced it with a marker-
+#                                          catch minigame — still inverts the Backrooms
+#                                          standing-still rule, still has to teach itself
 #   Gate 4  THE ESCORT      don't look  <- the L4 Backrooms wall scrawl
 #
 # In-level signs state each rule with the operative word REDACTED, so a player who
@@ -49,6 +53,7 @@ const HOUSE_TEX := "res://assets/textures/level_2_house/"
 const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
+const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
 const STRIKE_PANIC := 18.0        # 3 x 18 = 54 > PANIC_MAX (50)
 const FLASH_PATH := TEX + "kontur_flash.png"
@@ -59,8 +64,21 @@ const FLASH_AUDIO := "kontur_flash"
 # it twice. The lock now sizes itself from this string.
 const ROSTER_CODE := "47"
 const VOID_Y := -4.0              # same threshold the Void uses (level_3.gd)
-const AIRLOCK_CYCLE := 9.0        # seconds of stillness the decontamination needs
-const STILL_SPEED := 0.35         # m/s below which the player counts as still
+# Gate 8 was a 9s stillness hold ("stand here and wait") — measured as boring in
+# playtest. Replaced with a catch minigame: a marker sweeps the track; press E while
+# it's inside the lit target zone, 3 times in a row. A miss is a full gate strike
+# (⚠️ DELIBERATE — confirmed with the user, who understood 3 mistimed catches alone
+# could end the run before choosing this over a softer custom penalty).
+const AIRLOCK_MARKER_PERIOD := 2.0   # seconds for one full sweep of the track
+const AIRLOCK_TARGET_WIDTH := 0.35   # fraction of the track counted as a catch
+const AIRLOCK_CATCHES_NEEDED := 3
+
+# Gate 6 redesign: "ignore" -> "destroy". The ring itself is now a threat (see
+# _tick_phone_pressure) — KONTUR's decay is zero everywhere (the level DreadZone
+# cancels it exactly), so this pressure only ever accumulates until the phone is
+# smashed. Silencing it, not just avoiding it, is what passes the gate now.
+const PHONE_PRESSURE_RANGE := 7.0
+const PHONE_PRESSURE_RATE := 4.5  # panic/s while unresolved and the player is near
 
 # The shared "hold your nerve" apparition (Lab/House already have it; the Void,
 # Corridor and Backrooms deliberately don't — they run their own bespoke scares).
@@ -78,7 +96,6 @@ var _took_offering: bool = false
 var _answered_phone: bool = false
 var _gate1_done: bool = false
 var _gate3_scored: bool = false
-var _gate6_scored: bool = false
 var _banished: bool = false       # guards the fall handler against re-entry
 var _forfeited: bool = false
 var _exit_door: StaticBody3D
@@ -100,11 +117,18 @@ var _gates := {
 # Gate 7 state: [MeshInstance3D, is_real]
 var _dark_seams: Array = []
 
-# Gate 8 state.
+# Gate 8 state. _airlock_t is time-in-zone, driving the marker's oscillation phase.
 var _airlock_t: float = 0.0
 var _in_airlock: bool = false
-var _airlock_meter: MeshInstance3D
+var _airlock_track: MeshInstance3D   # the fixed background bar
+var _airlock_meter: MeshInstance3D   # fixed target-zone highlight (not a fill bar)
+var _airlock_marker: MeshInstance3D  # the moving catch target
+var _airlock_streak: int = 0
 var _airlock_seal: CSGBox3D
+
+# Gate 6 state.
+var _phone: RotaryPhone
+var _has_hammer: bool = false
 
 var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
@@ -135,6 +159,15 @@ func _ready() -> void:
 	_boost_ambient(0.3)
 
 	GameState.set_objective("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT")
+
+	# Gate 6's diegetic nudge, moved off a physical note (it was clipping into the
+	# Switchboard desk, and playtest asked for it as a level-opening beat instead of
+	# something to find and read later). Deferred a frame — calling ScreenText here
+	# directly (which add_child()s to the tree root) while this very _ready() is
+	# still running fails with "Parent node is busy setting up children."
+	get_tree().process_frame.connect(func() -> void:
+		ScreenText.scrawl(get_tree(), "I HATE THOSE PHONES.\nIF ONLY I COULD BREAK ONE.", 5.0, 40)
+	, CONNECT_ONE_SHOT)
 
 
 func _player() -> CharacterBody3D:
@@ -636,6 +669,22 @@ func _spawn_gate5_roster() -> void:
 	col.shape = shape
 	lock.add_child(col)
 
+	# Art on a QuadMesh, not the box — a BoxMesh only shows a magnified crop of a
+	# texture applied to it (Issue 24). The box stays the plain casing above; the
+	# lock plate art faces -x, into the room, off the box's inner face.
+	var lock_tex := TEX + "kontur_lock_roster.png"
+	if ResourceLoader.exists(lock_tex):
+		var face := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(0.3, 0.4)
+		face.mesh = qm
+		var fm := StandardMaterial3D.new()
+		fm.albedo_texture = load(lock_tex)
+		face.material_override = fm
+		face.position = Vector3(-(0.12 / 2.0 + 0.004), 0, 0)
+		face.rotation.y = -PI / 2.0
+		lock.add_child(face)
+
 	# The way on is welded shut until the number is entered.
 	var seal := CSGBox3D.new()
 	seal.name = "RosterSeal"
@@ -661,14 +710,20 @@ func _spawn_gate5_roster() -> void:
 # ---------------------------------------------------------------- gate 6: the phone
 
 # The Backrooms taught this one the hard way: its rotary phone is a read-to-die trap.
-# Here the verb is simply IGNORE. Picking up voids the run — but the phone rings for
-# a whole room's length first, so the temptation is real and the choice is deliberate.
+# Here the verb used to be IGNORE — walk past without answering. It no longer is:
+# while the phone rings unresolved, it drains panic on its own (_tick_phone_pressure),
+# so simply not touching it is no longer survivable if you dawdle. The verb is now
+# DESTROY. A Hammer waits near the level entrance (see _spawn_gate6_hammer, called
+# from _spawn_props); carry it here and interact() smashes the phone for good instead
+# of answering it. Answering it (without the hammer, or by choice) still instantly
+# forfeits the run — that temptation is unchanged.
 func _spawn_gate6_phone() -> void:
 	var phone := RotaryPhone.new()
 	phone.name = "SwitchboardPhone"
 	phone.open_note = false     # the forfeit IS the punishment; don't also bleed them
+	phone.smashable = _has_hammer
 	# A real recorded ring, at full level and audible across the room. The gate is
-	# "ignore the phone" — if the player cannot clearly hear it ringing, the rule on
+	# "silence the phone" — if the player cannot clearly hear it ringing, the rule on
 	# the sign is about nothing and the whole gate reads as a bug.
 	phone.ring_audio = "phone_ringing"
 	phone.ring_volume_db = 0.0
@@ -678,7 +733,12 @@ func _spawn_gate6_phone() -> void:
 		_answered_phone = true
 		_forfeit("YOU ANSWERED IT")
 	)
+	phone.smashed.connect(func() -> void:
+		_pass_gate("phone")
+		GameState.set_objective("LIGHTING FAULT — SECTOR DARK. FIND THE TRANSIT DOOR.")
+	)
 	add_child(phone)
+	_phone = phone
 
 	# A desk to stand it on, with no collider — a desk collider would intercept the
 	# interaction ray before it reached the phone (the House key-stand lesson).
@@ -690,16 +750,58 @@ func _spawn_gate6_phone() -> void:
 	desk.material = _mat("", 1.0, Color(0.26, 0.24, 0.2))
 	add_child(desk)
 
-	_spawn_event(Vector3(0, 1.5, 50.2), Vector3(7, 3, 1.2), _score_gate6)
 
-
-func _score_gate6() -> void:
-	if _gate6_scored:
+# While the phone rings unsmashed and the player is nearby, it costs panic every
+# frame — KONTUR's floor-wide DreadZone cancels decay exactly everywhere, so this
+# pressure never drains on its own. Fatal within ~11s of dawdling; a quick hammer
+# run is cheap by comparison. Called from _process().
+func _tick_phone_pressure(delta: float) -> void:
+	if not is_instance_valid(_phone) or _gates["phone"] or _forfeited:
 		return
-	_gate6_scored = true
-	if not _answered_phone:
-		_pass_gate("phone")
-		GameState.set_objective("LIGHTING FAULT — SECTOR DARK. FIND THE TRANSIT DOOR.")
+	var p := _player()
+	if not p:
+		return
+	if p.global_position.distance_to(_phone.global_position) <= PHONE_PRESSURE_RANGE:
+		p.add_panic(PHONE_PRESSURE_RATE * delta)
+
+
+# The hammer that resolves Gate 6, planted near the level entrance so the player
+# already has it well before the Switchboard. kontur_hammer.png is an isolated,
+# transparent-background render, so it's built as an alpha QuadMesh billboard
+# (matching _wall_panel's convention) rather than wrapped onto a 3D box.
+func _spawn_gate6_hammer() -> void:
+	var hammer := KeyItem.new()
+	hammer.name = "Hammer"
+	hammer.label_text = "Hammer collected"
+	hammer.position = Vector3(-1.8, 0.9, -1.5)
+	hammer.picked_up.connect(func() -> void:
+		_has_hammer = true
+		if is_instance_valid(_phone):
+			_phone.smashable = true
+	)
+	add_child(hammer)
+
+	var mesh := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.4, 0.4)
+	mesh.mesh = quad
+	var tex_path := TEX + "kontur_hammer.png"
+	var mat := StandardMaterial3D.new()
+	if ResourceLoader.exists(tex_path):
+		mat.albedo_texture = load(tex_path)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	else:
+		mat.albedo_color = Color(0.35, 0.3, 0.22)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.set_surface_override_material(0, mat)
+	hammer.add_child(mesh)
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.4, 0.4, 0.2)
+	col.shape = shape
+	hammer.add_child(col)
 
 
 # ---------------------------------------------------------------- gate 7: the dark room
@@ -763,11 +865,10 @@ func _spawn_gate7_dark() -> void:
 
 # ---------------------------------------------------------------- gate 8: the airlock
 
-# The inversion the Backrooms spent a whole level setting up: there, standing still
-# raises panic; here it is the only way through. That flips a rule the player has been
-# trained on, so unlike every other gate this one must TEACH ITSELF — hence the cycle
-# meter on the wall, which fills while you are still and drains the moment you move.
-# No hint anywhere else in the game explains it.
+# Used to be a 9s stillness hold — playtest called it "boring, you just stand and
+# wait". Replaced with a catch minigame: a marker sweeps the track; press E while
+# it's inside the lit target zone, 3 times running. No hint anywhere else in the
+# game explains this gate, so the visible track + target still has to teach itself.
 func _spawn_gate8_airlock() -> void:
 	var zone := CorridorEvent.new()
 	zone.name = "AirlockZone"
@@ -781,14 +882,18 @@ func _spawn_gate8_airlock() -> void:
 	zone.body_entered.connect(func(b: Node3D) -> void:
 		if b.is_in_group("player"):
 			_in_airlock = true
+			# Playtest needed a strike before finding the timing by feel; the
+			# redacted sign states the RULE but never explains the INPUT.
+			ScreenText.caption(get_tree(), "PRESS E WHEN THE MARKER IS IN THE LIT ZONE", 4.0)
 	)
 	zone.body_exited.connect(func(b: Node3D) -> void:
 		if b.is_in_group("player"):
 			_in_airlock = false
 			_airlock_t = 0.0
+			_airlock_streak = 0
 	)
 
-	# The meter: a bar that grows along +x as the cycle completes.
+	# The track — fixed background bar the marker sweeps across.
 	var back := MeshInstance3D.new()
 	var bq := QuadMesh.new()
 	bq.size = Vector2(2.0, 0.16)
@@ -801,10 +906,13 @@ func _spawn_gate8_airlock() -> void:
 	back.position = Vector3(_dark_x, 1.55, 65.8)
 	back.rotation.y = PI
 	add_child(back)
+	_airlock_track = back
 
+	# The target zone — fixed, centred on the track, lit up distinctly. Catching the
+	# marker means pressing E while it's inside this band.
 	_airlock_meter = MeshInstance3D.new()
 	var mq := QuadMesh.new()
-	mq.size = Vector2(2.0, 0.16)
+	mq.size = Vector2(2.0 * AIRLOCK_TARGET_WIDTH, 0.16)
 	_airlock_meter.mesh = mq
 	var mmat := StandardMaterial3D.new()
 	mmat.albedo_color = Color(0.4, 0.95, 0.7)
@@ -818,8 +926,25 @@ func _spawn_gate8_airlock() -> void:
 	# inside the AirlockSeal box and fought it for depth.
 	_airlock_meter.position = Vector3(_dark_x, 1.55, 65.79)
 	_airlock_meter.rotation.y = PI
-	_airlock_meter.scale.x = 0.001
 	add_child(_airlock_meter)
+
+	# The marker — the moving catch target, one layer closer to the player so it
+	# always renders on top of the track and the target band.
+	_airlock_marker = MeshInstance3D.new()
+	var kq := QuadMesh.new()
+	kq.size = Vector2(0.12, 0.22)
+	_airlock_marker.mesh = kq
+	var kmat := StandardMaterial3D.new()
+	kmat.albedo_color = Color(1.0, 0.95, 0.6)
+	kmat.emission_enabled = true
+	kmat.emission = Color(1.0, 0.95, 0.6)
+	kmat.emission_energy_multiplier = 1.6
+	kmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	kmat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_airlock_marker.set_surface_override_material(0, kmat)
+	_airlock_marker.position = Vector3(_dark_x, 1.55, 65.78)
+	_airlock_marker.rotation.y = PI
+	add_child(_airlock_marker)
 
 	var seal := CSGBox3D.new()
 	seal.name = "AirlockSeal"
@@ -837,24 +962,36 @@ func _tick_airlock(delta: float) -> void:
 	var p := _player()
 	if not p:
 		return
-	# Horizontal speed only — looking around is not moving, and this gate is about
-	# holding your ground, not holding the mouse still.
-	var v: Vector3 = p.velocity
-	v.y = 0.0
-	if v.length() <= STILL_SPEED:
-		_airlock_t = minf(AIRLOCK_CYCLE, _airlock_t + delta)
+
+	_airlock_t += delta
+	var u := 0.5 + 0.5 * sin(TAU * _airlock_t / AIRLOCK_MARKER_PERIOD)
+	if is_instance_valid(_airlock_marker):
+		_airlock_marker.position.x = _dark_x + (u - 0.5) * 2.0
+
+	if not Input.is_action_just_pressed("interact"):
+		return
+
+	var half_target := AIRLOCK_TARGET_WIDTH / 2.0
+	if absf(u - 0.5) <= half_target:
+		_airlock_streak += 1
+		if _airlock_streak >= AIRLOCK_CATCHES_NEEDED:
+			_pass_gate("airlock")
+			if is_instance_valid(_airlock_seal):
+				_airlock_seal.queue_free()
+			# Playtest: the track/target/marker stayed on screen after the gate
+			# was already solved, reading as unfinished business. Cycle's done —
+			# clear the whole widget, not just the seal it unlocks.
+			if is_instance_valid(_airlock_track):
+				_airlock_track.queue_free()
+			if is_instance_valid(_airlock_meter):
+				_airlock_meter.queue_free()
+			if is_instance_valid(_airlock_marker):
+				_airlock_marker.queue_free()
+			_play_at("door_seal", Vector3(_dark_x, 1.5, 66), 0.0)
+			GameState.set_objective("PROCEED TO TERMINUS. AN ESCORT HAS BEEN ASSIGNED.")
 	else:
-		_airlock_t = maxf(0.0, _airlock_t - delta * 2.0)   # drains faster than it fills
-
-	if is_instance_valid(_airlock_meter):
-		_airlock_meter.scale.x = maxf(0.001, _airlock_t / AIRLOCK_CYCLE)
-
-	if _airlock_t >= AIRLOCK_CYCLE:
-		_pass_gate("airlock")
-		if is_instance_valid(_airlock_seal):
-			_airlock_seal.queue_free()
-		_play_at("door_seal", Vector3(_dark_x, 1.5, 66), 0.0)
-		GameState.set_objective("PROCEED TO TERMINUS. AN ESCORT HAS BEEN ASSIGNED.")
+		_airlock_streak = 0
+		_strike("MISTIMED")
 
 
 # ---------------------------------------------------------------- gate 4: the escort
@@ -1046,12 +1183,39 @@ func _make_sign(pos: Vector3, y_rot: float, title: String, body: String) -> void
 	root.add_child(bar)
 
 
+# A plain readable note (not a redacted sign) — same pattern as level_1.gd/level_2.gd's
+# _make_note, reusing note.gd so it looks identical to a note anywhere else in the game.
+func _make_note(pos: Vector3, y_rot: float, text: String) -> void:
+	var note := StaticBody3D.new()
+	note.set_script(_NOTE_SCRIPT)
+	note.note_text = text
+	note.position = pos
+	note.rotation.y = y_rot
+	add_child(note)
+
+	var mesh := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.32, 0.42, 0.01)
+	mesh.mesh = bm
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(false))
+	note.add_child(mesh)
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.4, 0.5, 0.12)
+	col.shape = shape
+	note.add_child(col)
+
+
 # ---------------------------------------------------------------- props
 
 func _spawn_props() -> void:
-	# Stairwell dressing on the Landing's side walls (the north wall is the doorway).
-	_wall_panel(_builder.wall_point("Landing", Vector2(-1, 0), 1.5, 0.16), PI / 2.0,
-		Vector2(1.6, 1.4), TEX + "kontur_panel_mailboxes.png")
+	# The mailbox (debug capture #9: "make these objects 3D") is now a real
+	# interactable holding a hint; the chute stays the flat decal it always was.
+	# ⚠️ inset 0.22, not 0.16 — unlike a paper-thin QuadMesh decal, this prop has a
+	# 0.15 m casing centred on the wall point, so its back half needs the deeper
+	# "something hangs behind it" clearance (CLAUDE.md) or it clips the wall.
+	_spawn_mailbox(_builder.wall_point("Landing", Vector2(-1, 0), 1.5, 0.22), PI / 2.0)
 	_wall_panel(_builder.wall_point("Landing", Vector2(1, 0), 1.3, 0.16), -PI / 2.0,
 		Vector2(1.1, 1.1), TEX + "kontur_panel_chute.png")
 	# The safety poster, on the Archive's west wall.
@@ -1060,6 +1224,56 @@ func _spawn_props() -> void:
 	# the wall and invisible in game (ISSUES_SOLUTIONS Issue 11).
 	_wall_panel(_builder.wall_point("Archive", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
 		Vector2(1.0, 1.4), TEX + "kontur_poster.png")
+
+	_spawn_gate6_hammer()
+
+
+# The mailbox: a shallow real object (not a flat decal), opening on a hint note for
+# Gate 7 (the dark room) — a second, earlier hint alongside the Backrooms Flood one.
+# Art goes on a QuadMesh face, never the depth box (Issue 24) — same pattern as
+# choice_door.gd and the roster lock above.
+const MAILBOX_HINT := "MAILBOX — SLOT 12\n\nI stopped switching them on. I am too afraid of what the light finds. If you want the way out, you will have to feel for it in the dark."
+
+func _spawn_mailbox(pos: Vector3, y_rot: float) -> void:
+	var box := KonturMailbox.new()
+	box.name = "Mailbox"
+	box.hint_text = MAILBOX_HINT
+	box.position = pos
+	box.rotation.y = y_rot
+	add_child(box)
+
+	var depth := 0.15
+	var size := Vector2(1.6, 1.4)
+
+	var casing := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(size.x, size.y, depth)
+	casing.mesh = bm
+	var casing_mat := StandardMaterial3D.new()
+	casing_mat.albedo_color = Color(0.16, 0.15, 0.13)
+	casing_mat.roughness = 0.9
+	casing.material_override = casing_mat
+	box.add_child(casing)
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(size.x, size.y, depth)
+	col.shape = shape
+	box.add_child(col)
+
+	var tex_path := TEX + "kontur_panel_mailboxes.png"
+	if ResourceLoader.exists(tex_path):
+		var face := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = size
+		face.mesh = qm
+		var face_mat := StandardMaterial3D.new()
+		face_mat.albedo_texture = load(tex_path)
+		face_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		face_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		face.material_override = face_mat
+		face.position = Vector3(0, 0, depth / 2.0 + 0.004)
+		box.add_child(face)
 
 
 # A flat decal quad. No collider — these hang on walls that already have one, and a
@@ -1191,6 +1405,7 @@ func _process(delta: float) -> void:
 	_tick_airlock(delta)
 	_update_dark_seams()
 	_tick_debug_apparition(delta)
+	_tick_phone_pressure(delta)
 
 	# Fluorescent unsteadiness in the facility half, a slow sick pulse in the Soviet half.
 	var t := Time.get_ticks_msec() * 0.001

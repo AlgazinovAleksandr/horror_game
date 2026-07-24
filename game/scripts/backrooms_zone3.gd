@@ -215,6 +215,23 @@ func _build_pressure() -> void:
 			appar.appear()
 	)
 
+	# BUG_FIX.md 4.4: a second one in the Sump — the deepest, most remote room (it
+	# also holds the real seam), reached only via WestRun. Playtest read the Flood as
+	# "nice vibe, not packed enough with action" despite the Throat encounter above,
+	# so this doubles the count rather than replacing it. Same non-teach HOLD pattern,
+	# verbatim, just relocated; entered from the north (the only doorway into Sump),
+	# so the trigger sits 3 m north of centre, just past that threshold.
+	var suc: Vector3 = _builder.room_center("Sump")
+	var sump_appar := Apparition.spawn(self, Apparition.Rule.HOLD,
+		Vector3(suc.x, 0, suc.z), false)
+	var sump_trigger := CorridorEvent.new()
+	MazeKit.zone_box(self, sump_trigger, Vector3(suc.x, 1.2, suc.z - 3.0),
+		Vector3(4.0, 2.4, 1.2), "SumpEvent")
+	sump_trigger.fired.connect(func() -> void:
+		if is_instance_valid(sump_appar) and sump_appar.has_method("appear"):
+			sump_appar.appear()
+	)
+
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(_player):

@@ -22,11 +22,17 @@ const WHISPER_TEXT := """...hello? hello is someone—
 ...HANG UP. HANG UP. HANG U—"""
 
 signal answered
+signal smashed
 
 # KONTUR reuses this phone as its "ignore" gate, where picking up is itself the whole
 # failure — stacking a read-to-die note on top of a forfeited run would be punishing
 # the same mistake twice. Backrooms leaves this true and keeps the trap note.
 @export var open_note: bool = true
+
+# KONTUR's Gate 6 redesign: once the player is carrying a hammer, E no longer answers
+# the phone — it smashes it. Defaults false so Backrooms' phone (the only other
+# caller) is completely unaffected.
+@export var smashable: bool = false
 
 # Which ring to load, and how loud.
 #
@@ -41,9 +47,11 @@ signal answered
 @export var ring_unit_size: float = 6.0
 
 var _answered: bool = false
+var _smashed: bool = false
 var _ring_timer: float = 2.0
 var _ring_player: AudioStreamPlayer3D
 var _whisper_player: AudioStreamPlayer3D
+var _smash_player: AudioStreamPlayer3D
 
 
 func _ready() -> void:
@@ -65,6 +73,13 @@ func _ready() -> void:
 	_whisper_player.unit_size = 4.0
 	_whisper_player.volume_db = WHISPER_VOLUME_DB
 	add_child(_whisper_player)
+
+	_smash_player = AudioStreamPlayer3D.new()
+	var smash := GameState.load_audio("phone_smash")
+	if smash:
+		_smash_player.stream = smash
+	_smash_player.unit_size = 8.0
+	add_child(_smash_player)
 
 
 func _build_mesh() -> void:
@@ -110,7 +125,7 @@ func _build_mesh() -> void:
 
 
 func _process(delta: float) -> void:
-	if _answered:
+	if _answered or _smashed:
 		return
 	_ring_timer -= delta
 	if _ring_timer <= 0.0:
@@ -120,7 +135,10 @@ func _process(delta: float) -> void:
 
 
 func interact() -> void:
-	if _answered:
+	if _answered or _smashed:
+		return
+	if smashable:
+		_smash()
 		return
 	_answered = true
 	_ring_player.stop()
@@ -130,3 +148,17 @@ func interact() -> void:
 	# Read-to-die: NoteUI feeds panic while the call is open; hang up to survive.
 	if open_note:
 		NoteUI.show_note(WHISPER_TEXT, ANSWER_PANIC_RATE)
+
+
+# KONTUR Gate 6: the hammer resolution. Silences the phone for good instead of
+# answering it.
+func _smash() -> void:
+	_smashed = true
+	_ring_player.stop()
+	if _smash_player.stream:
+		_smash_player.play()
+	smashed.emit()
+	# A quick, permanent visual tell that this phone is done ringing.
+	var tw := create_tween()
+	tw.tween_property(self, "rotation:z", deg_to_rad(28.0), 0.15)
+	tw.parallel().tween_property(self, "position:y", position.y - 0.06, 0.15)

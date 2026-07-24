@@ -29,6 +29,8 @@ const PIPE_MIN := 12.0
 const PIPE_MAX := 26.0
 const BLACKOUT_MIN := 20.0
 const BLACKOUT_MAX := 38.0
+const BREAKER_SPARK_MIN := 8.0
+const BREAKER_SPARK_MAX := 12.0
 
 var _builder: RoomBuilder
 var _lights: Array = []          # [OmniLight3D, base_energy, fixture_material]
@@ -53,6 +55,22 @@ var _apparition: Apparition
 var _apparition_fired: bool = false
 var _pa_speaker: AudioStreamPlayer3D
 var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
+
+# The hidden Records breaker's audio/flicker tell.
+var _breaker_spark_timer: float = 0.0
+var _breaker_spark_pos: Vector3
+var _breaker_spark_light: OmniLight3D
+
+# BreakerNook (new feature): sound-only tell for its breaker, and a flag the
+# debug-apparition tick reads to suppress itself while the player is inside.
+var _dark_breaker_timer: float = 0.0
+var _dark_breaker_pos: Vector3
+var _in_breaker_nook: bool = false
+var _breaker_meter_shown: bool = false
+
+# Hot/cold HUD readout while inside the dark wing — distance-only, no
+# direction, so the branching layout + sound tell stay the real puzzle.
+const METER_MAX_DIST := 14.0
 
 
 func _ready() -> void:
@@ -79,6 +97,8 @@ func _ready() -> void:
 	GameState.set_objective("Restore power — flip the breakers (0/3)")
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_scheduled_blackout = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
+	_breaker_spark_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
+	_dark_breaker_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
 
 
 func _player() -> CharacterBody3D:
@@ -110,6 +130,22 @@ const ROOMS := [
 	# still lands on the west wall, so the connection is unchanged.
 	{ "name": "Observation", "pos": Vector2(3.75, 16.75), "size": Vector2(4.5, 4.5) },
 	{ "name": "ExitVestibule", "pos": Vector2(0, 20.5), "size": Vector2(4, 3) },
+	# The dark breaker wing (new feature), redesigned twice after playtest:
+	# (1) a single small room directly off Records read as "not dark at all" —
+	# Records' lamp (omni_range=11) has no shadow casting to stop it (⚠️ NO light
+	# in this whole project casts shadows except the Intro Room's — grep
+	# `shadow_enabled` — so a solid wall does not block light here, only DISTANCE
+	# does). DarkCorridor puts the terminus beyond that 11 m cutoff: Records'
+	# lamp is ~3 m from the corridor doorway, +7 m of corridor, +the rest of the
+	# wing = well past the light's hard range limit. The corridor itself still
+	# reads as a gradient (dim near Records, genuinely black by the far end).
+	# (2) a straight corridor into one room had no decision point — Junction adds
+	# a real branch: DeadEnd is a dead stub (the wrong turn), BreakerNook (moved
+	# further west) is the real destination.
+	{ "name": "DarkCorridor", "pos": Vector2(-15.5, 12.5), "size": Vector2(7.0, 2.2) },
+	{ "name": "Junction", "pos": Vector2(-21.0, 12.5), "size": Vector2(4, 4) },
+	{ "name": "DeadEnd", "pos": Vector2(-21.0, 8.5), "size": Vector2(3, 4) },
+	{ "name": "BreakerNook", "pos": Vector2(-25.5, 12.5), "size": Vector2(5, 4) },
 ]
 
 const DOORS := [
@@ -122,6 +158,10 @@ const DOORS := [
 	{ "pos": Vector2(0, 14), "width": 1.6, "dir": "z" },       # CrossHall <-> MainHall2
 	{ "pos": Vector2(1.5, 17), "width": 1.4, "dir": "x" },     # MainHall2 <-> Observation
 	{ "pos": Vector2(0, 19), "width": 1.6, "dir": "z" },       # MainHall2 <-> ExitVestibule
+	{ "pos": Vector2(-12, 12.5), "width": 1.4, "dir": "x" },   # Records <-> DarkCorridor
+	{ "pos": Vector2(-19, 12.5), "width": 1.6, "dir": "x" },   # DarkCorridor <-> Junction
+	{ "pos": Vector2(-21, 10.5), "width": 1.6, "dir": "z" },   # Junction <-> DeadEnd (wrong turn)
+	{ "pos": Vector2(-23, 12.5), "width": 1.6, "dir": "x" },   # Junction <-> BreakerNook
 ]
 
 
@@ -170,12 +210,23 @@ const EMERGENCY_ENERGY := 0.45   # dim emergency power before the breakers are t
 const RESTORED_ENERGY := 1.0     # full institutional light once power is restored
 
 
+# Rooms that must never get an automatic ceiling lamp from the loop below —
+# the Morgue stays dark until the shutter opens; DarkCorridor/BreakerNook are
+# meant to be genuinely lightless. ⚠️ Confirmed bug (playtest): this loop used to
+# run for every room except "Morgue", so both new dark rooms got a lamp of their
+# own the whole time — "no lamp is ever spawned here" was true of the code that
+# built the room, but not of this separate, blanket lighting pass. Any future
+# lightless room needs to be added here too, not just left off _add_lamp calls
+# elsewhere.
+const NO_LAMP_ROOMS := ["Morgue", "DarkCorridor", "Junction", "DeadEnd", "BreakerNook"]
+
+
 func _spawn_lights() -> void:
 	# One ceiling lamp per room. They start dim (emergency power); restoring power
-	# brightens them. The morgue's lamp stays dark until the shutter opens.
+	# brightens them.
 	for r in ROOMS:
 		var c: Vector3 = _builder.room_center(r["name"])
-		var emergency: bool = r["name"] != "Morgue"
+		var emergency: bool = not NO_LAMP_ROOMS.has(r["name"])
 		_add_lamp(r["name"], Vector3(c.x, 2.7, c.z), EMERGENCY_ENERGY if emergency else 0.0)
 
 
@@ -247,7 +298,11 @@ func _spawn_notes() -> void:
 		"Subject 47.\n\nThe power is down. Three breakers will bring it back — one in each lab room, one in records. The morgue door stays sealed until all three are thrown.\n\nThe keycard is inside the morgue. You will need it for the exit.\n\nAnd if the figure comes — DO NOT RUN. Do not turn and flee. Stand still until it fades. Running is how it reaches you.")
 	_make_note(_builder.wall_point("Exam2", Vector2(0, -1), 1.4, 0.1), 0.0,
 		"Do not look at the tray. Do not look at the monitor.\n\nThey are not what they appear. When you take the card, keep your eyes on the floor.")
-	_make_note(_builder.wall_point("Records", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
+	# Moved off the west wall onto the north wall: the west wall now carries the
+	# BreakerNook doorway (new feature), and wall_point always returns a wall's
+	# CENTER — a prop there would have sat directly in the new opening (the exact
+	# "prop on a doorway wall" bug class this project has hit before).
+	_make_note(_builder.wall_point("Records", Vector2(0, 1), 1.4, 0.1), PI,
 		"Night log — the corridor lights fail on their own now. When the dark comes, do not run. Running is how they find you. Stand still. Breathe. It passes.")
 	# KONTUR HINT 1/4 — the answer to KONTUR's Gate 1 (the two doors). Deliberately
 	# filed in the morgue: you only find it if you look around a room that is
@@ -282,18 +337,39 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> void
 # ---------------------------------------------------------------- power quest
 
 func _spawn_power_quest() -> void:
-	# Three breakers in reachable rooms. The morgue shutter blocks its doorway
-	# until all three are thrown.
-	for spot in [
-		[_builder.wall_point("Exam1", Vector2(-1, 0), 1.3, 0.15), PI / 2.0],
-		[_builder.wall_point("Exam2", Vector2(1, 0), 1.3, 0.15), -PI / 2.0],
-		[_builder.wall_point("Records", Vector2(0, 1), 1.3, 0.15), PI],
-	]:
-		var b := Breaker.new()
-		b.position = spot[0]
-		b.rotation.y = spot[1]
-		b.flipped.connect(_on_breaker_flipped)
-		add_child(b)
+	# Three breakers, three difficulty tiers. Exam1 sits in the open, lit, on the
+	# wall centre — obvious on sight. Records is the odd one out (BUG_FIX.md 4.1,
+	# "too simple, add a moment of searching"): moved off the doorway-facing wall
+	# onto the room's other dead-end wall, findable by a spark/flicker tell
+	# (_tick_breaker_spark). Exam2's breaker (formerly also "obvious on sight") now
+	# lives in BreakerNook, a lightless room off Records — findable by sound alone
+	# (see _spawn_dark_breaker_tell below).
+	var exam1 := Breaker.new()
+	exam1.position = _builder.wall_point("Exam1", Vector2(-1, 0), 1.3, 0.15)
+	exam1.rotation.y = PI / 2.0
+	exam1.flipped.connect(_on_breaker_flipped)
+	add_child(exam1)
+
+	var hidden_pos: Vector3 = _builder.wall_point("Records", Vector2(0, -1), 1.1, 0.15)
+	var hidden := Breaker.new()
+	hidden.position = hidden_pos
+	hidden.rotation.y = 0.0
+	hidden.flipped.connect(_on_breaker_flipped)
+	add_child(hidden)
+	_spawn_breaker_spark_tell(hidden_pos)
+
+	var dark_pos: Vector3 = _builder.wall_point("BreakerNook", Vector2(-1, 0), 1.1, 0.15)
+	var dark := Breaker.new()
+	dark.position = dark_pos
+	dark.rotation.y = PI / 2.0
+	# Confirmed playtest bug: emission self-illuminates regardless of scene
+	# darkness, so the "pitch black" room's breaker was clearly visible the
+	# whole time. This is the only breaker in the level that must not glow.
+	dark.glows = false
+	dark.flipped.connect(_on_breaker_flipped)
+	add_child(dark)
+	_spawn_dark_breaker_tell(dark_pos)
+	_spawn_breaker_nook_zone()
 
 	# Morgue shutter: fills the CrossHall<->Morgue doorway at x=6, z=12.5.
 	_morgue_shutter = CSGBox3D.new()
@@ -443,9 +519,17 @@ func _spawn_morgue_keycard() -> void:
 	# read as a bright green lamp rather than as beige CRT plastic. Emission is most of
 	# a surface's colour in this project (Issue 21) — once a prop has a lit face, its
 	# body must go back to being an ordinary unlit object.
-	_make_trigger(base + Vector3(0.95, 1.0, 0), Vector3(0.5, 0.38, 0.34),
+	#
+	# BUG_FIX.md 4.2: moved off the cart onto the east wall — the wall directly facing
+	# a player stepping through the morgue's only doorway (west, x=6) — so it's the
+	# first thing visible entering, instead of something you find at an angle on the
+	# cart. y_rot=PI/2 turns the trigger's -z-facing screen quad to face -x, into the
+	# room from the east wall. The east wall carries no doorway of its own (the only
+	# one is the shutter at x=6) and no other prop, so this is clear.
+	_make_trigger(_builder.wall_point("Morgue", Vector2(1, 0), 1.4, 0.16),
+		Vector3(0.5, 0.38, 0.34),
 		Color(0.17, 0.165, 0.15), Color(0, 0, 0),
-		"monitor", TEX + "lab_monitor_face.png")                 # monitor with a face
+		"monitor", TEX + "lab_monitor_face.png", PI / 2.0)       # monitor with a face
 
 	# A cursed portrait on the morgue's far wall — staring at it feeds panic.
 	# ⚠️ Use wall_point rather than a hand-computed offset. The old c.z + 2.9 landed
@@ -512,10 +596,11 @@ func _spawn_morgue_keycard() -> void:
 # A BoxMesh takes one material across all six faces, so the artwork has to ride on
 # its own quad rather than on the box.
 func _make_trigger(pos: Vector3, size: Vector3, albedo: Color, emission := Color(0, 0, 0),
-		detail := "", tex_path := "") -> void:
+		detail := "", tex_path := "", y_rot := 0.0) -> void:
 	var body := StaticBody3D.new()
 	body.set_script(_TRIGGER_SCRIPT)
 	body.position = pos
+	body.rotation.y = y_rot
 	add_child(body)
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
@@ -677,12 +762,12 @@ func _spawn_room_props() -> void:
 	for i in range(3):
 		_make_prop(Vector3(rc.x - 2.0 + i * 0.8, 0.65, rc.z - 2.4),
 			Vector3(0.7, 1.3, 0.6), Color(0.28, 0.3, 0.27))
-	# Warning sign on the WEST wall — the east wall is the only doorway into Records,
-	# and a wall panel there blocks the entrance (it has a collider).
+	# Warning sign, on the NORTH wall (moved off the west wall alongside the note
+	# above — west now carries the BreakerNook doorway, new feature).
 	# Same burial bug as the whiteboard: at inset 0.06 this sign was inside the wall
 	# and had never actually been visible in game.
-	_make_cursed_panel(_builder.wall_point("Records", Vector2(-1, 0), 1.8, 0.16),
-		Vector2(0.8, 0.6), PI / 2.0, 0.0, TEX + "lab_warning_sign.png")
+	_make_cursed_panel(_builder.wall_point("Records", Vector2(0, 1), 1.8, 0.16),
+		Vector2(0.8, 0.6), PI, 0.0, TEX + "lab_warning_sign.png")
 	_accent_lamp(Vector3(rc.x, 1.9, rc.z), Color(0.7, 0.85, 0.6), 0.5)
 	# Observation: a monitoring desk in front of the one-way mirror (east wall), with a
 	# screen glow — kept clear of the west (x=1.5) doorway.
@@ -819,10 +904,19 @@ func _process(delta: float) -> void:
 	_tick_pipes(delta)
 	_drive_lights(delta)
 	_tick_debug_apparition(delta)
+	_tick_breaker_spark(delta)
+	_tick_dark_breaker_tell(delta)
+	_tick_breaker_meter()
 
 
 func _tick_debug_apparition(delta: float) -> void:
 	if not DEBUG_APPARITION:
+		return
+	# A player who can't see the apparition materialise has no fair way to judge
+	# "hold still or flee" — the same double-jeopardy mistake this project has
+	# already made twice (KONTUR Gate 7, Backrooms Flood: never stack an
+	# unmitigated extra threat on a room whose whole premise is "solve it blind").
+	if _in_breaker_nook:
 		return
 	_dbg_appar_timer -= delta
 	if _dbg_appar_timer > 0.0:
@@ -853,6 +947,109 @@ func _tick_pipes(delta: float) -> void:
 	if _pipe_timer <= 0.0:
 		_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 		_play_at("pipe_groan", _random_room_point(1.6), 0.0)
+
+
+# A small, off-by-default light beside the hidden Records breaker. _tick_breaker_spark
+# flicks it on and plays a crackle every 8-12s — the audio/visual tell that finds it
+# without the room needing to spotlight it (BUG_FIX.md 4.1).
+func _spawn_breaker_spark_tell(pos: Vector3) -> void:
+	_breaker_spark_pos = pos
+	var light := OmniLight3D.new()
+	light.position = pos + Vector3(0.15, 0.1, 0.0)
+	light.light_color = Color(0.75, 0.85, 1.0)
+	light.light_energy = 0.0
+	light.omni_range = 2.5
+	add_child(light)
+	_breaker_spark_light = light
+
+
+func _tick_breaker_spark(delta: float) -> void:
+	_breaker_spark_timer -= delta
+	if _breaker_spark_timer > 0.0:
+		return
+	_breaker_spark_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
+	_play_at("breaker_spark", _breaker_spark_pos, -2.0)
+	if not is_instance_valid(_breaker_spark_light):
+		return
+	var tw := create_tween()
+	tw.tween_property(_breaker_spark_light, "light_energy", 1.4, 0.03)
+	tw.tween_property(_breaker_spark_light, "light_energy", 0.0, 0.05)
+	tw.tween_property(_breaker_spark_light, "light_energy", 0.9, 0.03)
+	tw.tween_property(_breaker_spark_light, "light_energy", 0.0, 0.12)
+
+
+# BreakerNook's tell, sound only — there's nothing to flicker in total darkness,
+# unlike the Records breaker's light-and-sound version above.
+func _spawn_dark_breaker_tell(pos: Vector3) -> void:
+	_dark_breaker_pos = pos
+
+
+func _tick_dark_breaker_tell(delta: float) -> void:
+	_dark_breaker_timer -= delta
+	if _dark_breaker_timer > 0.0:
+		return
+	_dark_breaker_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
+	_play_at("breaker_spark", _dark_breaker_pos, -2.0)
+
+
+# Live hot/cold readout: shows only inside the dark wing, hides itself the
+# instant the player leaves it (mirrors the flashlight-lock zone's own
+# symmetric enter/exit rule).
+func _tick_breaker_meter() -> void:
+	var p := _player()
+	if not p:
+		return
+	var hud: Node = p.get_panic_hud() if p.has_method("get_panic_hud") else null
+	if not hud or not hud.has_method("set_breaker_proximity"):
+		return
+	if _in_breaker_nook:
+		_breaker_meter_shown = true
+		var dist: float = p.global_position.distance_to(_dark_breaker_pos)
+		var ratio: float = clampf(1.0 - dist / METER_MAX_DIST, 0.0, 1.0)
+		hud.set_breaker_proximity(ratio)
+	elif _breaker_meter_shown:
+		_breaker_meter_shown = false
+		hud.set_breaker_proximity(-1.0)
+
+
+# Flashlight lock/unlock for the DarkCorridor+BreakerNook pair, symmetric on
+# entry AND exit — leaving without finding the breaker always restores the light
+# immediately. No DarkZone (would double-tax the exact posture the room's premise
+# requires — Issue 18); no kill_flashlight() (permanent, wrong tool for a room you
+# can walk back out of).
+#
+# ONE zone spanning all four rooms' combined bounds, not separate ones per room —
+# adjacent Area3Ds would false-unlock the instant you cross from one into the
+# next (body_exited fires on the first zone before body_entered fires on the
+# second), the same class of bug player.gd's own DarkZone counter exists to
+# avoid. Bounds computed by hand since this spans four rooms, not one: union of
+# DarkCorridor (x-19..-12,z11.4..13.6), Junction (x-23..-19,z10.5..14.5), DeadEnd
+# (x-22.5..-19.5,z6.5..10.5), BreakerNook (x-28..-23,z10.5..14.5) -> x-28..-12,
+# z6.5..14.5.
+func _spawn_breaker_nook_zone() -> void:
+	var h: float = _builder.room_height("BreakerNook")
+	var zone := Area3D.new()
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(16.0, h, 8.0)
+	col.shape = shape
+	zone.add_child(col)
+	zone.position = Vector3(-20.0, h / 2.0, 10.5)
+	add_child(zone)
+	zone.body_entered.connect(func(b: Node3D) -> void:
+		if b.is_in_group("player"):
+			_in_breaker_nook = true
+			var p := b as CharacterBody3D
+			if p and p.has_method("lock_flashlight"):
+				p.lock_flashlight()
+	)
+	zone.body_exited.connect(func(b: Node3D) -> void:
+		if b.is_in_group("player"):
+			_in_breaker_nook = false
+			var p := b as CharacterBody3D
+			if p and p.has_method("unlock_flashlight"):
+				p.unlock_flashlight()
+	)
 
 
 func _drive_lights(delta: float) -> void:

@@ -28,18 +28,20 @@ func _ready() -> void:
 
 
 func _build() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.roughness = 0.85
-	if texture_path != "" and ResourceLoader.exists(texture_path):
-		mat.albedo_texture = load(texture_path)
-	else:
-		mat.albedo_color = Color(0.12, 0.12, 0.13)
+	# Issue 24 (ISSUES_SOLUTIONS.md): a BoxMesh does not map a full texture per
+	# face, so putting `texture_path` directly on the box (the old approach)
+	# rendered a magnified crop — no window, no hinge detail. The box stays a
+	# plain dark edge/depth; the art lives on QuadMesh faces front and back,
+	# same pattern as door.gd:build_visual().
+	var edge_mat := StandardMaterial3D.new()
+	edge_mat.albedo_color = Color(0.08, 0.08, 0.09)
+	edge_mat.roughness = 0.85
 
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(WIDTH, HEIGHT, THICK)
 	mesh.mesh = box
-	mesh.material_override = mat
+	mesh.material_override = edge_mat
 	mesh.position = Vector3(WIDTH / 2.0, HEIGHT / 2.0, 0.0)
 	add_child(mesh)
 
@@ -49,6 +51,25 @@ func _build() -> void:
 	col.shape = shape
 	col.position = mesh.position
 	add_child(col)
+
+	var face_mat := StandardMaterial3D.new()
+	face_mat.roughness = 0.85
+	if texture_path != "" and ResourceLoader.exists(texture_path):
+		face_mat.albedo_texture = load(texture_path)
+	else:
+		face_mat.albedo_color = Color(0.12, 0.12, 0.13)
+
+	for z_sign in [1.0, -1.0]:
+		var face := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(WIDTH, HEIGHT)
+		face.mesh = qm
+		face.material_override = face_mat
+		face.position = Vector3(WIDTH / 2.0, HEIGHT / 2.0,
+			z_sign * (THICK / 2.0 + 0.004))
+		if z_sign < 0.0:
+			face.rotation.y = PI
+		add_child(face)
 
 
 func interact() -> void:

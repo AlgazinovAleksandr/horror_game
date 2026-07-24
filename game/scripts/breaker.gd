@@ -8,6 +8,13 @@ class_name Breaker
 
 signal flipped
 
+# BreakerNook's breaker sets this false: emission SELF-ILLUMINATES regardless of
+# scene ambient/darkness (confirmed playtest bug — "even though it is now dark,
+# I can still see the texture of the light switcher"), so a breaker meant to be
+# genuinely invisible in the dark must not use it at all. Exam1 and the Records
+# breaker both need their normal lit/flipped-indicator look and leave this true.
+@export var glows: bool = true
+
 var _done: bool = false
 var _lever: CSGBox3D
 var _lever_mat: StandardMaterial3D
@@ -29,9 +36,10 @@ func _build() -> void:
 	if ResourceLoader.exists(PANEL_TEX):
 		# The fuse-box art reads as a real electrical panel instead of a grey box.
 		pm.albedo_texture = load(PANEL_TEX)
-		pm.emission_enabled = true
-		pm.emission_texture = load(PANEL_TEX)
-		pm.emission_energy_multiplier = 0.25
+		if glows:
+			pm.emission_enabled = true
+			pm.emission_texture = load(PANEL_TEX)
+			pm.emission_energy_multiplier = 0.25
 	else:
 		pm.albedo_color = Color(0.18, 0.18, 0.2)
 		pm.metallic = 0.6
@@ -44,9 +52,10 @@ func _build() -> void:
 	_lever.position = Vector3(0.22, 0.0, 0.1)
 	_lever_mat = StandardMaterial3D.new()
 	_lever_mat.albedo_color = Color(0.8, 0.1, 0.05)
-	_lever_mat.emission_enabled = true
-	_lever_mat.emission = Color(0.7, 0.05, 0.02)
-	_lever_mat.emission_energy_multiplier = 0.7
+	if glows:
+		_lever_mat.emission_enabled = true
+		_lever_mat.emission = Color(0.7, 0.05, 0.02)
+		_lever_mat.emission_energy_multiplier = 0.7
 	_lever.material = _lever_mat
 	add_child(_lever)
 
@@ -64,7 +73,8 @@ func interact() -> void:
 	var t := create_tween()
 	t.tween_property(_lever, "position:y", -0.14, 0.18)
 	_lever_mat.albedo_color = Color(0.1, 0.8, 0.2)
-	_lever_mat.emission = Color(0.05, 0.7, 0.1)
+	if glows:
+		_lever_mat.emission = Color(0.05, 0.7, 0.1)
 	var clunk := GameState.load_audio("breaker_throw")
 	if not clunk:
 		clunk = GameState.load_audio("light_pop")
