@@ -892,3 +892,167 @@ built prop script that happens to share the same "art on a box" shortcut. `CLAUD
 "artwork goes on a QuadMesh, never a BoxMesh face" rule is stated once at the top level for exactly
 this reason — grep for `BoxMesh` + `albedo_texture` co-occurring in the same function across the
 whole `scripts/` directory before trusting that a fixed bug can't reappear elsewhere.
+
+---
+
+## Issue 32 — A Label added to a CenterContainer had its anchors silently discarded
+
+**Symptom.** The House map-and-chase minigame's instruction line was flagged in playtest
+(2026-07-25, capture #3: *"the text is not clearly visible"*). The screenshot showed
+"Drag to the mark. Don't get caught." printed **across the middle of the parchment**, on top of the
+maze it was supposed to explain, in a colour barely separable from the paper.
+
+**Cause.** Two faults stacked, and only the second looked like a styling problem.
+
+`maze_chase_ui.gd:_build_ui()` created a `CenterContainer` to centre the 960x768 playfield, then
+added the caption as a **second child of that same container**:
+
+```gdscript
+caption.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+caption.position.y = -48.0
+center.add_child(caption)          # <- `center` is a CenterContainer
+```
+
+A `Container` calls `fit_child_in_rect()` on **every** child during layout and overwrites its
+anchors, offsets, position and size. Both lines above were therefore dead on the first layout pass,
+and `CenterContainer` centres each child *independently*, so the label was placed concentric with
+the playfield rather than above it. The code read as if it positioned the label; it never did.
+
+Only then did the colour matter: `Color(0.85, 0.8, 0.7)` is a light cream, chosen against the
+intended 75%-black backdrop. Stacked onto cream parchment instead, it had almost no contrast — and
+it was the only overlay text in the entire project with no outline, no shadow and no panel behind
+it (`note_ui.gd`, `combination_lock.gd`, `screen_text.gd` and `panic_hud.gd` all have at least one).
+
+**Fix.** Reparent the caption onto `_root` — a plain `Control`, where presets survive — and anchor it
+off the vertical centre by half the playfield height so it clears the map at any viewport size. Then
+give it the project's standard treatment: black `font_outline_color` + `outline_size`, matching
+`ScreenText._outline()`.
+
+**Why existing tests missed it.** There were none that could: `screenshot_scene.gd` can only teleport
+the player and aim a camera, and this UI lives behind an `interact()` call on a prop. Added
+`tests/screenshot_maze_ui.gd`, which drives the real interaction path and dumps the result.
+
+**General lesson.** Setting anchors or `position` on a direct child of any `Container` is a no-op —
+the container owns that child's rect. If a node must be positioned by hand, it needs a non-container
+parent. And when text "looks wrong", check *where the layout actually put it* before adjusting its
+colour: here the colour was a real second bug, but it was invisible as one until the placement was
+fixed.
+
+---
+
+## Issue 33 — Issue 27 recurred twice: findability glows outliving the art they stood in for
+
+**Symptom.** Two unrelated playtest captures in the same session (2026-07-25). Capture #1, on the
+Lab's deliberately-hidden Records breaker: *"the way the light switch is hidden here is very
+obvious."* The screenshot showed a near-white panel with a saturated red lever, plainly the
+brightest object anywhere in the frame. Capture #5, on KONTUR's roster lock: *"the lock should be a
+3d version of the 2d texture — now it is the 2d texture on top of a 3d random cube"* — a glowing
+mint-green box with a picture stuck to one face.
+
+**Cause.** Both props were built before they had art, and both were given emission purely so they
+could be found in a dark room. `breaker.gd` applied its own `lab_breaker_panel.png` as an
+**`emission_texture`** at 0.25 *and* gave the lever `emission_energy_multiplier = 0.7`;
+`kontur.gd:_spawn_gate5_roster()` gave the casing green emission at 0.4 over a pale albedo. Per
+Issue 21 emission is most of a surface's colour in this project (Linear tonemap, exposure 1.0, no
+glow, scene light ~0.45), so in both cases the stand-in out-shone everything around it. A breaker
+whose whole design premise is "hidden" was, literally, a lamp.
+
+This is Issue 27 exactly — already written up for the Lab keycard, the Lab monitor and the KONTUR
+bait card — recurring on three further props that were simply not in that sweep.
+
+**Fix.** The rule Issue 27 already states: once a prop has a lit face, its **body** goes back to
+being an ordinary unlit object, and any remaining affordance moves onto the **art**.
+- `breaker.gd`: panel emission deleted outright (albedo texture tinted down to 0.6 so the bright
+  source photo stops out-reading the walls); `glows` now gates only the lever *indicator*, at
+  `INDICATOR_EMISSION = 0.12` — red-vs-green is genuine state feedback ("did I already flip this?"),
+  not an affordance. That 0.12 matches the ceiling `beartrap.gd` documents for the same reason.
+- `kontur.gd`: casing emission deleted; the plate `QuadMesh` carries `0.35` instead. The lock is
+  still a gate the player must locate on a dark wall, so the affordance is kept — just moved onto
+  the lit face, the same trade `door.gd` makes at 0.08.
+
+**General lesson.** A placeholder glow is a debt, and paying it off on the props you happen to be
+looking at does not pay it off project-wide. When a prop gains real art, grep the *whole* directory
+for `emission_enabled` on prop bodies rather than fixing the instance in front of you — Issue 27
+fixed three props and left at least three more, and the symptom always points at the art ("this
+texture looks wrong") rather than at the code.
+
+---
+
+## Issue 34 — A core mechanic was a one-line stub, and a HUD crutch hid that for a whole level
+
+**Symptom.** Playtest capture #2 on the Lab's pitch-black breaker wing: *"So far it is too simple to
+find this light switch hidden in the dark. We need to make the geometry of this level harder, and
+probably add some real audio so that we can navigate based on that."* The level was described in
+`CLAUDE.md` as an audio-only navigation mini-game.
+
+**Cause.** There was no audio navigation to speak of. `level_1.gd:_spawn_dark_breaker_tell()` was:
+
+```gdscript
+func _spawn_dark_breaker_tell(pos: Vector3) -> void:
+	_dark_breaker_pos = pos
+```
+
+It recorded a coordinate and spawned nothing. The entire "tell" was a **0.45 s non-looping**
+`breaker_spark.wav` fired every **8-12 s** through the level's generic one-shot helper — `unit_size
+8`, no `max_distance`, no `attenuation_model`, Master bus. A ~4% duty cycle carrying almost no
+distance information: not steerable even in principle.
+
+What made this survive was the crutch built next to it. A hot/cold HUD bar
+(`_tick_breaker_meter()` + `panic_hud.set_breaker_proximity()`) reported straight-line distance to
+the breaker, so the wing was always solvable — by the bar, never by the sound. The bar also *lied*,
+being distance-only through walls: from inside the dead-end stub it read a warm ~0.43 while being
+nowhere near the breaker in walking terms.
+
+**Fix.** Delete the meter (both call site and HUD widget), and build the mechanic that was being
+stood in for: a **continuous two-layer positional beacon** at the breaker, lifted from
+`backrooms_zone2.gd`, whose own header comment is a post-mortem of this identical mistake. A far cue
+(`unit_size 16`) carries the length of the wing and gives a bearing; a near confirm (`unit_size 9`)
+only resolves in the last room or two and distinguishes "right branch" from merely "right
+direction". Two new seamless loops in `tools/make_sfx_extra.py` supply them (every `.wav.import` in
+this project is `loop_mode=0`, so the players self-restart via `finished -> play`). The wing itself
+grew from 4 rooms and one binary choice to 10 rooms, three decision points and three dead ends.
+
+**Why existing tests missed it.** Nothing asserted the wing was *navigable*, only that it existed.
+Added `tests/walk_lab_wing.gd`, which drives a `CharacterBody3D` the whole route under gravity and
+proves each dead end dead with raycasts against the built CSG — never against the `DOORS` array that
+produced it. It was verified to fail: sealing one doorway makes the walker stall against the wall
+and the run go red.
+
+**General lesson.** Two of them. First, a function whose body is a single assignment is worth reading
+before trusting a design document that describes it as a feature — `CLAUDE.md` described this tell in
+detail for several sessions while the code did nothing. Second, and more costly: **an assist that
+solves a puzzle outright will mask the fact that the intended solution was never implemented.** The
+meter was added to make audio navigation feel like an active mini-game; instead it replaced it, and
+removed the only pressure that would have revealed the stub.
+
+---
+
+## Issue 35 — A wall prop's own artwork contained a picture of the wall behind it
+
+**Symptom.** Playtest capture #4 on KONTUR's Landing mailbox: *"Need to make these objects 3d, and
+probably only one of them should open and keep the note."* It read as a poster taped to the wall
+rather than as an object — despite `kontur_mailbox.gd`'s header claiming it had already been
+"upgraded from a flat wall decal into a real shallow interactable".
+
+**Cause.** The interaction was real; the *object* never was. `kontur.gd:_spawn_mailbox()` built one
+`BoxMesh` plus one `QuadMesh` decal, and the decal was `kontur_panel_mailboxes.png` — described in
+TEXTURES.md as *"Battered Soviet mailboxes **on matching wallpaper background**"*. So the prop's own
+texture included a photograph of the surface it was mounted on. There is no lighting or geometry
+that can make that read as three-dimensional: the flat region surrounding the depicted boxes is
+painted-on wall, and it moves with the prop. Two lesser faults rode along — `TRANSPARENCY_ALPHA` was
+set on an image with **no alpha channel** (inert, and it bought a transparent-pass sort for nothing),
+and a 1.333 source was stretched onto a 1.143 quad.
+
+**Fix.** Rebuilt as real geometry with **flat-tinted materials and no texture at all**, the way
+`intro_room.gd:_build_wheelchair()` was rebuilt after the identical complaint (TEXTURES.md records
+that texture as retired). Carcass, plinth and top overhang, a divider/shelf grid, and twelve
+numbered slot doors each with a pull handle and a card holder. Only slot 12 hangs on a hinge and
+swings open — the note's own header already read "MAILBOX — SLOT 12", so numbering every slot makes
+the hint name its own address.
+
+**General lesson.** When a prop is meant to sit on a surface, art whose background *is* that surface
+guarantees it reads as flat, no matter how the mesh is built — the giveaway is a texture description
+containing the word "background". Check what a decal's non-subject pixels actually depict before
+concluding the geometry is at fault. And note the parallel with Issue 33: the fix in both cases was
+to stop asking a texture to do a mesh's job, and `rotary_phone.gd` remains the proof that in this
+project silhouette carries a prop while art does not.

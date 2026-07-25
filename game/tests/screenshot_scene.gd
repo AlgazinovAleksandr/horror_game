@@ -36,6 +36,15 @@ const SHOTS := {
 		[Vector3(0, 0, -2), Vector3(0, 1.4, 1.0), "void_spawn_creature"],
 		[Vector3(0, 0, -0.5), Vector3(0, 1.4, 1.0), "void_creature_near"],
 	],
+	# The two props rebuilt from flat decals into real geometry (playtest 2026-07-25,
+	# captures #4 and #5). Head-on AND from an angle: a billboard/decal looks passable
+	# straight on and gives itself away off-axis, which is how both survived this long.
+	"kontur": [
+		[Vector3(-1.2, 0, 0.0), Vector3(-2.78, 1.5, 0.0), "kontur_mailbox_head_on"],
+		[Vector3(-1.4, 0, 1.6), Vector3(-2.78, 1.4, 0.0), "kontur_mailbox_angle"],
+		[Vector3(2.2, 0, 31.0), Vector3(3.6, 1.3, 31.0), "kontur_roster_lock_head_on"],
+		[Vector3(2.4, 0, 32.4), Vector3(3.6, 1.3, 31.0), "kontur_roster_lock_angle"],
+	],
 }
 
 var _scene := "intro_room"

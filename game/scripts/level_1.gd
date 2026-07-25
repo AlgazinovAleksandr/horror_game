@@ -61,16 +61,18 @@ var _breaker_spark_timer: float = 0.0
 var _breaker_spark_pos: Vector3
 var _breaker_spark_light: OmniLight3D
 
-# BreakerNook (new feature): sound-only tell for its breaker, and a flag the
-# debug-apparition tick reads to suppress itself while the player is inside.
+# BreakerNook: sound-only tell for its breaker, and a flag the debug-apparition
+# tick reads to suppress itself while the player is inside.
+#
+# ⚠️ There is deliberately NO on-screen proximity readout any more. A hot/cold bar
+# driven by straight-line distance was the only cue strong enough to steer by, so
+# it replaced the maze instead of supplementing it — and being distance-only it
+# also lied, reading a warm ~0.43 from inside a dead end that was nowhere near the
+# breaker in walking terms. The beacon in _spawn_dark_beacon() carries direction
+# as well as distance, which is what a maze actually needs. Do not re-add a meter.
 var _dark_breaker_timer: float = 0.0
 var _dark_breaker_pos: Vector3
 var _in_breaker_nook: bool = false
-var _breaker_meter_shown: bool = false
-
-# Hot/cold HUD readout while inside the dark wing — distance-only, no
-# direction, so the branching layout + sound tell stay the real puzzle.
-const METER_MAX_DIST := 14.0
 
 
 func _ready() -> void:
@@ -130,7 +132,7 @@ const ROOMS := [
 	# still lands on the west wall, so the connection is unchanged.
 	{ "name": "Observation", "pos": Vector2(3.75, 16.75), "size": Vector2(4.5, 4.5) },
 	{ "name": "ExitVestibule", "pos": Vector2(0, 20.5), "size": Vector2(4, 3) },
-	# The dark breaker wing (new feature), redesigned twice after playtest:
+	# The dark breaker wing (new feature), redesigned three times after playtest:
 	# (1) a single small room directly off Records read as "not dark at all" —
 	# Records' lamp (omni_range=11) has no shadow casting to stop it (⚠️ NO light
 	# in this whole project casts shadows except the Intro Room's — grep
@@ -139,13 +141,45 @@ const ROOMS := [
 	# lamp is ~3 m from the corridor doorway, +7 m of corridor, +the rest of the
 	# wing = well past the light's hard range limit. The corridor itself still
 	# reads as a gradient (dim near Records, genuinely black by the far end).
-	# (2) a straight corridor into one room had no decision point — Junction adds
-	# a real branch: DeadEnd is a dead stub (the wrong turn), BreakerNook (moved
-	# further west) is the real destination.
+	# (2) a straight corridor into one room had no decision point — a Junction
+	# added a branch: one dead stub, one real destination.
+	# (3) Playtest 2026-07-25 (capture #2, "too simple to find this light switch
+	# hidden in the dark — make the geometry of this level harder"): that was still
+	# ONE binary choice over ~16 m, and the on-screen proximity meter answered it
+	# outright. The meter is gone (see _spawn_dark_beacon) and the wing is now a
+	# real maze: THREE decision points and THREE dead ends across ~50 m of walking.
+	#
+	#   Records -> DarkCorridor -> Junction  ---west--> WestCorridor -> Plant  (dead)
+	#                                 |
+	#                                 +------north----> NorthSpur -> NorthVault (dead)
+	#                                 |
+	#                                 +------south----> SouthSpur -> SouthHall
+	#                                                                  |     |
+	#                                                        PumpRoom (dead) |
+	#                                                                 BreakerNook
+	#
+	# ⚠️ Layout invariants, all asserted by tests/check_wall_overlap.gd:
+	#   * Rooms ABUT, never overlap. They are kept in three disjoint z-bands —
+	#     north (z>=14.5), middle (z 10.5..14.5), south (z<=10.5) — so limbs of the
+	#     maze cannot collide with each other as the graph grows.
+	#   * A doorway only cuts walls its SPAN overlaps (room_builder.gd:199), so
+	#     planes may be reused between bands. E.g. Plant's north wall is also at
+	#     z=14.5, but the Junction<->NorthSpur doorway spans x -21.8..-20.2 and
+	#     Plant spans x -35..-30, so Plant is untouched.
+	# The terminus is ~28 m from Records' lamp — four times its 11 m range.
 	{ "name": "DarkCorridor", "pos": Vector2(-15.5, 12.5), "size": Vector2(7.0, 2.2) },
 	{ "name": "Junction", "pos": Vector2(-21.0, 12.5), "size": Vector2(4, 4) },
-	{ "name": "DeadEnd", "pos": Vector2(-21.0, 8.5), "size": Vector2(3, 4) },
-	{ "name": "BreakerNook", "pos": Vector2(-25.5, 12.5), "size": Vector2(5, 4) },
+	# --- west limb (dead) ---
+	{ "name": "WestCorridor", "pos": Vector2(-26.5, 12.5), "size": Vector2(7, 2.2) },
+	{ "name": "Plant", "pos": Vector2(-32.5, 12.5), "size": Vector2(5, 4) },
+	# --- north limb (dead) ---
+	{ "name": "NorthSpur", "pos": Vector2(-21.0, 17.25), "size": Vector2(2.4, 5.5) },
+	{ "name": "NorthVault", "pos": Vector2(-24.5, 22.0), "size": Vector2(9, 4) },
+	# --- south limb (the real route) ---
+	{ "name": "SouthSpur", "pos": Vector2(-21.0, 8.5), "size": Vector2(2.4, 4) },
+	{ "name": "SouthHall", "pos": Vector2(-26.6, 7.7), "size": Vector2(8.8, 2.4) },
+	{ "name": "PumpRoom", "pos": Vector2(-25.0, 5.35), "size": Vector2(4, 2.3) },
+	{ "name": "BreakerNook", "pos": Vector2(-34.0, 7.7), "size": Vector2(6, 4) },
 ]
 
 const DOORS := [
@@ -158,10 +192,17 @@ const DOORS := [
 	{ "pos": Vector2(0, 14), "width": 1.6, "dir": "z" },       # CrossHall <-> MainHall2
 	{ "pos": Vector2(1.5, 17), "width": 1.4, "dir": "x" },     # MainHall2 <-> Observation
 	{ "pos": Vector2(0, 19), "width": 1.6, "dir": "z" },       # MainHall2 <-> ExitVestibule
-	{ "pos": Vector2(-12, 12.5), "width": 1.4, "dir": "x" },   # Records <-> DarkCorridor
-	{ "pos": Vector2(-19, 12.5), "width": 1.6, "dir": "x" },   # DarkCorridor <-> Junction
-	{ "pos": Vector2(-21, 10.5), "width": 1.6, "dir": "z" },   # Junction <-> DeadEnd (wrong turn)
-	{ "pos": Vector2(-23, 12.5), "width": 1.6, "dir": "x" },   # Junction <-> BreakerNook
+	{ "pos": Vector2(-12, 12.5), "width": 1.4, "dir": "x" },     # Records <-> DarkCorridor
+	{ "pos": Vector2(-19, 12.5), "width": 1.6, "dir": "x" },     # DarkCorridor <-> Junction
+	# Junction is the first decision — three ways out, only one of them south.
+	{ "pos": Vector2(-23, 12.5), "width": 1.6, "dir": "x" },     # Junction <-> WestCorridor
+	{ "pos": Vector2(-30, 12.5), "width": 1.6, "dir": "x" },     # WestCorridor <-> Plant (dead)
+	{ "pos": Vector2(-21, 14.5), "width": 1.6, "dir": "z" },     # Junction <-> NorthSpur
+	{ "pos": Vector2(-21, 20.0), "width": 1.6, "dir": "z" },     # NorthSpur <-> NorthVault (dead)
+	{ "pos": Vector2(-21, 10.5), "width": 1.6, "dir": "z" },     # Junction <-> SouthSpur
+	{ "pos": Vector2(-22.2, 7.7), "width": 1.6, "dir": "x" },    # SouthSpur <-> SouthHall
+	{ "pos": Vector2(-25, 6.5), "width": 1.6, "dir": "z" },      # SouthHall <-> PumpRoom (dead)
+	{ "pos": Vector2(-31, 7.7), "width": 1.6, "dir": "x" },      # SouthHall <-> BreakerNook
 ]
 
 
@@ -218,7 +259,15 @@ const RESTORED_ENERGY := 1.0     # full institutional light once power is restor
 # built the room, but not of this separate, blanket lighting pass. Any future
 # lightless room needs to be added here too, not just left off _add_lamp calls
 # elsewhere.
-const NO_LAMP_ROOMS := ["Morgue", "DarkCorridor", "Junction", "DeadEnd", "BreakerNook"]
+const NO_LAMP_ROOMS := [
+	"Morgue",
+	# Every room of the dark wing. Keep this in sync with the wing's ROOMS block —
+	# a lamp anywhere in here defeats the entire navigate-by-ear premise.
+	"DarkCorridor", "Junction",
+	"WestCorridor", "Plant",
+	"NorthSpur", "NorthVault",
+	"SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
+]
 
 
 func _spawn_lights() -> void:
@@ -342,8 +391,12 @@ func _spawn_power_quest() -> void:
 	# "too simple, add a moment of searching"): moved off the doorway-facing wall
 	# onto the room's other dead-end wall, findable by a spark/flicker tell
 	# (_tick_breaker_spark). Exam2's breaker (formerly also "obvious on sight") now
-	# lives in BreakerNook, a lightless room off Records — findable by sound alone
-	# (see _spawn_dark_breaker_tell below).
+	# lives in BreakerNook at the far end of the lightless wing — findable by sound
+	# alone (see _spawn_dark_beacon below).
+	#
+	# ⚠️ None of these three self-illuminate any more. breaker.gd used to wear its
+	# own art as an emission texture, which made even the "hidden" Records one the
+	# brightest object in the level (playtest capture #1).
 	var exam1 := Breaker.new()
 	exam1.position = _builder.wall_point("Exam1", Vector2(-1, 0), 1.3, 0.15)
 	exam1.rotation.y = PI / 2.0
@@ -368,7 +421,7 @@ func _spawn_power_quest() -> void:
 	dark.glows = false
 	dark.flipped.connect(_on_breaker_flipped)
 	add_child(dark)
-	_spawn_dark_breaker_tell(dark_pos)
+	_spawn_dark_beacon(dark_pos)
 	_spawn_breaker_nook_zone()
 
 	# Morgue shutter: fills the CrossHall<->Morgue doorway at x=6, z=12.5.
@@ -906,7 +959,6 @@ func _process(delta: float) -> void:
 	_tick_debug_apparition(delta)
 	_tick_breaker_spark(delta)
 	_tick_dark_breaker_tell(delta)
-	_tick_breaker_meter()
 
 
 func _tick_debug_apparition(delta: float) -> void:
@@ -978,12 +1030,62 @@ func _tick_breaker_spark(delta: float) -> void:
 	tw.tween_property(_breaker_spark_light, "light_energy", 0.0, 0.12)
 
 
-# BreakerNook's tell, sound only — there's nothing to flicker in total darkness,
+# BreakerNook's tell: sound only — there's nothing to flicker in total darkness,
 # unlike the Records breaker's light-and-sound version above.
-func _spawn_dark_breaker_tell(pos: Vector3) -> void:
+#
+# ⚠️ This used to be a one-line stub that recorded a position and spawned NOTHING.
+# The entire "navigate by ear" mechanic was _tick_dark_breaker_tell() firing a
+# 0.45 s non-looping transient every 8-12 s through the generic _play_at() helper:
+# a ~4% duty cycle, unit_size 8, no max_distance, no attenuation model. You cannot
+# steer by that, which is exactly why the on-screen proximity meter ended up doing
+# all the work and the wing played as trivial (playtest capture #2).
+#
+# Replaced with a CONTINUOUS two-layer positional beacon, lifted from
+# backrooms_zone2.gd:186-227 — whose own header comment is a post-mortem of this
+# identical mistake ("audible only once you were basically already at the correct
+# wall ... two layers now, both MUCH wider range so there's something to actually
+# walk toward"). Both layers sit AT the breaker:
+#
+#   far cue  (unit_size 16) — carries the length of the wing; this is the thing you
+#                             turn your head to locate at a junction.
+#   near confirm (unit_size 9) — only resolves in the last room or two; this is what
+#                             says "right branch" rather than "right direction".
+#
+# Two layers matter because one gives you a bearing but never a distance: with a
+# single source, "quiet" is ambiguous between far-away-and-correct and
+# nearby-through-a-wall. The pair disambiguates, which is what makes the maze
+# solvable without a HUD readout.
+#
+# Looped via finished->play: every .wav.import in this project is loop_mode=0
+# except fluorescent_hum, so the node has to restart itself.
+const BEACON_FAR_UNIT := 16.0
+const BEACON_NEAR_UNIT := 9.0
+
+func _spawn_dark_beacon(pos: Vector3) -> void:
 	_dark_breaker_pos = pos
+	_add_beacon_layer("breaker_hum", pos, BEACON_FAR_UNIT, -3.0)
+	_add_beacon_layer("breaker_buzz", pos, BEACON_NEAR_UNIT, -1.0)
 
 
+func _add_beacon_layer(base_name: String, pos: Vector3, unit: float, vol: float) -> void:
+	var stream := GameState.load_audio(base_name)
+	if not stream:
+		return
+	var pl := AudioStreamPlayer3D.new()
+	pl.name = "Beacon_" + base_name
+	pl.stream = stream
+	pl.unit_size = unit
+	pl.volume_db = vol
+	pl.max_db = 3.0
+	add_child(pl)
+	pl.position = pos
+	pl.finished.connect(pl.play)
+	pl.play()
+
+
+# The old spark transient stays on top of the beacon as flavour — an occasional
+# arc pop over a steady hum reads as failing equipment rather than as a locator
+# tone. It is no longer load-bearing for navigation.
 func _tick_dark_breaker_tell(delta: float) -> void:
 	_dark_breaker_timer -= delta
 	if _dark_breaker_timer > 0.0:
@@ -992,49 +1094,32 @@ func _tick_dark_breaker_tell(delta: float) -> void:
 	_play_at("breaker_spark", _dark_breaker_pos, -2.0)
 
 
-# Live hot/cold readout: shows only inside the dark wing, hides itself the
-# instant the player leaves it (mirrors the flashlight-lock zone's own
-# symmetric enter/exit rule).
-func _tick_breaker_meter() -> void:
-	var p := _player()
-	if not p:
-		return
-	var hud: Node = p.get_panic_hud() if p.has_method("get_panic_hud") else null
-	if not hud or not hud.has_method("set_breaker_proximity"):
-		return
-	if _in_breaker_nook:
-		_breaker_meter_shown = true
-		var dist: float = p.global_position.distance_to(_dark_breaker_pos)
-		var ratio: float = clampf(1.0 - dist / METER_MAX_DIST, 0.0, 1.0)
-		hud.set_breaker_proximity(ratio)
-	elif _breaker_meter_shown:
-		_breaker_meter_shown = false
-		hud.set_breaker_proximity(-1.0)
-
-
 # Flashlight lock/unlock for the DarkCorridor+BreakerNook pair, symmetric on
 # entry AND exit — leaving without finding the breaker always restores the light
 # immediately. No DarkZone (would double-tax the exact posture the room's premise
 # requires — Issue 18); no kill_flashlight() (permanent, wrong tool for a room you
 # can walk back out of).
 #
-# ONE zone spanning all four rooms' combined bounds, not separate ones per room —
+# ONE zone spanning the whole wing's combined bounds, not separate ones per room —
 # adjacent Area3Ds would false-unlock the instant you cross from one into the
 # next (body_exited fires on the first zone before body_entered fires on the
 # second), the same class of bug player.gd's own DarkZone counter exists to
-# avoid. Bounds computed by hand since this spans four rooms, not one: union of
-# DarkCorridor (x-19..-12,z11.4..13.6), Junction (x-23..-19,z10.5..14.5), DeadEnd
-# (x-22.5..-19.5,z6.5..10.5), BreakerNook (x-28..-23,z10.5..14.5) -> x-28..-12,
-# z6.5..14.5.
+# avoid. This is why the zone is a single hand-computed AABB rather than one box
+# per room, and why it MUST be re-derived whenever the wing's ROOMS change.
+#
+# Union of all ten wing rooms: x -37 (BreakerNook west) .. -12 (Records' wall),
+# z 4.2 (PumpRoom south) .. 24 (NorthVault north) -> size (25, h, 19.8) centred
+# at (-24.5, 14.1). Records itself starts at x=-12, so the wing's east edge is
+# exactly the doorway the player steps through.
 func _spawn_breaker_nook_zone() -> void:
 	var h: float = _builder.room_height("BreakerNook")
 	var zone := Area3D.new()
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(16.0, h, 8.0)
+	shape.size = Vector3(25.0, h, 19.8)
 	col.shape = shape
 	zone.add_child(col)
-	zone.position = Vector3(-20.0, h / 2.0, 10.5)
+	zone.position = Vector3(-24.5, h / 2.0, 14.1)
 	add_child(zone)
 	zone.body_entered.connect(func(b: Node3D) -> void:
 		if b.is_in_group("player"):

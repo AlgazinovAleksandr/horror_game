@@ -652,36 +652,112 @@ func _spawn_gate5_roster() -> void:
 	# collider on a doorway wall silently seals the room (Session 11 bug class).
 	lock.position = Vector3(3.6, 1.3, 31.0)
 	add_child(lock)
-	var mesh := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(0.12, 0.4, 0.3)
-	mesh.mesh = bm
-	var lm := StandardMaterial3D.new()
-	lm.albedo_color = Color(0.3, 0.32, 0.3)
-	lm.emission_enabled = true
-	lm.emission = Color(0.5, 0.7, 0.5)
-	lm.emission_energy_multiplier = 0.4
-	mesh.set_surface_override_material(0, lm)
-	lock.add_child(mesh)
+
+	# ⚠️ Rebuilt 2026-07-25 (playtest capture #5: "the lock should be a 3d version of
+	# the 2d texture — now it is the 2d texture on top of a 3d random cube").
+	#
+	# Two separate faults, both visible in that screenshot:
+	#   1. The casing carried GREEN EMISSION at 0.4 on top of a pale albedo. Emission
+	#      is most of a surface's colour in this project (Issue 21), so the box read
+	#      as a glowing mint cube with a picture stuck to one side. This is Issue 27
+	#      again — a findability glow that outlived the art it stood in for. It is
+	#      gone entirely; the Records lamp lights this wall perfectly well.
+	#   2. It was ONE box + ONE quad, and the quad squashed a 1.5:1 landscape source
+	#      onto a 0.75:1 portrait mesh — a ~2x aspect distortion.
+	#
+	# Now a real mechanism, built the intro_room.gd:_build_wheelchair() way: a recessed
+	# body, a raised bezel, four corner screws and an actual dial cylinder standing off
+	# the face. combination_lock.gd's 2D dial UI is untouched — only the world prop
+	# changed.
+	# Local axes: the lock sits on Records' EAST wall with no node rotation, so the
+	# face the player sees is -x. "Width" therefore runs along z and "height" along y.
+	# The body is deliberately LANDSCAPE (0.40 z x 0.30 y) because the plate art is a
+	# 1.5:1 landscape source — the old portrait mesh is what squashed it 2x.
+	var body_d := 0.14
+	var body_h := 0.30
+	var body_w := 0.40
+	var front := -body_d / 2.0          # x of the body's front face
+	var rim_t := 0.025
+
+	var steel := _mb_mat(Color(0.17, 0.18, 0.17), 0.45, 0.65)
+	var bezel := _mb_mat(Color(0.26, 0.27, 0.25), 0.55, 0.5)
+	var screw := _mb_mat(Color(0.34, 0.34, 0.31), 0.7, 0.35)
+	var dial_mat := _mb_mat(Color(0.28, 0.27, 0.23), 0.6, 0.4)
+
+	_mb_box(lock, "LockBody", Vector3(body_d, body_h, body_w), Vector3.ZERO, steel)
+
+	# ⚠️ The bezel is a RIM (four bars), not a slab. A first pass made it one solid
+	# box across the whole face and it buried the plate: the bar's front face and the
+	# art quad landed ~2 mm apart, so the artwork was hidden behind its own frame.
+	# Four bars leave the middle open, which is the point of a recess. Same
+	# thin-bars-from-a-loop trick as level_1.gd:_add_tray_lip().
+	var rim_x := front - rim_t / 2.0
+	_mb_box(lock, "RimTop", Vector3(rim_t, rim_t, body_w),
+		Vector3(rim_x, body_h / 2.0 - rim_t / 2.0, 0), bezel)
+	_mb_box(lock, "RimBottom", Vector3(rim_t, rim_t, body_w),
+		Vector3(rim_x, -body_h / 2.0 + rim_t / 2.0, 0), bezel)
+	for sz in [-1.0, 1.0]:
+		_mb_box(lock, "RimSide", Vector3(rim_t, body_h, rim_t),
+			Vector3(rim_x, 0, sz * (body_w / 2.0 - rim_t / 2.0)), bezel)
+	for sy in [-1.0, 1.0]:
+		for sz2 in [-1.0, 1.0]:
+			_mb_box(lock, "Screw", Vector3(0.014, 0.022, 0.022),
+				Vector3(rim_x - rim_t / 2.0, sy * (body_h / 2.0 - rim_t / 2.0),
+					sz2 * (body_w / 2.0 - rim_t / 2.0)), screw)
+
+	# Dial on the RIGHT half of the face, art plate on the left — a real panel lock,
+	# and it keeps the cylinder off the artwork. CylinderMesh's axis is local Y, so
+	# rotation.z = PI/2 lays it on its side to face -x (the wheelchair's wheel trick).
+	var dial := MeshInstance3D.new()
+	dial.name = "Dial"
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.055
+	cyl.bottom_radius = 0.055
+	cyl.height = 0.03
+	dial.mesh = cyl
+	dial.material_override = dial_mat
+	dial.rotation.z = PI / 2.0
+	dial.position = Vector3(front - 0.02, 0.0, 0.115)
+	lock.add_child(dial)
+	# Index mark, so the dial reads as something that turns to a value.
+	_mb_box(dial, "Index", Vector3(0.010, 0.045, 0.007), Vector3(0.018, 0.0, 0.0), screw)
+
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.16, 0.44, 0.34)
+	shape.size = Vector3(0.26, body_h + 0.08, body_w + 0.08)
 	col.shape = shape
 	lock.add_child(col)
 
-	# Art on a QuadMesh, not the box — a BoxMesh only shows a magnified crop of a
-	# texture applied to it (Issue 24). The box stays the plain casing above; the
-	# lock plate art faces -x, into the room, off the box's inner face.
+	# Art on a QuadMesh, never the box (Issue 24). Sized from the SOURCE's aspect and
+	# fitted into the left half of the recess, rather than forced to the mesh's shape.
+	#
+	# ⚠️ The quad carries a little emission and the BODY carries none. That split is
+	# Issue 27's documented fix: this lock used to glow mint green because its casing
+	# kept a findability glow after it gained real art. But it is still a gate the
+	# player has to locate on a dark wall, so the affordance moves onto the lit face
+	# instead of being deleted outright — the same trade door.gd makes at 0.08.
 	var lock_tex := TEX + "kontur_lock_roster.png"
 	if ResourceLoader.exists(lock_tex):
+		var tex: Texture2D = load(lock_tex)
+		var aspect: float = float(tex.get_width()) / float(tex.get_height())
+		var qw: float = 0.20
+		var qh: float = qw / aspect
+		if qh > body_h - 2.0 * rim_t - 0.02:
+			qh = body_h - 2.0 * rim_t - 0.02
+			qw = qh * aspect
 		var face := MeshInstance3D.new()
+		face.name = "LockPlate"
 		var qm := QuadMesh.new()
-		qm.size = Vector2(0.3, 0.4)
+		qm.size = Vector2(qw, qh)
 		face.mesh = qm
 		var fm := StandardMaterial3D.new()
-		fm.albedo_texture = load(lock_tex)
+		fm.albedo_texture = tex
+		fm.roughness = 0.8
+		fm.emission_enabled = true
+		fm.emission_texture = tex
+		fm.emission_energy_multiplier = 0.35
 		face.material_override = fm
-		face.position = Vector3(-(0.12 / 2.0 + 0.004), 0, 0)
+		face.position = Vector3(front - 0.006, 0.0, -0.085)
 		face.rotation.y = -PI / 2.0
 		lock.add_child(face)
 
@@ -1234,6 +1310,30 @@ func _spawn_props() -> void:
 # choice_door.gd and the roster lock above.
 const MAILBOX_HINT := "MAILBOX — SLOT 12\n\nI stopped switching them on. I am too afraid of what the light finds. If you want the way out, you will have to feel for it in the dark."
 
+# ⚠️ Rebuilt 2026-07-25 (playtest capture #4: "need to make these objects 3d, and
+# probably only one of them should open and keep the note").
+#
+# The old version was ONE BoxMesh wearing kontur_panel_mailboxes.png — a photograph
+# of seven cabinets WITH THE WALLPAPER BAKED INTO ITS BACKGROUND (TEXTURES.md). That
+# baked-in wallpaper is exactly why it read as a poster taped to the wall rather than
+# as an object: the prop's own "background" was a picture of the surface behind it.
+# It also set TRANSPARENCY_ALPHA on an image with no alpha channel (inert, and it
+# bought a transparent-pass sort for nothing) and stretched a 1.333 source onto a
+# 1.143 quad.
+#
+# Now built the way intro_room.gd:_build_wheelchair() was rebuilt after the same
+# complaint — real multi-part geometry with FLAT-TINTED materials and no texture at
+# all. rotary_phone.gd proves the same point at small scale: silhouette carries a
+# prop here, art does not. Divider/shelf bars come from level_1.gd:_add_tray_lip()'s
+# trick of driving thin bars off a data array, and the hinge is hiding_spot.gd's.
+#
+# Twelve numbered slots, and only SLOT 12 opens — the note's own header already said
+# "MAILBOX — SLOT 12", so every slot is numbered and the hint names its own address.
+const MAILBOX_COLS := 3
+const MAILBOX_ROWS := 4
+const MAILBOX_FRAME := 0.04    # divider/shelf bar thickness
+const MAILBOX_DEPTH := 0.20    # back half (0.10) must stay under wall_point's 0.12 clearance
+
 func _spawn_mailbox(pos: Vector3, y_rot: float) -> void:
 	var box := KonturMailbox.new()
 	box.name = "Mailbox"
@@ -1242,38 +1342,108 @@ func _spawn_mailbox(pos: Vector3, y_rot: float) -> void:
 	box.rotation.y = y_rot
 	add_child(box)
 
-	var depth := 0.15
-	var size := Vector2(1.6, 1.4)
+	var w := 1.6
+	var h := 1.4
+	var d := MAILBOX_DEPTH
 
-	var casing := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(size.x, size.y, depth)
-	casing.mesh = bm
-	var casing_mat := StandardMaterial3D.new()
-	casing_mat.albedo_color = Color(0.16, 0.15, 0.13)
-	casing_mat.roughness = 0.9
-	casing.material_override = casing_mat
-	box.add_child(casing)
+	var steel := _mb_mat(Color(0.20, 0.22, 0.20), 0.35, 0.7)
+	var trim := _mb_mat(Color(0.09, 0.10, 0.09), 0.2, 0.85)
+	var door_mat := _mb_mat(Color(0.17, 0.25, 0.21), 0.3, 0.75)
+	var slot12_mat := _mb_mat(Color(0.30, 0.20, 0.14), 0.3, 0.7)   # repainted once, badly
+	var brass := _mb_mat(Color(0.36, 0.30, 0.16), 0.6, 0.5)
+	var card := _mb_mat(Color(0.60, 0.58, 0.52), 0.0, 0.95)
 
+	# Carcass, plus a plinth and a top overhang that stand proud of it. Without the
+	# overhangs a wall-mounted box still reads as flush panelling from an angle —
+	# slam_door.gd:_build_frame() learned the same thing ("a bare panel floats").
+	_mb_box(box, "Carcass", Vector3(w, h, d), Vector3(0, 0, 0), steel)
+	_mb_box(box, "Top", Vector3(w + 0.08, 0.05, d + 0.05), Vector3(0, h / 2.0 + 0.025, 0.02), trim)
+	_mb_box(box, "Plinth", Vector3(w + 0.08, 0.06, d + 0.05), Vector3(0, -h / 2.0 - 0.03, 0.02), trim)
+
+	var cell_w: float = (w - (MAILBOX_COLS + 1) * MAILBOX_FRAME) / float(MAILBOX_COLS)
+	var cell_h: float = (h - (MAILBOX_ROWS + 1) * MAILBOX_FRAME) / float(MAILBOX_ROWS)
+	var face_z: float = d / 2.0
+
+	# Vertical dividers and horizontal shelves — the grid the doors sit inside.
+	for c in range(MAILBOX_COLS + 1):
+		var x: float = -w / 2.0 + MAILBOX_FRAME / 2.0 + c * (cell_w + MAILBOX_FRAME)
+		_mb_box(box, "Divider", Vector3(MAILBOX_FRAME, h, 0.03), Vector3(x, 0, face_z), trim)
+	for r in range(MAILBOX_ROWS + 1):
+		var y: float = h / 2.0 - MAILBOX_FRAME / 2.0 - r * (cell_h + MAILBOX_FRAME)
+		_mb_box(box, "Shelf", Vector3(w, MAILBOX_FRAME, 0.03), Vector3(0, y, face_z), trim)
+
+	var n := 0
+	for r in range(MAILBOX_ROWS):
+		for c in range(MAILBOX_COLS):
+			n += 1
+			var cx: float = -w / 2.0 + MAILBOX_FRAME + cell_w / 2.0 + c * (cell_w + MAILBOX_FRAME)
+			var cy: float = h / 2.0 - MAILBOX_FRAME - cell_h / 2.0 - r * (cell_h + MAILBOX_FRAME)
+			var is_12 := n == 12
+			_mb_slot(box, n, Vector3(cx, cy, face_z), cell_w, cell_h,
+				slot12_mat if is_12 else door_mat, brass, card, is_12)
+
+	# Padded so the interaction ray is forgiving on a shallow prop (Issue 2), the
+	# same reason bottle_item.gd and light_switch.gd oversize theirs.
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(size.x, size.y, depth)
+	shape.size = Vector3(w + 0.06, h + 0.14, d + 0.12)
 	col.shape = shape
 	box.add_child(col)
 
-	var tex_path := TEX + "kontur_panel_mailboxes.png"
-	if ResourceLoader.exists(tex_path):
-		var face := MeshInstance3D.new()
-		var qm := QuadMesh.new()
-		qm.size = size
-		face.mesh = qm
-		var face_mat := StandardMaterial3D.new()
-		face_mat.albedo_texture = load(tex_path)
-		face_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		face_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-		face.material_override = face_mat
-		face.position = Vector3(0, 0, depth / 2.0 + 0.004)
-		box.add_child(face)
+
+func _mb_mat(albedo: Color, metallic: float, rough: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = albedo
+	m.metallic = metallic
+	m.roughness = rough
+	return m
+
+
+func _mb_box(parent: Node3D, n: String, size: Vector3, pos: Vector3, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = n
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+# One mail slot: a door recessed into its cell, a pull handle, and a card holder
+# with the slot number on it. Slot 12 additionally hangs off a hinge so it can swing.
+func _mb_slot(box: Node3D, n: int, at: Vector3, cw: float, ch: float,
+		door_mat: Material, brass: Material, card: Material, hinged: bool) -> void:
+	var door_size := Vector3(cw - 0.012, ch - 0.012, 0.025)
+	var door_parent: Node3D = box
+	var door_pos := Vector3(at.x, at.y, at.z - 0.012)
+
+	if hinged:
+		# Hinge on the door's LEFT edge, panel offset half its width so the pivot sits
+		# on the edge rather than the centre — hiding_spot.gd:_build_door()'s pattern.
+		var hinge := Node3D.new()
+		hinge.name = "Slot12Hinge"
+		hinge.position = Vector3(at.x - cw / 2.0, at.y, at.z - 0.012)
+		box.add_child(hinge)
+		door_parent = hinge
+		door_pos = Vector3(cw / 2.0, 0, 0)
+		(box as KonturMailbox).door_hinge = hinge
+
+	var door := _mb_box(door_parent, "Slot%dDoor" % n, door_size, door_pos, door_mat)
+	# Handle + card ride ON the door so they swing with it.
+	_mb_box(door, "Handle", Vector3(0.09, 0.016, 0.022),
+		Vector3(cw * 0.30, -ch * 0.16, door_size.z / 2.0 + 0.011), brass)
+	_mb_box(door, "Card", Vector3(0.13, 0.055, 0.008),
+		Vector3(-cw * 0.22, ch * 0.20, door_size.z / 2.0 + 0.004), card)
+
+	var lbl := Label3D.new()
+	lbl.text = str(n)
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 48
+	lbl.modulate = Color(0.12, 0.11, 0.10)
+	lbl.position = Vector3(-cw * 0.22, ch * 0.20, door_size.z / 2.0 + 0.010)
+	door.add_child(lbl)
 
 
 # A flat decal quad. No collider — these hang on walls that already have one, and a

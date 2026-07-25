@@ -5,7 +5,9 @@ Pure-stdlib (wave/math/random), same conventions as make_sfx.py / make_sfx_house
 Outputs 16-bit mono 44.1 kHz .wav files into the right per-level audio folders:
 
   shared/         pipe_groan.wav, apparition_drone.wav
-  level_1_lab/    breaker_throw.wav
+  level_1_lab/    breaker_throw.wav, breaker_spark.wav,
+                  breaker_hum.wav + breaker_buzz.wav (the dark wing's two-layer
+                  navigation beacon — both seamless loops, see their docstrings)
   level_2_house/  tv_static.wav, music_box.wav, water_drip.wav
 
 Usage: python3 tools/make_sfx_extra.py
@@ -137,6 +139,73 @@ def make_breaker_spark():
     return out
 
 
+def make_breaker_hum():
+    """FAR layer of the Lab dark wing's navigation beacon — a deep mains
+    transformer hum that carries the whole length of the maze (unit_size 16).
+
+    Seamless loop: every partial is an exact integer number of cycles across the
+    clip, so the last sample joins the first with no click. That matters because
+    the .wav.import files in this project are loop_mode=0 and level_1.gd restarts
+    the player via finished->play; any discontinuity would tick once per loop.
+
+    Deliberately mains-harmonic (50/100/150 Hz) and deliberately DULL — it has to
+    read as "there is powered equipment somewhere over there" and stay
+    distinguishable from the near layer below, which is where the detail lives.
+    """
+    random.seed(9021)
+    dur = 4.0
+    n = int(SR * dur)
+    out = []
+    # (frequency, amplitude) — all exact multiples of 1/dur so the loop is seamless.
+    partials = [(50.0, 1.0), (100.0, 0.42), (150.0, 0.18), (200.0, 0.07)]
+    for i in range(n):
+        t = i / SR
+        s = 0.0
+        for f, a in partials:
+            s += a * math.sin(2.0 * math.pi * f * t)
+        # One slow breathing swell per loop (1 cycle over dur = also seamless).
+        s *= 0.78 + 0.22 * math.sin(2.0 * math.pi * t / dur)
+        out.append(s * 0.5)
+    return out
+
+
+def make_breaker_buzz():
+    """NEAR layer of the same beacon — a tighter, brighter electrical buzz that
+    only resolves in the last room or two (unit_size 9).
+
+    The pair is what makes the maze solvable: the far hum gives a bearing, but a
+    single source can't distinguish "far away and correct" from "close but through
+    a wall". This layer appearing is the confirmation that you took the right
+    branch, not merely the right direction.
+
+    Same integer-cycle rule as make_breaker_hum(). The noise bed is built by
+    mirroring the first half into the second so the random component loops too.
+    """
+    random.seed(9022)
+    dur = 4.0
+    n = int(SR * dur)
+    lp = OnePole(2600.0)
+    # Buzzy odd harmonics well above the far layer's band so the two don't mask.
+    partials = [(300.0, 1.0), (900.0, 0.3), (1500.0, 0.14)]
+    half = n // 2
+    noise = [random.uniform(-1.0, 1.0) for _ in range(half)]
+    noise = noise + noise[::-1]
+    while len(noise) < n:
+        noise.append(0.0)
+    out = []
+    for i in range(n):
+        t = i / SR
+        s = 0.0
+        for f, a in partials:
+            s += a * math.sin(2.0 * math.pi * f * t)
+        # Gritty contact-arc texture, kept low so the tone still localises well.
+        s += lp.tick(noise[i]) * 0.35
+        # Two flutter cycles per loop — integer, so seamless.
+        s *= 0.7 + 0.3 * math.sin(2.0 * math.pi * 2.0 * t / dur)
+        out.append(s * 0.42)
+    return out
+
+
 def make_tv_static():
     """CRT hiss bed with a faint high whine — loopable."""
     random.seed(7)
@@ -223,6 +292,8 @@ def main():
     write_wav("shared", "apparition_drone.wav", make_apparition_drone())
     write_wav("level_1_lab", "breaker_throw.wav", make_breaker_throw())
     write_wav("level_1_lab", "breaker_spark.wav", make_breaker_spark())
+    write_wav("level_1_lab", "breaker_hum.wav", make_breaker_hum())
+    write_wav("level_1_lab", "breaker_buzz.wav", make_breaker_buzz())
     write_wav("level_2_house", "tv_static.wav", make_tv_static())
     write_wav("level_2_house", "music_box.wav", make_music_box())
     write_wav("level_2_house", "water_drip.wav", make_water_drip())

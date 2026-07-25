@@ -117,7 +117,8 @@ Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — th
 | `level_5_kontur/screamer_kontur.png` | Face erupting with fungal mycelium, screaming | Level 5 — fatal screamer; `screamer.gd` `LEVEL_SCREAMERS[5]` | done |
 | `level_5_kontur/kontur_flash.png` | Spore burst with a half-formed screaming face | Level 5 — the wrong-answer `flash_scare()` on every gate (`kontur.gd:_strike()`) | done |
 | `level_5_kontur/kontur_poster.png` | Soviet safety poster, "DO NOT TOUCH INFECTED SURFACES" | Level 5 — decal on the Archive's west wall | done |
-| `level_5_kontur/kontur_panel_mailboxes.png` | Battered Soviet mailboxes on matching wallpaper background | Level 5 — full-height wall panel, Landing west wall | done |
+| `level_5_kontur/kontur_panel_mailboxes.png` | Battered Soviet mailboxes on matching wallpaper background | Level 5 — **superseded / no longer loaded.** The baked-in wallpaper background meant the prop's own texture depicted the wall behind it, so it always read as a poster taped up rather than an object (playtest capture #4, ISSUES_SOLUTIONS Issue 35). `kontur.gd:_spawn_mailbox()` is now real flat-tinted geometry with no texture, the same resolution `intro/wheelchair_intro.png` got | to_be_added |
+| `level_5_kontur/kontur_lock_roster.png` | Corroded personnel-gate lock plate, front elevation — engraved dials/digits (1536x1024, landscape 1.5:1) | Level 5 — the roster gate's recessed plate (`kontur.gd:_spawn_gate5_roster()`), on a `QuadMesh` sized FROM the source aspect and fitted into the bezel recess. ⚠️ Was previously forced onto a 0.3x0.4 portrait quad — a ~2x squash. Carries `emission_energy_multiplier = 0.35` so the gate is findable on a dark wall while the casing itself stays unlit (Issue 27 split) | done |
 | `level_5_kontur/kontur_panel_chute.png` | Rusted trash-chute hatch on matching concrete background | Level 5 — wall panel, Landing east wall | done |
 
 ### level_4_void/  (now Level 6 — The Void)

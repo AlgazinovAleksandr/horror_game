@@ -81,11 +81,13 @@ func _ready() -> void:
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
-	# BUG_FIX.md 4.3 moved the key out of the Kitchen into a 2-drawer search in the
-	# Landing — this text still said "kitchen" and was actively misdirecting players
-	# away from where the search now lives. Vague on purpose (still a search, not an
-	# answer) but no longer pointing at the wrong room.
-	GameState.set_objective("Find the cellar key, hidden somewhere upstairs")
+	# ⚠️ This string has now been wrong twice — it has to be re-checked whenever the
+	# key quest moves. It said "kitchen" when the key was a Landing drawer search, then
+	# "somewhere upstairs" (playtest 2026-07-25) after the drawers were deleted and the
+	# quest became the folded map in the BATHROOM (_spawn_bathroom_map). The key is
+	# neither upstairs nor a search any more, so name the prop rather than a room: the
+	# map is the thing to find, and finding it is the whole of the puzzle.
+	GameState.set_objective("Find the folded map — it hides the cellar key")
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_blackout_clock = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
@@ -727,12 +729,12 @@ func _spawn_cellar_contents() -> void:
 	_cellar_gate.material = gm
 	add_child(_cellar_gate)
 
-	# The key itself is no longer a straight pickup — see _spawn_kitchen_map()
-	# (new feature), a 2D map-and-chase minigame in the Kitchen. Winning it calls
-	# _build_cellar_key() below directly; the Landing 2-drawer search from the
-	# previous pass has been removed (Landing reverts to being an empty
-	# pass-through — a deliberate trade for this bigger quest living in the
-	# Kitchen instead).
+	# The key itself is no longer a straight pickup — see _spawn_bathroom_map(), a 2D
+	# map-and-chase minigame on a stand in the Bathroom. Winning it calls
+	# _build_cellar_key() below directly; the Landing 2-drawer search from an earlier
+	# pass has been removed (Landing reverts to being an empty pass-through — a
+	# deliberate trade for this bigger quest). The map lived on the Kitchen counter
+	# briefly in between; that is why some comments still said "Kitchen".
 
 
 # The key's own visual — an alpha-cutout quad lying flat, same trick as the

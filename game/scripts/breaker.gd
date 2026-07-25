@@ -11,9 +11,25 @@ signal flipped
 # BreakerNook's breaker sets this false: emission SELF-ILLUMINATES regardless of
 # scene ambient/darkness (confirmed playtest bug — "even though it is now dark,
 # I can still see the texture of the light switcher"), so a breaker meant to be
-# genuinely invisible in the dark must not use it at all. Exam1 and the Records
-# breaker both need their normal lit/flipped-indicator look and leave this true.
+# genuinely invisible in the dark must not use it at all.
+#
+# ⚠️ Playtest 2026-07-25 (capture #1, "the way the light switch is hidden here is
+# very obvious"): this flag used to gate a LOT more, and the lit branch made even
+# a deliberately-hidden-in-plain-sight breaker the single brightest object in the
+# level — the panel wore its own art as an EMISSION texture at 0.25 and the lever
+# glowed red at 0.7, while the Lab is lit at ~0.45 energy with Linear tonemap and
+# no glow (Issue 21: emission is most of a surface's colour here). A "hidden"
+# breaker was, literally, a lamp. This is Issue 27 recurring — a findability glow
+# that outlived the art it stood in for.
+#
+# So `glows` now gates only the LEVER INDICATOR, at a fraction of its old energy,
+# because red-vs-green is real state feedback ("did I already flip this?") rather
+# than an affordance. The panel never self-illuminates any more, in either mode.
 @export var glows: bool = true
+
+# Matches beartrap.gd's documented ceiling: above ~0.12 a small emissive prop stops
+# reading as a lit indicator and starts reading as white paper glowing in the dark.
+const INDICATOR_EMISSION := 0.12
 
 var _done: bool = false
 var _lever: CSGBox3D
@@ -35,11 +51,12 @@ func _build() -> void:
 	var pm := StandardMaterial3D.new()
 	if ResourceLoader.exists(PANEL_TEX):
 		# The fuse-box art reads as a real electrical panel instead of a grey box.
+		# Lit ONLY by the room — no emission branch here at all (see `glows` above).
+		# The source art is a bright mid-grey photo, so it is knocked down with an
+		# albedo tint as well; at full brightness it still out-read the walls.
 		pm.albedo_texture = load(PANEL_TEX)
-		if glows:
-			pm.emission_enabled = true
-			pm.emission_texture = load(PANEL_TEX)
-			pm.emission_energy_multiplier = 0.25
+		pm.albedo_color = Color(0.6, 0.6, 0.62)
+		pm.roughness = 0.85
 	else:
 		pm.albedo_color = Color(0.18, 0.18, 0.2)
 		pm.metallic = 0.6
@@ -55,7 +72,7 @@ func _build() -> void:
 	if glows:
 		_lever_mat.emission_enabled = true
 		_lever_mat.emission = Color(0.7, 0.05, 0.02)
-		_lever_mat.emission_energy_multiplier = 0.7
+		_lever_mat.emission_energy_multiplier = INDICATOR_EMISSION
 	_lever.material = _lever_mat
 	add_child(_lever)
 

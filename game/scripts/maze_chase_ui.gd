@@ -87,9 +87,9 @@ var _root: Control
 var _playfield: Control
 var _wall_nodes: Array[ColorRect] = []
 var _walls_container: Control
-var _player_icon: TextureRect
-var _monster_icon: TextureRect
-var _target_icon: TextureRect
+var _player_icon: Control
+var _monster_icon: Control
+var _target_icon: Control
 
 
 func _ready() -> void:
@@ -450,36 +450,93 @@ func _build_ui() -> void:
 	_walls_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_playfield.add_child(_walls_container)
 
+	# ⚠️ The caption goes on _root, NOT on `center`. A CenterContainer centres EVERY
+	# child independently and overwrites its anchors/offsets/position during layout,
+	# so a Label added here used to have both its PRESET_CENTER_TOP and its
+	# position.y = -48 silently discarded — it landed stacked dead-centre ON the
+	# parchment, over the maze (playtest capture #3). _root is a plain Control, so
+	# presets survive. Anchored off the vertical centre by half the playfield so it
+	# sits just above the map at any viewport size.
 	var caption := Label.new()
 	caption.text = "Drag to the mark. Don't get caught."
-	caption.add_theme_font_size_override("font_size", 22)
-	caption.add_theme_color_override("font_color", Color(0.85, 0.8, 0.7))
-	caption.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	caption.position.y = -48.0
+	caption.add_theme_font_size_override("font_size", 24)
+	caption.add_theme_color_override("font_color", Color(0.95, 0.92, 0.85))
+	_outline(caption, 6)
+	caption.anchor_left = 0.0
+	caption.anchor_right = 1.0
+	caption.anchor_top = 0.5
+	caption.anchor_bottom = 0.5
+	caption.offset_left = 0.0
+	caption.offset_right = 0.0
+	caption.offset_top = -PLAYFIELD_SIZE.y / 2.0 - 46.0
+	caption.offset_bottom = -PLAYFIELD_SIZE.y / 2.0 - 12.0
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	center.add_child(caption)
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(caption)
 
-	_target_icon = _make_icon(TEX + "house_map_target_icon.png", Color(0.9, 0.85, 0.3))
-	_player_icon = _make_icon(TEX + "house_map_player_icon.png", Color(0.5, 0.85, 1.0))
-	_monster_icon = _make_icon(TEX + "house_map_monster_icon.png", Color(0.85, 0.2, 0.2))
+	_target_icon = _make_icon(TEX + "house_map_target_icon.png", Color(1.0, 0.85, 0.25))
+	_player_icon = _make_icon(TEX + "house_map_player_icon.png", Color(0.45, 0.85, 1.0))
+	_monster_icon = _make_icon(TEX + "house_map_monster_icon.png", Color(1.0, 0.25, 0.18))
 
 
-func _make_icon(tex_path: String, fallback_color: Color) -> TextureRect:
-	var icon := TextureRect.new()
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
+# The project's universal legibility trick, same as ScreenText._outline(): this is
+# the ONLY overlay text in the game that had neither an outline, a shadow, nor a
+# dark panel behind it — over cream parchment that reads as no text at all.
+func _outline(lbl: Label, size: int) -> void:
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	lbl.add_theme_constant_override("outline_size", size)
+
+
+# A flat rounded disc. Godot has no circle primitive for Control nodes, but a Panel
+# with a StyleBoxFlat whose corner radius is half its size is one.
+func _disc(diameter: float, color: Color) -> Panel:
+	var p := Panel.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.size = Vector2(diameter, diameter)
+	p.position = Vector2(ICON_DISPLAY_SIZE - diameter, ICON_DISPLAY_SIZE - diameter) / 2.0
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = color
+	var r := int(diameter / 2.0)
+	sb.corner_radius_top_left = r
+	sb.corner_radius_top_right = r
+	sb.corner_radius_bottom_left = r
+	sb.corner_radius_bottom_right = r
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+
+# Three layers, because the source art alone cannot carry this. Each icon PNG is a
+# 1024x1024 canvas whose visible ink fills only ~30-40% of it, so at ICON_DISPLAY_SIZE
+# the actual mark is ~28 px of mid-brown (#6b4a2a-#8a5c30) sitting on cream parchment,
+# beside wall rects of Color(0.32,0.22,0.12) — same hue family as both. Tinting via
+# `modulate` cannot fix it either: modulate MULTIPLIES, and no multiplier turns brown
+# into saturated blue. So the colour comes from a solid disc underneath and the art
+# rides on top as dark detail:
+#   1. dark halo   — separates the marker from the parchment
+#   2. bright disc — the identity colour, sized to ICON_HALF_EXTENT so the marker is
+#                    honest about its own hitbox (the 64 px art visually engulfs the
+#                    player long before CATCH_RADIUS fires)
+#   3. the ink     — modulated near-black so it reads as line work over the disc
+func _make_icon(tex_path: String, marker_color: Color) -> Control:
+	var holder := Control.new()
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
+
+	holder.add_child(_disc(ICON_HALF_EXTENT * 2.0 + 8.0, Color(0.04, 0.03, 0.02, 0.9)))
+	holder.add_child(_disc(ICON_HALF_EXTENT * 2.0, marker_color))
+
 	if ResourceLoader.exists(tex_path):
+		var icon := TextureRect.new()
+		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		icon.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
 		icon.texture = load(tex_path)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_SCALE
-	else:
-		var fallback := ColorRect.new()
-		fallback.color = fallback_color
-		fallback.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
-		fallback.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon.add_child(fallback)
-	_playfield.add_child(icon)
-	return icon
+		icon.modulate = Color(0.16, 0.11, 0.06)
+		holder.add_child(icon)
+
+	_playfield.add_child(holder)
+	return holder
 
 
 func _rebuild_wall_visuals() -> void:
