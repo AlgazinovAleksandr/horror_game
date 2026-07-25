@@ -19,7 +19,7 @@ const _LOCK_SCRIPT := preload("res://scripts/combination_lock.gd")
 # DEBUG: see level_1.gd — a survivable apparition re-appears in front of the player
 # every DEBUG_APPAR_INTERVAL seconds while true. Flip false for release.
 const DEBUG_APPARITION := true
-const DEBUG_APPAR_INTERVAL := 45.0
+const DEBUG_APPAR_INTERVAL := 60.0
 
 const CREAK_MIN := 15.0
 const CREAK_MAX := 40.0

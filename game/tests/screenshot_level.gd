@@ -23,6 +23,9 @@ const LAB_SHOTS := [
 	# ~2.55 m. Cart-top props at y~0.9 are 1.7 m BELOW eye level, so stand ~3 m back
 	# or they fall out of the bottom of the frame entirely.
 	[9.5, 10.5, 0.0, 1.0, "12_tray_and_monitor"],
+	# The locker sealing the Records breaker, and the Observation note that unlocks it.
+	[-9.0, 13.0, 0.0, -1.0, "13_records_locker"],
+	[3.75, 16.8, 0.0, -1.0, "14_observation_note"],
 ]
 
 const HOUSE_SHOTS := [

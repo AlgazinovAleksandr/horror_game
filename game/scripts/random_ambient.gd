@@ -3,8 +3,18 @@ extends Node
 # Глобальный менеджер случайных атмосферных событий
 # Зарегистрировать в project.godot как Autoload: RandomAmbient
 
-const MIN_INTERVAL := 5
-const MAX_INTERVAL := 10
+# ⚠️ Was 5-10 s. At that rate this autoload fired a positional scare within 4 m of the
+# player every few seconds, in EVERY level, for 5/8/12 panic a time — a half_scream
+# alone is 24% of the bar. Two 2026-07-26 playtest logs are wall-to-wall with the
+# resulting ~21-24% spikes, and it is the most likely thing a player means by "it
+# appeared right next to me again": at 7 s average it reads as a metronome rather than
+# as an event, and it drowns out the scares the levels script deliberately.
+#
+# At 18-35 s it is punctuation. Note this is GLOBAL — changing it retunes the ambient
+# pressure of all eight levels at once, so re-check any level balanced against the old
+# rate before assuming a difficulty change came from somewhere else.
+const MIN_INTERVAL := 18
+const MAX_INTERVAL := 35
 
 var _timer: float = 0.0
 var _next_trigger: float = 0.0

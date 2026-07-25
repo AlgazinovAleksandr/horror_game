@@ -398,3 +398,180 @@ existing wrong-code buzz SFX (e.g. from `combination_lock.gd`) for a miss.
 5. Update `CLAUDE.md`'s level write-ups for every level whose design changed (Lab breaker/monitor,
    House cellar quest, Backrooms zone2/zone3, KONTUR gate 6/gate 8) to keep the checked-in doc in
    sync with the code.
+
+---
+
+# Round 2 — Level 1 (2026-07-26)
+
+User request, not playtest triage: *"the second light switcher is kind of hidden. In reality, it is
+not"*, and *"the third switcher is located in the dark place… a perfect place to make the player
+scared."* Both shipped; all decisions below were confirmed with the user before implementation.
+
+## 5.1 Records breaker — sealed behind a locker, gated on a note
+
+**Problem.** BUG_FIX 4.1's fix (dead-end wall + a periodic spark/flicker tell) did not hide the
+breaker, it advertised it. The tell was the loudest and brightest thing in Records, so "search the
+room" collapsed into "walk toward the crackle".
+
+**Change.** New `game/scripts/lab_locker.gd` (`class_name LabLocker`). A steel locker stands flush
+against the panel, so it is not merely hard to see — the interaction ray physically stops at the
+locker. Two gates:
+
+1. **Read for it.** `unlocked` flips only when the player reads a new maintenance note on
+   **Observation's south wall** — the opposite corner of the floor, and the only wall there without
+   a doorway, the whiteboard or the one-way mirror on it. `note.gd` gained `signal read` for this
+   (the project had no generic "note was opened" hook, only the bespoke `GameState.twist_read`).
+   Before that, `interact()` prints a flat refusal and nothing else.
+2. **Push it.** A tug-of-war bar fed by mashing **TAB** (new `push_effort` action on `KEY_TAB`)
+   against a constant drain: ~5 presses/s clears it in ~3 s, ~3/s in ~8 s, below ~1.8/s it drains
+   back. Failure just aborts and is retryable; 1.2 panic/s is the only cost.
+
+⚠️ **The gate is HARD and there is deliberately NO pointer to the note.** A player who never searches
+Observation cannot restore power. The old spark tell is **deleted**, not relocated — do not re-add an
+ambient tell to this breaker.
+
+**Notable implementation points.** The push does *not* pause the tree (`beartrap.gd`'s idiom, not
+`maze_chase_ui.gd`'s) — the Lab's blackouts and pipe groans keep running while you are pinned facing
+a wall. `player.freeze_input()` blocks movement *and* look for free, which is the camera pin.
+`ARM_DELAY` is load-bearing: `interact` both starts and cancels the push while `_process` polls
+`Input.is_action_just_pressed`, so without it the opening press cancels on frame one. The player is
+tweened onto a brace mark first, which is what stops the slide passing through them. The Records
+filing-cabinet bank was trimmed 3 → 2 and shifted west to clear the locker's footprint.
+
+## 5.2 BreakerNook — the payoff scare
+
+**Problem.** The most atmospheric spot in the game (far end of a ten-room lightless maze, flashlight
+force-locked) paid off with a lever clunk.
+
+**Change.** Hooked to *that breaker's own* `flipped` — never the shared 3/3 counter, since the player
+picks the order. Beat: the two navigation beacons stop and free the instant the lever throws (the hum
+you walked 50 m by dies with the equipment) → close breathing starts, repositioned every frame to
+1.1 m behind the player's head so it follows them → 5 s later an arc-flare reveals a figure for
+0.15 s → snarl + camera jolt → fullscreen `flash_scare` + 20 panic.
+
+⚠️ **Deliberately survivable.** No rule, no fail state. Flipping this breaker is mandatory and an
+unavoidable event must never coin-flip a death — and a player who cannot *see* a figure materialise
+has no fair way to judge "hold still or flee" (the KONTUR Gate 7 / Backrooms Flood mistake, already
+made twice). The cost is still real: 20 of `PANIC_MAX` 50, then ~50 m back through the maze, where
+panic-sprinting is +6/s with decay suppressed.
+
+## 5.3 Blocking bug found on the way (ISSUES_SOLUTIONS Issue 36)
+
+`_restore_power()` raised **every** lamp's base energy, including the eleven `NO_LAMP_ROOMS` spawned
+at 0.0 — so restoring power floodlit the Morgue (whose entire design is `DarkZone` + beartrap +
+don't-look triggers) and the whole navigate-by-ear wing. `_on_breaker_flipped()` had always carried
+the correct `if entry[1] > 0.0` guard; only this function lacked it. Fixed, and regression-locked.
+
+## 5.4 New assets
+
+| file | destination |
+|---|---|
+| `lab_locker.png` (887x1774) | `game/assets/textures/level_1_lab/` |
+| `lab_nook_figure.png` (1024x1536, **RGBA cutout**) | `game/assets/textures/level_1_lab/` |
+| `lab_nook_face.png` (1672x941) | `game/assets/textures/level_1_lab/` |
+| `locker_shove.wav`, `locker_settle.wav`, `nook_breath.wav` (loop), `nook_scream.wav` | `game/assets/audio/level_1_lab/` |
+
+## 5.5 Verification
+
+```
+Godot --headless --path game --script res://tests/check_lab_locker.gd        # new, 15 checks
+Godot --headless --path game --script res://tests/walk_lab_wing.gd
+Godot --headless --path game --script res://tests/check_wall_overlap.gd -- res://scenes/level_1.tscn
+Godot --path game --script res://tests/check_lab_hint.gd
+Godot --path game --script res://tests/screenshot_nook_scare.gd              # new, renders both scare frames
+```
+
+`check_lab_locker.gd` drives the **real** `push_effort` action via `Input.action_press` rather than
+poking the bar, so a broken keybinding fails it; and it answers "is the breaker behind the locker"
+with a raycast against the built geometry, never with distance arithmetic against `ROOMS`.
+
+⚠️ **Known pre-existing failure, unrelated:** `tests/check_kontur.gd` reports FAIL(3) — two gate
+seals blocking their doorways while shut, and the floor holes Gate 1's `_open_the_void()`
+deliberately makes. Confirmed identical with these changes reverted; not addressed here.
+
+---
+
+## Round 2b — playtest feedback on Round 2 (2026-07-26, same evening)
+
+Eight-minute session, 4 debug captures, peak panic 54%, 0 deaths. Both new features worked
+end to end; all four notes were tuning, not breakage. All four applied.
+
+| # | Note | Change |
+|---|---|---|
+| 1 | *"the creature… spawns quite far away from me. Can we make it appear closer?"* | `apparition.gd`: `APPEAR_DIST` 7.0 → **4.0**, `MIN_DIST` 2.0 → **1.6**, and `FLEE_MARGIN` 0.4 → **0.7** in step (see below). Affects every level |
+| 2 | *"the locker must be completely inactive until I find the note — press E should not even appear"* | New optional **`can_interact()`** hook: `player.gd:_update_interact_prompt()` consults it before showing the prompt *or* setting `_interact_target`, so E does literally nothing. `LabLocker.can_interact()` returns `unlocked and not _done`. The refusal toast is gone |
+| 3 | *"replace the tab with the space… require more effort, currently too simple"* | `push_effort` rebound to **`KEY_SPACE`**. The push now takes **three** full bars (`SHOVES_NEEDED = 3`), each lurching the locker `SHOVE_DIST 0.45 m` and resetting. Per-press and decay rates unchanged — the difficulty is length, not a steeper curve |
+| 4 | *"after the jumpscare we need to turn on the light — very hard to escape the place"* | New `_light_the_wing()`: frees the flashlight-lock zone, calls `unlock_flashlight()`, and fades the ten wing rooms to `WING_LIT_ENERGY 0.5`. The Morgue is explicitly excluded |
+
+**⚠️ `APPEAR_DIST` and `FLEE_MARGIN` are coupled.** Fleeing is measured as *"you are further from
+it than where it spawned, by FLEE_MARGIN"*, so the same margin is far harsher at 4 m than at 7 m.
+An instinctive half-step back is a normal reaction to something appearing on top of you, and at
+0.4 m that reflex alone was a death. Raised to 0.7 alongside the distance cut. Sprinting is still
+an instant fail at any distance, so "Walk. Do not run." is untouched — only the flinch is forgiven.
+
+**On #4 and Issue 36.** Lighting the wing is a deliberate, narrow exception to the rule that
+`NO_LAMP_ROOMS` stay dark. It is justified because the darkness was never the point in itself — it
+is the cost of the navigate-by-ear puzzle, and that puzzle is *solved* the moment the breaker is
+thrown. Keeping the wing black afterwards charged the player twice for the same lock, and the scare
+had made it worse by killing the beacons (their only landmark) at the flip. The Morgue is in the
+same list and must **never** be caught by this exception; `check_lab_locker.gd` asserts both halves.
+
+**Jumpscare audio.** The user supplied `dark_jumpscare.mp3` (3.5 s) for the fullscreen sting. The
+short positional `nook_scream` moved from +0.40 to **+0.25** so the two are 0.30 s apart rather than
+0.15 — the near one reads as *it moved*, the sting as *it's on you*. `NOOK_FLASH_HOLD` 1.0 → 1.6;
+`flash_scare()` never stops its audio, so the tail keeps ringing over the dark room after the image
+drops, and the wing lights come up under it.
+
+`check_lab_locker.gd` grew to **21 checks**. Two of its own bugs were fixed in the process: it
+waited on frame counts for `SceneTreeTimer` chains (headless runs uncapped, so "500 frames" was a
+fraction of the 6.6 s being waited on) and its flashlight-unlock check passed vacuously because the
+test player never entered the wing and so was never locked. Both now wait on elapsed time and set
+up the precondition explicitly.
+
+### Round 2c — scare frequency (2026-07-26)
+
+Second session note: *"The creature spawns next to me but now it is too often. Let's stick to the
+original once in 45 seconds"*, and later *"during this trial I saw apparition more often then each
+45 seconds. Please check."*
+
+**Checked, by measurement rather than by reading the constant.** New `tests/count_apparitions.gd`
+watches the live scene tree for new `Apparition` instances over a 155 s run and prints the real gap:
+
+```
+apparition #2 at t=  45.2 s   (+44.6 s since the last)
+apparition #3 at t=  90.2 s   (+45.0 s since the last)
+apparition #4 at t= 135.2 s   (+45.0 s since the last)
+gaps: min 44.6 s / mean 44.9 s / max 45.0 s
+```
+
+So the loop was firing at exactly its stated 45 s. Two things made it *feel* faster, and both are
+real:
+
+1. **It is not the only source.** The scripted teach encounter is armed by a trigger volume in the
+   main corridor and fires whenever the player first walks in — early in the level it stacks with
+   the timed loop and the two can land within seconds of each other.
+2. **Cutting `APPEAR_DIST` to 4 m raised the *observed* rate without changing the spawn rate.** At
+   7 m a large share of spawns were clamped into walls and never seen; at 4 m nearly all resolve in
+   open view. The player is now seeing apparitions that were always being created.
+
+Raised to **60 s** as requested (`level_1.gd`, `level_2.gd`, `kontur.gd` all carry the constant).
+
+**The actual metronome was `RandomAmbient`.** An autoload that no design doc mentioned and that was
+missing from CLAUDE.md's autoload table entirely: every **5-10 seconds**, in every level, it played
+`floor_creak`/`painting_fall`/`half_scream` at a random point within 4 m of the player and added
+**5 / 8 / 12 panic**. A `half_scream` alone is 24% of `PANIC_MAX`. Both playtest logs are wall-to-wall
+with the resulting 21-24% spikes, and "it appeared right next to me again" describes it better than it
+describes a 45 s timer. Now **18-35 s**. ⚠️ This is global — it retunes ambient pressure in all eight
+levels at once.
+
+### Round 2d — "I think I got stuck in the dark room"
+
+**Not stuck — lost.** New `tests/walk_wing_escape.gd` drops a real `CharacterBody3D` at the exact
+position the log last recorded (`-28.4, 22.7`, deep in NorthVault) and drives it back out under
+gravity: every leg reached, no stall, ends at the Records doorway. The geometry is sound; the player
+was in the north dead-end limb, the branch furthest from the breaker beacon.
+
+**Deliberately left alone.** Offered a second "way home" beacon at the wing mouth, a light spill, or
+dropping the north limb; the user chose *"Leave it — getting lost is the level."* Recorded here so a
+future session does not re-litigate it as a bug. `walk_lab_wing.gd` proves the way in, and
+`walk_wing_escape.gd` now proves the way out, so a genuine trap would still be caught.

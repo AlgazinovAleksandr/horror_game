@@ -1056,3 +1056,42 @@ containing the word "background". Check what a decal's non-subject pixels actual
 concluding the geometry is at fault. And note the parallel with Issue 33: the fix in both cases was
 to stop asking a texture to do a mesh's job, and `rotary_phone.gd` remains the proof that in this
 project silhouette carries a prop while art does not.
+
+## Issue 36 — A "restore" pass raised state its "increment" pass had always known to skip
+
+**Symptom.** Found while adding the BreakerNook payoff scare, not by a playtest: throwing the third
+Lab breaker floodlit the entire ten-room lightless wing *and* the Morgue. The Morgue's whole design
+is a `DarkZone` plus a beartrap plus two don't-look triggers, all staged in a room the player is
+supposed to search by flashlight — and it had been rendering fully lit at the exact moment the
+shutter opened, for the life of the feature. Nobody noticed because you only ever see it after the
+quest that causes it.
+
+**Cause.** `level_1.gd:_spawn_lights()` gives **every** room in `ROOMS` a lamp, handing the eleven
+`NO_LAMP_ROOMS` one at `light_energy = 0.0` — the room is dark because its lamp is off, not because
+it has no lamp. Two functions then drive those lamps, and only one of them knew that:
+
+```gdscript
+func _on_breaker_flipped() -> void:
+    for entry in _lights:
+        if entry[1] > 0.0:              # <- correct
+            entry[1] = minf(RESTORED_ENERGY, entry[1] + 0.18)
+
+func _restore_power() -> void:
+    for entry in _lights:
+        entry[1] = RESTORED_ENERGY      # <- unconditional
+```
+
+The per-breaker *increment* had the guard from the start. The *restore* never did. Both loops walk
+the same array and mean the same thing by it; the guard is the only place that knowledge lives, and
+it was written down once instead of twice.
+
+**Fix.** The same `if entry[1] <= 0.0: continue` in `_restore_power()`, with the reasoning in a
+comment beside it. Locked down by `tests/check_lab_locker.gd`, which calls `_restore_power()` and
+asserts every `NO_LAMP_ROOMS` lamp is still at 0 — a plain assertion, because "is this room dark"
+is a property of the lamp, not of the table that spawned it.
+
+**General lesson.** When a "sentinel" value carries meaning (here `0.0` = *deliberately unlit*), every
+loop over that collection has to honour it, and a partial/incremental writer is not evidence the
+final writer is safe — it is a hint to go read the final writer. Grep for all mutators of a
+collection before trusting any single one of them. The tell that this had never been checked: the
+guard existed verbatim eleven lines above the function that lacked it.

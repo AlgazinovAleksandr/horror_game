@@ -85,7 +85,7 @@ const PHONE_PRESSURE_RATE := 4.5  # panic/s while unresolved and the player is n
 # By level 5 the player has been taught the rule twice already, so this is
 # fatal from the first appearance, same as the Lab/House DEBUG_APPARITION tick.
 const DEBUG_APPARITION := true
-const DEBUG_APPAR_INTERVAL := 45.0
+const DEBUG_APPAR_INTERVAL := 60.0
 
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy]

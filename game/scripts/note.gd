@@ -6,6 +6,16 @@ const INTERACTABLE_LAYER := 2  # pass-through for player; raycast still hits thi
 @export var is_trap: bool = false
 @export var is_twist_note: bool = false
 
+# Emitted when the player opens this note. The only per-note "was it read?" state
+# this project had was the bespoke GameState.twist_read flag, so a puzzle gated on
+# reading a specific note had nowhere to hook. Connect it from the level that spawns
+# the note (see level_1.gd's maintenance note -> LabLocker.unlocked).
+#
+# Deliberately fires on OPEN rather than on NoteUI.closed: these notes are four lines
+# long, and "read to the end" is a mechanic reserved for trap notes, where staying in
+# is what kills you.
+signal read
+
 
 const PAPER_TEX := "res://assets/textures/shared/note_paper.png"
 
@@ -70,4 +80,5 @@ func interact() -> void:
 	if is_twist_note:
 		GameState.twist_read = true
 
+	read.emit()
 	NoteUI.show_note(note_text, TRAP_PANIC_RATE if is_trap else 0.0)

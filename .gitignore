@@ -31,6 +31,9 @@ export/
 
 Game_Demo.mov
 
+generate_sounds.ipynb
+generate_sounds.py
+
 Game_Demo_final.mp4
 
 # Claude Code local settings (personal permissions, not for the shared repo)

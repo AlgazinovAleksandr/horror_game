@@ -24,7 +24,11 @@ enum Rule { HOLD, STARE, LOOKAWAY }
 signal rushed    # emitted when it lunges (flee detected) — for tests / hooks
 signal survived  # emitted when the player held their nerve and it faded
 
-const APPEAR_DIST := 7.0     # metres ahead of the player it materialises
+# ⚠️ 7.0 until the 2026-07-26 playtest: "it spawns quite far away from me. Can we make
+# it appear closer so that it would be more scary". At 7 m it read as a distant figure
+# rather than as something that had just walked up on you. Lowered WITH FLEE_MARGIN
+# raised in step — see the note there; the two must move together.
+const APPEAR_DIST := 4.0     # metres ahead of the player it materialises
 const HOLD_TIME := 6.0       # seconds of nerve (no flee) before it fades — long enough to read
 const DREAD_RATE := 3.0      # panic/s while it stands there — the climb to endure
 const FADE_IN := 0.6
@@ -112,9 +116,16 @@ func _build_figure() -> void:
 	add_child(_quad)
 
 
-const MIN_DIST := 2.0        # never closer than this — spawns a step nearer now
+const MIN_DIST := 1.6        # never closer than this — spawns a step nearer now
 const WALL_MARGIN := 0.5     # stop short of a wall by this much
-const FLEE_MARGIN := 0.4     # any meaningful move away from it counts as fleeing
+# ⚠️ Tied to APPEAR_DIST, and must be re-checked whenever that moves. Fleeing is
+# measured as "you are further away than where it spawned, by this much", so the
+# SAME margin is far harsher at 4 m than it was at 7 m: an instinctive half-step
+# backwards is a normal reaction to something appearing on top of you, and at 0.4 m
+# that reflex alone was a death. Raised to 0.7 alongside the 2026-07-26 distance cut.
+# Sprinting is still an instant fail regardless of distance, so "Walk. Do not run."
+# is untouched — this only forgives the flinch.
+const FLEE_MARGIN := 0.7     # any meaningful move away from it counts as fleeing
 
 
 # Materialise in front of the player, where they're already looking. The spawn

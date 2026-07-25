@@ -21,7 +21,14 @@ const _KEYCARD_SCRIPT := preload("res://scripts/keycard.gd")
 # DEBUG_APPAR_INTERVAL seconds so it's easy to encounter and tune. Flip false for
 # release (the scripted, fires-once taught encounter below still stands).
 const DEBUG_APPARITION := true
-const DEBUG_APPAR_INTERVAL := 45.0
+# 45.0 until 2026-07-26 ("during this trial I saw apparition more often than each 45
+# seconds"). Measured by tests/count_apparitions.gd, the loop was firing at exactly
+# 45.0 s — but it is not the only source. The SCRIPTED teach encounter is armed by a
+# trigger volume in the main corridor and fires whenever the player first walks in, so
+# early in the level the two stack and can land within seconds of each other. Cutting
+# APPEAR_DIST to 4 m compounded it: spawns that used to land inside a wall and go unseen
+# now all resolve in open view, so the felt rate rose without the spawn rate changing.
+const DEBUG_APPAR_INTERVAL := 60.0
 
 const BLACKOUT_DURATION := 1.6
 const KEYCARD_PANIC := 8.0
@@ -56,10 +63,16 @@ var _apparition_fired: bool = false
 var _pa_speaker: AudioStreamPlayer3D
 var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
-# The hidden Records breaker's audio/flicker tell.
-var _breaker_spark_timer: float = 0.0
-var _breaker_spark_pos: Vector3
-var _breaker_spark_light: OmniLight3D
+# The Records breaker: hidden behind a locker the player has to shove aside, and
+# only after finding the maintenance note in the Observation room.
+#
+# ⚠️ There used to be a spark/flicker tell here — a crackle plus a light flash every
+# 8-12 s beside the panel (BUG_FIX.md 4.1). It has been DELETED. It did not hide the
+# breaker, it pointed at it: the tell was the brightest and loudest thing in Records,
+# so "search the room" collapsed into "walk toward the crackle". The locker replaces
+# it with a real search (a note on the far side of the lab) and a real cost (a push).
+# Do not re-add an ambient tell to this breaker.
+var _locker: LabLocker
 
 # BreakerNook: sound-only tell for its breaker, and a flag the debug-apparition
 # tick reads to suppress itself while the player is inside.
@@ -73,6 +86,15 @@ var _breaker_spark_light: OmniLight3D
 var _dark_breaker_timer: float = 0.0
 var _dark_breaker_pos: Vector3
 var _in_breaker_nook: bool = false
+var _beacons: Array[AudioStreamPlayer3D] = []
+
+# The BreakerNook payoff (see _on_nook_breaker_flipped). Flipping the nook's breaker
+# starts a scripted, SURVIVABLE scare on a timer.
+var _nook_scare_done: bool = false
+var _nook_breath: AudioStreamPlayer3D = null
+var _nook_figure: Node3D = null
+var _nook_figure_mat: StandardMaterial3D = null
+var _nook_zone: Area3D = null
 
 
 func _ready() -> void:
@@ -99,7 +121,6 @@ func _ready() -> void:
 	GameState.set_objective("Restore power — flip the breakers (0/3)")
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_scheduled_blackout = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
-	_breaker_spark_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
 	_dark_breaker_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
 
 
@@ -353,6 +374,18 @@ func _spawn_notes() -> void:
 	# "prop on a doorway wall" bug class this project has hit before).
 	_make_note(_builder.wall_point("Records", Vector2(0, 1), 1.4, 0.1), PI,
 		"Night log — the corridor lights fail on their own now. When the dark comes, do not run. Running is how they find you. Stand still. Breathe. It passes.")
+	# The key to the Records breaker, filed as far from it as this floor allows.
+	# Observation's other three walls are taken — west is its only doorway, north
+	# carries the Backrooms whiteboard, east the one-way mirror — so the note goes
+	# on the south wall, which has no doorway and no other prop.
+	#
+	# ⚠️ This note is the ONLY pointer to the locker (the old spark tell is gone) and
+	# the gate on it is HARD: a player who never searches Observation cannot restore
+	# power. That is deliberate and was confirmed with the user. Do not soften it into
+	# a hint toast without asking first.
+	var maint := _make_note(_builder.wall_point("Observation", Vector2(0, -1), 1.4, 0.16), 0.0,
+		"MAINTENANCE — SUB-PANEL B (RECORDS)\n\nRecords is a mess. When they re-shelved it, the steel locker went flat against the sub-panel and nobody has touched it since.\n\nIf the mains ever go, you are not getting that breaker back without shifting the locker. Two of us could not do it quickly. Brace against it and PUSH — keep pushing. It moves in fits, and it slides back the moment you stop.\n\n— R. Volkov, facilities")
+	maint.read.connect(_on_maintenance_note_read)
 	# KONTUR HINT 1/4 — the answer to KONTUR's Gate 1 (the two doors). Deliberately
 	# filed in the morgue: you only find it if you look around a room that is
 	# actively trying to kill you. See kontur.gd.
@@ -360,7 +393,13 @@ func _spawn_notes() -> void:
 		"K.O.N.T.U.R. — INTERNAL CIRCULAR 12/4\n(This page does not belong to this facility.)\n\n...evacuation from a Class-II Object follows Protocol 4-B. Personnel leave by the door marked in BLACK.\n\nRed seals denote contained growth. A red seal is not an exit. A red seal opened from the inside has never once been closed again.\n\nFiled: Barkhan-9. Do not remove from the archive.")
 
 
-func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> void:
+func _on_maintenance_note_read() -> void:
+	if not is_instance_valid(_locker):
+		return
+	_locker.unlocked = true
+
+
+func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> StaticBody3D:
 	var note := StaticBody3D.new()
 	note.set_script(_NOTE_SCRIPT)
 	note.note_text = text
@@ -381,22 +420,23 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> void
 	shape.size = Vector3(0.4, 0.5, 0.12)
 	col.shape = shape
 	note.add_child(col)
+	return note
 
 
 # ---------------------------------------------------------------- power quest
 
 func _spawn_power_quest() -> void:
-	# Three breakers, three difficulty tiers. Exam1 sits in the open, lit, on the
-	# wall centre — obvious on sight. Records is the odd one out (BUG_FIX.md 4.1,
-	# "too simple, add a moment of searching"): moved off the doorway-facing wall
-	# onto the room's other dead-end wall, findable by a spark/flicker tell
-	# (_tick_breaker_spark). Exam2's breaker (formerly also "obvious on sight") now
-	# lives in BreakerNook at the far end of the lightless wing — findable by sound
-	# alone (see _spawn_dark_beacon below).
+	# Three breakers, three difficulty tiers, and each tier is a different VERB.
+	#   Exam1       — see it. In the open, lit, on the wall centre; obvious on sight.
+	#   Records     — read for it. Sealed behind a locker that only becomes movable
+	#                 once the Observation maintenance note has been read, then shoved
+	#                 aside with a TAB tug-of-war (see lab_locker.gd).
+	#   BreakerNook — hear it. Far end of the lightless ten-room wing with the
+	#                 flashlight force-locked; found by beacon alone (_spawn_dark_beacon).
 	#
-	# ⚠️ None of these three self-illuminate any more. breaker.gd used to wear its
-	# own art as an emission texture, which made even the "hidden" Records one the
-	# brightest object in the level (playtest capture #1).
+	# ⚠️ None of these three self-illuminate. breaker.gd used to wear its own art as
+	# an emission texture, which made even the "hidden" Records one the brightest
+	# object in the level (playtest capture #1).
 	var exam1 := Breaker.new()
 	exam1.position = _builder.wall_point("Exam1", Vector2(-1, 0), 1.3, 0.15)
 	exam1.rotation.y = PI / 2.0
@@ -409,7 +449,7 @@ func _spawn_power_quest() -> void:
 	hidden.rotation.y = 0.0
 	hidden.flipped.connect(_on_breaker_flipped)
 	add_child(hidden)
-	_spawn_breaker_spark_tell(hidden_pos)
+	_spawn_records_locker(hidden_pos)
 
 	var dark_pos: Vector3 = _builder.wall_point("BreakerNook", Vector2(-1, 0), 1.1, 0.15)
 	var dark := Breaker.new()
@@ -420,6 +460,10 @@ func _spawn_power_quest() -> void:
 	# whole time. This is the only breaker in the level that must not glow.
 	dark.glows = false
 	dark.flipped.connect(_on_breaker_flipped)
+	# Hooked to THIS breaker's own signal, not to the shared 3/3 counter: the player
+	# picks the order they throw the three, so "the third one flipped" is not
+	# necessarily the one standing in the dark.
+	dark.flipped.connect(_on_nook_breaker_flipped)
 	add_child(dark)
 	_spawn_dark_beacon(dark_pos)
 	_spawn_breaker_nook_zone()
@@ -450,6 +494,33 @@ func _spawn_power_quest() -> void:
 	add_child(_morgue_shutter)
 
 
+# The locker that seals the Records breaker. Positioned off the breaker's own
+# wall_point so the two can never drift apart.
+#
+# Geometry, all derived from the breaker rather than typed in by hand: the panel is
+# 0.12 deep (front face at breaker_z + 0.06) and its collider 0.3 deep (front face at
+# breaker_z + 0.15). The locker's back face sits flush against that collider, which
+# leaves 0.09 m of air in front of the visible panel — enough that the two never
+# z-fight, close enough that an interaction ray from the room always hits the locker
+# first. It slides along +X into the empty east half of Records; the filing-cabinet
+# bank in _spawn_room_props() was trimmed to two units to clear its start position.
+const LOCKER_GAP := 0.15         # breaker collider half-depth — the locker sits on it
+const LOCKER_LIFT := 1.0         # locker origin height (half of LabLocker.SIZE.y)
+
+func _spawn_records_locker(breaker_pos: Vector3) -> void:
+	_locker = LabLocker.new()
+	_locker.name = "RecordsLocker"
+	_locker.position = Vector3(
+		breaker_pos.x,
+		LOCKER_LIFT,
+		breaker_pos.z + LOCKER_GAP + LabLocker.SIZE.z / 2.0)
+	_locker.moved.connect(func() -> void:
+		ScreenText.toast(get_tree(), "A breaker panel. Behind the locker all along.",
+			Color(0.55, 0.95, 0.6), 2.6)
+	)
+	add_child(_locker)
+
+
 func _on_breaker_flipped() -> void:
 	_breakers_flipped += 1
 	# Each throw lifts the emergency glow a little.
@@ -466,6 +537,14 @@ func _restore_power() -> void:
 	_power_on = true
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
+		# ⚠️ Skip the rooms that were spawned dark. _spawn_lights() gives every room in
+		# ROOMS a lamp and hands NO_LAMP_ROOMS one at energy 0.0; this loop used to
+		# raise ALL of them to RESTORED_ENERGY, which floodlit the Morgue — whose whole
+		# design is DarkZone + beartrap + don't-look triggers — and the entire ten-room
+		# lightless wing. _on_breaker_flipped() has always had this guard; only this
+		# function was missing it. See ISSUES_SOLUTIONS Issue 36.
+		if entry[1] <= 0.0:
+			continue
 		entry[1] = RESTORED_ENERGY
 		lamp.light_color = Color(0.9, 0.94, 0.9)
 		var t := create_tween()
@@ -811,9 +890,14 @@ func _spawn_room_props() -> void:
 		var c: Vector3 = _builder.room_center(room)
 		_make_prop(Vector3(c.x, 0.45, c.z), Vector3(0.9, 0.9, 2.0), Color(0.6, 0.62, 0.64))
 	# Records: a bank of filing cabinets along the back wall + a warning sign.
+	# ⚠️ TWO cabinets, not three, and shifted west. The bank used to span x -11.35..-9.05
+	# at z 9.8..10.4, which is exactly where the RecordsLocker now stands (x -9.5..-8.5,
+	# z 9.8..10.3) — the third unit intersected it. At x -11.1 / -10.3 the bank spans
+	# -11.45..-9.95, leaving 0.45 m clear of both the west wall's inner face and the
+	# locker. If the locker ever moves, re-derive this.
 	var rc: Vector3 = _builder.room_center("Records")
-	for i in range(3):
-		_make_prop(Vector3(rc.x - 2.0 + i * 0.8, 0.65, rc.z - 2.4),
+	for i in range(2):
+		_make_prop(Vector3(rc.x - 2.1 + i * 0.8, 0.65, rc.z - 2.4),
 			Vector3(0.7, 1.3, 0.6), Color(0.28, 0.3, 0.27))
 	# Warning sign, on the NORTH wall (moved off the west wall alongside the note
 	# above — west now carries the BreakerNook doorway, new feature).
@@ -957,8 +1041,8 @@ func _process(delta: float) -> void:
 	_tick_pipes(delta)
 	_drive_lights(delta)
 	_tick_debug_apparition(delta)
-	_tick_breaker_spark(delta)
 	_tick_dark_breaker_tell(delta)
+	_tick_nook_breath()
 
 
 func _tick_debug_apparition(delta: float) -> void:
@@ -999,35 +1083,6 @@ func _tick_pipes(delta: float) -> void:
 	if _pipe_timer <= 0.0:
 		_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 		_play_at("pipe_groan", _random_room_point(1.6), 0.0)
-
-
-# A small, off-by-default light beside the hidden Records breaker. _tick_breaker_spark
-# flicks it on and plays a crackle every 8-12s — the audio/visual tell that finds it
-# without the room needing to spotlight it (BUG_FIX.md 4.1).
-func _spawn_breaker_spark_tell(pos: Vector3) -> void:
-	_breaker_spark_pos = pos
-	var light := OmniLight3D.new()
-	light.position = pos + Vector3(0.15, 0.1, 0.0)
-	light.light_color = Color(0.75, 0.85, 1.0)
-	light.light_energy = 0.0
-	light.omni_range = 2.5
-	add_child(light)
-	_breaker_spark_light = light
-
-
-func _tick_breaker_spark(delta: float) -> void:
-	_breaker_spark_timer -= delta
-	if _breaker_spark_timer > 0.0:
-		return
-	_breaker_spark_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
-	_play_at("breaker_spark", _breaker_spark_pos, -2.0)
-	if not is_instance_valid(_breaker_spark_light):
-		return
-	var tw := create_tween()
-	tw.tween_property(_breaker_spark_light, "light_energy", 1.4, 0.03)
-	tw.tween_property(_breaker_spark_light, "light_energy", 0.0, 0.05)
-	tw.tween_property(_breaker_spark_light, "light_energy", 0.9, 0.03)
-	tw.tween_property(_breaker_spark_light, "light_energy", 0.0, 0.12)
 
 
 # BreakerNook's tell: sound only — there's nothing to flicker in total darkness,
@@ -1081,6 +1136,7 @@ func _add_beacon_layer(base_name: String, pos: Vector3, unit: float, vol: float)
 	pl.position = pos
 	pl.finished.connect(pl.play)
 	pl.play()
+	_beacons.append(pl)
 
 
 # The old spark transient stays on top of the beacon as flavour — an occasional
@@ -1092,6 +1148,282 @@ func _tick_dark_breaker_tell(delta: float) -> void:
 		return
 	_dark_breaker_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
 	_play_at("breaker_spark", _dark_breaker_pos, -2.0)
+
+
+# ---------------------------------------------------------------- the nook payoff
+
+# BreakerNook is the most atmospheric spot in the game — the far end of a ten-room
+# lightless maze with the flashlight force-locked — and it used to pay off with a
+# lever clunk. This is the payoff.
+#
+# It is deliberately SURVIVABLE: no rule to obey, no fail state, one flash_scare and
+# a panic bill. An unavoidable event (you cannot finish the level without flipping
+# this breaker) must never coin-flip a death, and a player who cannot SEE a figure
+# materialise has no fair way to judge "hold still or flee" — the double-jeopardy
+# mistake KONTUR Gate 7 and the Backrooms Flood each made once. That is also why
+# _tick_debug_apparition() suppresses the roaming fatal apparition for this whole
+# wing; this beat does not stack with it.
+#
+# The cost is real, though: 20 panic against a PANIC_MAX of 50, followed by ~50 m of
+# walking back through the maze in the dark. Sprinting out is +6/s with decay
+# suppressed, which is exactly the mistake the level's own briefing note warns about.
+const NOOK_SCARE_DELAY := 5.0    # breathing behind you, then this
+const NOOK_REVEAL_TIME := 0.15   # how long the arc-flare holds the figure visible
+# Two sounds, staggered so they read as one event rather than mush: a SHORT positional
+# lunge at the figure (nook_scream, 1.2 s, in-world so it carries a direction), then the
+# fullscreen sting. 0.15 s apart put one scream directly under the other; 0.30 s lets
+# the first land as "it moved" before the second lands as "it's on you".
+const NOOK_SNARL_AT := 0.25      # after the reveal starts
+const NOOK_FLASH_AT := 0.55
+# The headline jumpscare sound (user-supplied, 3.5 s .mp3). The hold is the time the
+# fullscreen image stays up, NOT the clip length — flash_scare() never stops the audio,
+# so the tail deliberately keeps ringing over the dark room after the picture drops.
+const NOOK_FLASH_AUDIO := "dark_jumpscare"
+const NOOK_FLASH_HOLD := 1.6
+const NOOK_SCARE_PANIC := 20.0
+const NOOK_BREATH_BEHIND := 1.1  # metres behind the player's head
+const NOOK_FAN_DEG := [0.0, 90.0, -90.0, 180.0]
+const NOOK_MIN_CLEAR := 1.8
+
+
+func _on_nook_breaker_flipped() -> void:
+	if _nook_scare_done:
+		return
+	_nook_scare_done = true
+
+	# The beacon dies with the equipment it was coming from. The player navigated
+	# ~50 m by this hum; losing it the instant they succeed is both diegetic and the
+	# first thing that tells them something has changed.
+	for b in _beacons:
+		if is_instance_valid(b):
+			b.finished.disconnect(b.play)
+			b.stop()
+			b.queue_free()
+	_beacons.clear()
+
+	_nook_breath = AudioStreamPlayer3D.new()
+	_nook_breath.name = "NookBreath"
+	var s := GameState.load_audio("nook_breath")
+	if s:
+		_nook_breath.stream = s
+		# Looped by re-triggering: every .wav.import in this project is loop_mode=0
+		# except fluorescent_hum, so the node has to restart itself.
+		_nook_breath.finished.connect(_nook_breath.play)
+	_nook_breath.unit_size = 3.0   # tight falloff — it must read as right behind the head
+	_nook_breath.volume_db = -4.0
+	add_child(_nook_breath)
+	if _nook_breath.stream:
+		_nook_breath.play()
+
+	get_tree().create_timer(NOOK_SCARE_DELAY).timeout.connect(_nook_reveal)
+
+
+# Keeps the breathing pinned just behind the player's head, so it follows if they
+# start walking out rather than staying at the breaker.
+func _tick_nook_breath() -> void:
+	if not is_instance_valid(_nook_breath):
+		return
+	var p := _player()
+	if not p:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if not cam:
+		return
+	var back := cam.global_transform.basis.z
+	back.y = 0.0
+	if back.length() < 0.001:
+		return
+	_nook_breath.global_position = p.global_position \
+		+ back.normalized() * NOOK_BREATH_BEHIND + Vector3(0, 1.5, 0)
+
+
+func _nook_reveal() -> void:
+	if not is_inside_tree():
+		return
+	var p := _player()
+	if not p:
+		return
+
+	var spot := _place_nook_figure(p)
+	_build_nook_figure(spot)
+
+	# A single arc-flare. The figure is UNSHADED, so it cannot be lit by this light —
+	# unshaded materials ignore lights entirely, and nothing in this project casts
+	# shadows anyway. Its alpha is driven instead, and the flare exists to throw the
+	# surrounding walls into relief so the moment reads as a burst, not a fade-in.
+	var flare := OmniLight3D.new()
+	flare.position = spot + Vector3(0, 1.6, 0)
+	flare.light_color = Color(0.8, 0.88, 1.0)
+	flare.light_energy = 0.0
+	flare.omni_range = 6.0
+	add_child(flare)
+
+	var ft := create_tween()
+	ft.tween_property(flare, "light_energy", 4.0, 0.02)
+	ft.tween_property(flare, "light_energy", 1.2, 0.05)
+	ft.tween_property(flare, "light_energy", 3.0, 0.02)
+	ft.tween_property(flare, "light_energy", 0.0, NOOK_REVEAL_TIME)
+	ft.finished.connect(flare.queue_free)
+
+	if _nook_figure_mat:
+		var at := create_tween()
+		at.tween_property(_nook_figure_mat, "albedo_color:a", 1.0, 0.06)
+		at.tween_interval(NOOK_REVEAL_TIME)
+		at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.12)
+
+	get_tree().create_timer(NOOK_SNARL_AT).timeout.connect(func() -> void:
+		if not is_inside_tree():
+			return
+		_play_at("nook_scream", spot + Vector3(0, 1.5, 0), -2.0)
+		var pl := _player()
+		if pl:
+			pl.jolt_camera(0.12, 0.45)
+	)
+
+	get_tree().create_timer(NOOK_FLASH_AT).timeout.connect(func() -> void:
+		if not is_inside_tree():
+			return
+		Screamer.flash_scare(TEX + "lab_nook_face.png", NOOK_FLASH_AUDIO, NOOK_FLASH_HOLD)
+		var pl := _player()
+		if pl:
+			pl.add_panic(NOOK_SCARE_PANIC)
+	)
+
+	# The lights come up as soon as the picture drops — the sting's tail is still going,
+	# which is the point: you can see the way out while it is still screaming at you.
+	get_tree().create_timer(NOOK_FLASH_AT + NOOK_FLASH_HOLD).timeout.connect(_nook_cleanup)
+
+
+# Where the figure stands. The player has just thrown a breaker on BreakerNook's WEST
+# wall, so there is barely a metre of clearance dead ahead and a naive forward spawn
+# lands inside the wall (the bug apparition.gd:appear() raycast-clamps around). Fan
+# out — ahead, either side, then behind — and take the first direction with real room.
+# In practice that puts it BEHIND them, between them and the way out, which is the
+# right read anyway.
+func _place_nook_figure(p: CharacterBody3D) -> Vector3:
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
+	var fwd := -(cam.global_transform.basis.z if cam else p.global_transform.basis.z)
+	fwd.y = 0.0
+	if fwd.length() < 0.001:
+		fwd = Vector3(0, 0, -1)
+	fwd = fwd.normalized()
+
+	var space := get_world_3d().direct_space_state
+	var best_dir := -fwd
+	var best_dist := 1.5
+	for deg in NOOK_FAN_DEG:
+		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+		var q := PhysicsRayQueryParameters3D.create(eye, eye + dir * 3.2)
+		q.exclude = [p.get_rid()]
+		var hit := space.intersect_ray(q)
+		var clear: float = 3.2 if hit.is_empty() else eye.distance_to(hit.position)
+		if clear >= NOOK_MIN_CLEAR:
+			best_dir = dir
+			best_dist = clampf(clear - 0.6, 1.2, 2.5)
+			break
+
+	var spot := p.global_position + best_dir * best_dist
+	spot.y = 0.0   # the whole Lab floor is y=0; the quad carries its own height
+	return spot
+
+
+func _build_nook_figure(spot: Vector3) -> void:
+	_nook_figure = Node3D.new()
+	_nook_figure.name = "NookFigure"
+	_nook_figure.position = spot
+	add_child(_nook_figure)
+
+	var quad := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(1.5, 2.3)
+	quad.mesh = qm
+	quad.position.y = 1.15
+
+	var mat := StandardMaterial3D.new()
+	# ⚠️ Must be a transparent PNG. A figure on an opaque background billboards as a
+	# solid rectangle floating in the dark — the bug that shipped once as
+	# apparition_figure.jpg. lab_nook_figure.png is RGBA and 75% transparent.
+	var tex_path := TEX + "lab_nook_figure.png"
+	if not ResourceLoader.exists(tex_path):
+		tex_path = TEX + "apparition_figure.png"
+	if ResourceLoader.exists(tex_path):
+		var tex := load(tex_path)
+		mat.albedo_texture = tex
+		mat.emission_enabled = true
+		mat.emission_texture = tex
+		mat.emission_energy_multiplier = 1.2
+	else:
+		mat.albedo_color = Color(0.75, 0.75, 0.72)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.albedo_color.a = 0.0   # invisible until the flare drives it
+	quad.set_surface_override_material(0, mat)
+	_nook_figure_mat = mat
+	_nook_figure.add_child(quad)
+
+
+func _nook_cleanup() -> void:
+	if is_instance_valid(_nook_figure):
+		_nook_figure.queue_free()
+	_nook_figure = null
+	_nook_figure_mat = null
+	if is_instance_valid(_nook_breath):
+		if _nook_breath.finished.is_connected(_nook_breath.play):
+			_nook_breath.finished.disconnect(_nook_breath.play)
+		_nook_breath.stop()
+		_nook_breath.queue_free()
+	_nook_breath = null
+	_light_the_wing()
+
+
+# The wing goes from lightless to dimly lit once the scare resolves, and the flashlight
+# lock is released for good.
+#
+# Playtest 2026-07-26: "after the jumpscare we need to turn on the light — because very
+# hard to escape the place." The log backs it up — 110 s of wandering afterwards, ending
+# in NorthVault, a dead end. Part of that is this feature's own doing: throwing the
+# breaker kills the beacons, so the scare takes away the only landmark the player had
+# and then asks them to walk 50 m back through a maze in the dark.
+#
+# The darkness was never the point in itself — it is the cost of the navigate-by-ear
+# puzzle, and that puzzle is SOLVED the moment this breaker is thrown. Keeping the wing
+# black afterwards charges the player twice for the same lock.
+#
+# ⚠️ This is a deliberate, narrow exception to Issue 36's rule that NO_LAMP_ROOMS stay
+# dark. It covers the TEN WING ROOMS ONLY. The Morgue is also in NO_LAMP_ROOMS and must
+# stay pitch black — its DarkZone, its beartrap and its two don't-look triggers are all
+# staged for a room you search by torchlight.
+const WING_ROOMS := [
+	"DarkCorridor", "Junction", "WestCorridor", "Plant",
+	"NorthSpur", "NorthVault", "SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
+]
+const WING_LIT_ENERGY := 0.5     # dim emergency level — enough to navigate, not to feel safe
+const WING_LIGHT_FADE := 1.5
+
+func _light_the_wing() -> void:
+	# Release the flashlight lock first, and kill the zone so re-entering can't re-lock
+	# it. unlock_flashlight() only clears the flag — the player still presses F.
+	if is_instance_valid(_nook_zone):
+		_nook_zone.queue_free()
+	_nook_zone = null
+	_in_breaker_nook = false
+	var p := _player()
+	if p and p.has_method("unlock_flashlight"):
+		p.unlock_flashlight()
+
+	for entry in _lights:
+		var lamp: OmniLight3D = entry[0]
+		if not WING_ROOMS.has(String(lamp.name).trim_prefix("Lamp_")):
+			continue
+		entry[1] = WING_LIT_ENERGY
+		lamp.light_color = Color(0.75, 0.82, 0.9)
+		var t := create_tween()
+		t.tween_property(lamp, "light_energy", WING_LIT_ENERGY, WING_LIGHT_FADE)
+
+	ScreenText.toast(get_tree(), "The wing's lights come up. Get out.",
+		Color(0.7, 0.85, 1.0), 3.0)
 
 
 # Flashlight lock/unlock for the DarkCorridor+BreakerNook pair, symmetric on
@@ -1114,6 +1446,7 @@ func _tick_dark_breaker_tell(delta: float) -> void:
 func _spawn_breaker_nook_zone() -> void:
 	var h: float = _builder.room_height("BreakerNook")
 	var zone := Area3D.new()
+	_nook_zone = zone
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(25.0, h, 19.8)

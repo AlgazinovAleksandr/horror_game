@@ -554,4 +554,21 @@ func _update_interact_prompt() -> void:
 		interact_label.visible = true  # always "press E to come out" while hidden
 		return
 	_interact_target = _get_raycast_target()
-	interact_label.visible = _interact_target != null and _interact_target.has_method("interact")
+	if not _is_interactable(_interact_target):
+		_interact_target = null
+	interact_label.visible = _interact_target != null
+
+
+# A prop is interactable if it has interact() — and, optionally, if it says so.
+#
+# The optional can_interact() lets a prop be *completely* inert rather than merely
+# refusing: no "Press E", no target, so E does nothing at all. Added for the Lab's
+# LabLocker, which must read as scenery until the Observation note names it (playtest
+# 2026-07-26: "the locker must be completely inactive until I find the note — press E
+# should not even appear"). Props without the method behave exactly as before.
+func _is_interactable(node: Node) -> bool:
+	if node == null or not node.has_method("interact"):
+		return false
+	if node.has_method("can_interact"):
+		return node.can_interact()
+	return true
