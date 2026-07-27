@@ -63,8 +63,22 @@ func _process(_delta: float) -> bool:
 		String(door.get("locked_message")).to_lower().contains("switch"),
 		"'%s'" % door.get("locked_message"))
 
-	print("--- switch thrown, note still unread ---")
+	# The switch STICKS on the first press (2026-07-28, "the ward is occupied"): one tube
+	# at the far end stutters alight for 0.4 s and dies. Asserted here because it is a gate
+	# behaviour, not just dressing — if a stuck press threw the switch, the beat is gone.
+	print("--- switch pressed ONCE: it sticks ---")
+	_ok("the switch wants more than one press",
+		int(switch_node.get("presses_needed")) > 1,
+		"presses_needed = %s" % switch_node.get("presses_needed"))
 	switch_node.call("interact")
+	_ok("a stuck press does NOT throw it", door.call("_is_unlocked") == false)
+	_ok("and the message still points at the switch",
+		String(door.get("locked_message")).to_lower().contains("switch"),
+		"'%s'" % door.get("locked_message"))
+
+	print("--- switch thrown, note still unread ---")
+	for _i in range(int(switch_node.get("presses_needed"))):
+		switch_node.call("interact")
 	_ok("door is STILL locked", door.call("_is_unlocked") == false,
 		"<- BACKLOG #12: this used to open here")
 	_ok("message now points at the note",

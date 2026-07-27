@@ -257,6 +257,11 @@ func _start_escape() -> void:
 	_escaping = true
 	_escape_timer = ESCAPE_TIME
 	_escape_presses = 0
+	# Mark the player busy WITHOUT freezing input — the limp-and-look is the beartrap's
+	# design. This is only so ApparitionDirector and JournalUI can see the QTE; the
+	# protection they both document did not exist before (GAME_MECHANICS_IDEAS §3(e)).
+	if _body_ref and _body_ref.has_method("begin_qte"):
+		_body_ref.begin_qte()
 	_build_escape_ui()
 
 
@@ -284,6 +289,7 @@ func _process(delta: float) -> void:
 func _escape_success() -> void:
 	_escaping = false
 	_drop_ui()
+	_end_qte()
 	if _body_ref and _body_ref.has_method("cancel_slow"):
 		_body_ref.cancel_slow()
 
@@ -291,8 +297,16 @@ func _escape_success() -> void:
 func _escape_fail() -> void:
 	_escaping = false
 	_drop_ui()
+	# Cleared BEFORE the panic hit: add_panic() can fire the screamer at >= PANIC_MAX,
+	# and the flag must not survive into the reloaded scene's fairness checks.
+	_end_qte()
 	if _body_ref and _body_ref.has_method("add_panic"):
 		_body_ref.add_panic(ESCAPE_FAIL_PANIC)
+
+
+func _end_qte() -> void:
+	if _body_ref and is_instance_valid(_body_ref) and _body_ref.has_method("end_qte"):
+		_body_ref.end_qte()
 
 
 func _drop_ui() -> void:

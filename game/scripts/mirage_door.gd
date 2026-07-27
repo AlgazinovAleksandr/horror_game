@@ -60,6 +60,13 @@ func interact() -> void:
 	var tween := create_tween()
 	tween.tween_property(_hinge, "rotation:y", deg_to_rad(105.0), 0.5) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	var player := get_parent().get_node_or_null("Player")
+	# ⚠️ This used to be `get_parent().get_node_or_null("Player")`, which only ever
+	# worked in Zone 1, where the parent IS the scene root. The Sprawl's two mirage
+	# doors are parented to `ZoneSprawl`, which has no Player child, so they silently
+	# dealt ZERO panic for the whole life of Zone 2. The group lookup is the fallback
+	# living_mirror.gd:89-91 already uses, and player.gd:78 joins "player" in _ready().
+	var player := get_parent().get_node_or_null("Player") as CharacterBody3D
+	if not player:
+		player = get_tree().get_first_node_in_group("player") as CharacterBody3D
 	if player and player.has_method("add_panic"):
 		player.add_panic(PANIC)

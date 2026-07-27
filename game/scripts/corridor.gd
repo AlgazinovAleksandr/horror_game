@@ -79,6 +79,8 @@ You will.
 
 Walk. Do not run. Do not stop for the things you hear behind you. The lights have been paid for where they still burn — rest beneath them.
 
+One of the rooms on this floor is occupied. We are not permitted to say which, and we are not permitted to say when the guest will step out. It has happened before. It will happen once tonight.
+
 Room 217 is waiting.
 
 — The Management"""
@@ -112,8 +114,46 @@ func _ready() -> void:
 	_start_ambience()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 	RandomAmbient.register_player(_player)
+	_pick_silent_mirror()
+	_spawn_apparition_director()
+	# SCARY.md P2's stop-delayed echo. Two extra steps after the player halts: they stop,
+	# and something behind them takes two more strides and stops too. Zero panic. This is
+	# the first level other than the Backrooms to use the echo at all.
+	_player.enable_footstep_echo(2)
 	GameState.set_objective("Find room 217 — keep walking, do not run")
 	_place_player()
+
+
+# One of the three turn mirrors does not flash this run. See the note in _process.
+func _pick_silent_mirror() -> void:
+	if _turn_mirrors.size() < 2:
+		return
+	_turn_mirrors[randi() % _turn_mirrors.size()]["flashes"] = false
+
+
+# The Corridor was the ONLY level with an ApparitionDirector-shaped hole — the Lab, the
+# House, KONTUR and the Backrooms Flood all get the shared HOLD apparition and this level
+# never did, despite having 140 m of Zone B to fill.
+#
+# ⚠️ Suppressed in two places, both for Issue-18 double-jeopardy reasons:
+#   * 145-172 m, the dark zone with the four beartraps in it. A HOLD apparition kills you
+#     for fleeing, and a player clamped at 45 % speed mashing E cannot demonstrate that they
+#     are standing their ground. (`is_input_frozen()` now covers the beartrap QTE as well —
+#     that was Phase 0's fourth fix — but keeping the whole stretch clear is the belt to its
+#     braces, since the trap can also be stepped on a moment after the spawn.)
+#   * past 260 m, the DreadZone, where decay is cancelled so every point is permanent, and
+#     where the noclip force-kills the flashlight with no player agency at all.
+func _spawn_apparition_director() -> void:
+	if not RANDOM_APPARITIONS:
+		return
+	var director := ApparitionDirector.new()
+	director.name = "ApparitionDirector"
+	director.suppress = func() -> bool:
+		var d := _furthest_reached
+		if d >= DARK_ZONES[0].x - 5.0 and d <= DARK_ZONES[0].y + 5.0:
+			return true
+		return d >= DREAD_ZONE.x
+	add_child(director)
 
 
 # ---------------------------------------------------------------- progress snapshot
@@ -129,8 +169,52 @@ func _ready() -> void:
 # the player straight back to the Backrooms they were trying to leave.
 const RETURN_MARGIN := 14.0
 
+# --- "the hotel wakes up behind you" (2026-07-28) --------------------------------------
+# Measured dead stretches before this pass: 90-138 m had NOTHING in it (48 m, ~12 s of pure
+# walking), and 288-310 m was 22 m of decals with the DreadZone's rates cancelling exactly,
+# so panic could not even move. Zone C had no lit torch after 214 m and no calm zone at all.
+#
+# Everything here is panic-neutral except the apparition, which the user approved
+# explicitly. The Manager's existing 25 is RE-HOMED rather than added to.
+const DOOR_BEHIND_DIST := 10.0     # how far past a door before it may open
+const DOOR_AJAR_MIN := 24.0        # degrees
+const DOOR_AJAR_MAX := 38.0
+const DOOR_SWING_TIME := 1.6       # slow, and silent — see AjarDoor.swing_ajar()
+const DOOR_SLAM_LEAD := 22.0       # metres past the ajar door before it slams
+const DOOR_VIEW_DOT := 0.35        # above this the player is looking at it; do not move it
+
+# P4 The False Ceiling. Five telegraphs across Zone B; FOUR are followed by nothing at all.
+const TELEGRAPH_AT: Array[float] = [104.0, 126.0, 150.0, 178.0, 206.0]
+const TELEGRAPH_PAYOFF_DELAY := 0.9
+
+# The last stretch goes silent (P5's spatial cousin) instead of staying merely quiet.
+const HUSH_AT := 296.0
+
+# Whether this level arms random apparitions. Same const-plus-director split as
+# level_1/level_2/kontur: the level says WHETHER, ApparitionDirector owns WHEN.
+const RANDOM_APPARITIONS := true
+
+var _ajar_doors: Array[Dictionary] = []
+var _slam_index: int = -1
+var _slam_dist: float = -1.0
+var _watcher_door: int = -1
+var _telegraph_payoff: int = 0     # which of the five actually delivers, per run
+var _telegraphs_fired: int = 0
+var _hushed: bool = false
+
+
 func save_progress() -> Dictionary:
-	return {"furthest": _furthest_reached, "manager_fired": _manager_fired}
+	return {
+		"furthest": _furthest_reached,
+		"manager_fired": _manager_fired,
+		# ⚠️ P4's payoff index must persist. Re-rolling it on a back-door return would let a
+		# player who already learned which telegraph delivers meet a different one, which is
+		# the opposite of the anti-habituation the whole mechanic exists for.
+		"telegraph_payoff": _telegraph_payoff,
+		"telegraphs_fired": _telegraphs_fired,
+		# Which mirrors carry a flash is also drawn per run (see _spawn_turn_mirror).
+		"mirror_flash": _turn_mirrors.map(func(m: Dictionary) -> bool: return bool(m.get("flashes", true))),
+	}
 
 
 func _place_player() -> void:
@@ -147,6 +231,11 @@ func _place_player() -> void:
 	# Face back the way they came, toward the exit — they re-entered through it.
 	_player.rotation.y = atan2(pt.dir.x, pt.dir.z)
 	_manager_fired = bool(data.get("manager_fired", false))
+	_telegraph_payoff = int(data.get("telegraph_payoff", _telegraph_payoff))
+	_telegraphs_fired = int(data.get("telegraphs_fired", 0))
+	var flags: Array = data.get("mirror_flash", [])
+	for i in mini(flags.size(), _turn_mirrors.size()):
+		_turn_mirrors[i]["flashes"] = bool(flags[i])
 
 
 func _process(_delta: float) -> void:
@@ -161,9 +250,100 @@ func _process(_delta: float) -> void:
 		var mp: Vector3 = m.pos
 		if Vector2(pp.x - mp.x, pp.z - mp.z).length() <= TURN_MIRROR_SCARE_DIST:
 			m.fired = true
+			# ⚠️ Only SOME mirrors flash, drawn per run (_spawn_turn_mirror). The mirror sits
+			# 1.45 m past each corner, so a normal turn ALWAYS trips it — three identical
+			# 12-panic flashes at 90/230/275 m was textbook habituation by the third corner.
+			# The panic is unchanged where it fires; one corner is now simply a corner.
+			if not bool(m.get("flashes", true)):
+				continue
 			Screamer.flash_scare(TURN_MIRROR_SCARE_PATH, "glass_shatter", 0.6)
 			_player.jolt_camera(0.07, 0.5)
 			_player.add_panic(TURN_MIRROR_PANIC)
+
+	_tick_doors()
+	_tick_hush()
+
+
+# THE ANCHOR: doors you have already walked past open behind you.
+#
+# ⚠️ SILENTLY, and that is the mechanic. A creak at the moment of opening would give the
+# player something to attribute it to and make this an event; without one it is a
+# discrepancy, and it works RETROACTIVELY — one door standing ajar makes every door already
+# passed a question. (Condemned's mannequins, via SCARY.md P6.)
+#
+# ⚠️ Also gated on not being looked at. The door must never move in view: a prop visibly
+# swinging on its own is a different, cheaper effect, and this level has no supernatural
+# register to spend yet at 90 m.
+func _tick_doors() -> void:
+	var here := _furthest_reached
+	for d in _ajar_doors:
+		var node: AjarDoor = d.node
+		if not is_instance_valid(node):
+			continue
+		if not bool(d.opened):
+			if here < float(d.dist) + DOOR_BEHIND_DIST:
+				continue
+			if _looking_at(node.global_position):
+				continue
+			d.opened = true
+			node.swing_ajar(randf_range(DOOR_AJAR_MIN, DOOR_AJAR_MAX), DOOR_SWING_TIME)
+			# One door in Zone B has someone standing in it. No rules, no panic, no sound,
+			# gone when you look again — and BEHIND the player, per the "never scare from
+			# the front" placement clause (GAME_MECHANICS_IDEAS N1).
+			if int(d.dist) == _watcher_door:
+				var pt := _path_point(float(d.dist))
+				Watcher.spawn(self, (pt.pos as Vector3) + (pt.side as Vector3) * 1.1,
+					"res://assets/textures/shared/watcher_figure.png", 4.0)
+		elif _slam_index >= 0 and int(d.dist) == _slam_index and here >= _slam_dist:
+			# The one that is HEARD. By now the player has probably already noticed doors
+			# standing open, so the slam lands as confirmation rather than as a jump.
+			_slam_index = -1
+			_play_at("door_slam", node.global_position + Vector3(0, 1.0, 0), 0.0)
+			node.slam()
+
+
+func _looking_at(target: Vector3) -> bool:
+	var cam := _player.get_node_or_null("Camera3D") as Camera3D
+	if not cam:
+		return false
+	var to_it := target - cam.global_position
+	to_it.y = 0.0
+	var fwd := -cam.global_basis.z
+	fwd.y = 0.0
+	if to_it.length() < 0.05 or fwd.length() < 0.05:
+		return true      # degenerate: assume visible and leave the door alone
+	return fwd.normalized().dot(to_it.normalized()) > DOOR_VIEW_DOT
+
+
+# The last 22 m before the noclip were mechanically frozen and content-free. They get the
+# one thing this level has never had: silence. The whisper loop and the ambient bed die, and
+# the player's own footsteps — on the un-duckable Body bus — are all that is left for the
+# walk into the drop.
+func _tick_hush() -> void:
+	if _hushed or _furthest_reached < HUSH_AT:
+		return
+	_hushed = true
+	var idx := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if idx == -1:
+		return
+	var tw := create_tween()
+	tw.tween_method(func(v: float) -> void: AudioServer.set_bus_volume_db(idx, v),
+		AudioServer.get_bus_volume_db(idx), -40.0, 3.0)
+
+
+# P4 — the telegraph that usually means nothing, plus N3's announced-but-unbounded window.
+#
+# Four of the five fire and are followed by NOTHING AT ALL. The fifth, drawn per run, is
+# followed 0.9 s later by the Manager's EXISTING flash_scare — so a 25-panic startle becomes
+# a ~100 m dread structure at zero additional panic cost. A non-event cannot be unfair,
+# which makes this the cheapest legal scare in the whole document.
+func _telegraph(index: int) -> void:
+	_telegraphs_fired += 1
+	_play_at("telegraph_groan", _player.global_position + Vector3(0, 1.6, 0), -4.0)
+	HoldBreath.dip(get_tree(), 1.2)
+	if index != _telegraph_payoff:
+		return                     # …and nothing happens. Four times out of five.
+	get_tree().create_timer(TELEGRAPH_PAYOFF_DELAY).timeout.connect(_ev_manager)
 
 
 # ---------------------------------------------------------------- path helpers
@@ -358,16 +538,33 @@ func _spawn_panels() -> void:
 	# Locked hotel room doors that knock back, plus plain decor doors for atmosphere.
 	for fd in [[35.0, -1.0], [130.0, 1.0], [252.0, 1.0]]:
 		_spawn_fake_door(fd[0], fd[1])
+	# ⚠️ These six were flat, inert `QuadMesh`es glued to the wallpaper — pure decor, with
+	# no way to open because there was nothing there to open. They are real hinged doors
+	# now, which gives the level the one rule a haunted hotel corridor has always wanted:
+	# doors you have already walked past open behind you. See _tick_doors().
 	for dd in [[18.0, 1.0], [72.0, -1.0], [112.0, 1.0], [164.0, -1.0], [210.0, 1.0], [300.0, -1.0]]:
-		_spawn_quad(_panel_transform(dd[0], dd[1], 1.05), Vector2(1.3, 2.1),
-			TEX_DIR + "ordinary_hotel_door.png")
+		# 0.14 of depth inset clears the wall (see _panel_transform), and the hinge is
+		# shifted half a width along the wall so the door stays centred where the old flat
+		# decal was — AjarDoor's panel extends from its origin along local +x.
+		var xf := _panel_transform(dd[0], dd[1], 0.0, 0.14) \
+			.translated_local(Vector3(-AjarDoor.WIDTH / 2.0, 0.0, 0.0))
+		var d := AjarDoor.build(self, xf, TEX_DIR + "ordinary_hotel_door.png")
+		d.name = "AjarDoor_%d" % int(dd[0])
+		_ajar_doors.append({ "node": d, "dist": float(dd[0]), "opened": false })
 
 
 # Transform flush against the wall at `dist` on `side`, quad facing inward.
-func _panel_transform(dist: float, side: float, y_center: float) -> Transform3D:
+#
+# `depth_inset` is how far the origin sits IN from the wall's inner face. 0.02 is right for
+# a zero-thickness decal quad, but anything with real depth needs more: an AjarDoor's art
+# quads sit 0.054 off its own centre, so at 0.02 they would end up 3 cm INSIDE the wall and
+# trip check_wall_overlap.gd's "every QuadMesh is at least 2 cm clear of every CSG box".
+func _panel_transform(dist: float, side: float, y_center: float,
+		depth_inset: float = 0.02) -> Transform3D:
 	var pt := _path_point(dist)
 	var inward: Vector3 = -(pt.side as Vector3) * side
-	var pos: Vector3 = pt.pos + (pt.side as Vector3) * side * (W / 2.0 - 0.02) + Vector3(0, y_center, 0)
+	var pos: Vector3 = pt.pos + (pt.side as Vector3) * side * (W / 2.0 - depth_inset) \
+		+ Vector3(0, y_center, 0)
 	return Transform3D(Basis(Vector3.UP, atan2(inward.x, inward.z)), pos)
 
 
@@ -401,7 +598,10 @@ func _spawn_turn_mirror(corner_dist: float, intensity: float) -> void:
 	var face := -dir_in
 	var xform := Transform3D(Basis(Vector3.UP, atan2(face.x, face.z)), pos)
 	_make_cursed_panel_at(xform, Vector2(1.4, 1.95), TURN_MIRROR_SCARE_PATH, intensity)
-	_turn_mirrors.append({ "pos": pos, "fired": false })
+	# `flashes` is decided in _pick_silent_mirror() once all three exist — one corner per run
+	# is a corner and nothing else. The GAZE panel is untouched either way, so a player who
+	# stops and stares at the silent mirror still pays for it.
+	_turn_mirrors.append({ "pos": pos, "fired": false, "flashes": true })
 
 
 # Build a gaze-panic panel (StaticBody + textured quad + collision + ScaryObject)
@@ -621,6 +821,65 @@ func _spawn_intro_note() -> void:
 	col.shape = shape
 	note.add_child(col)
 
+	_spawn_nightmare_plate()
+
+
+# NIGHTMARE HINT 3/3 — and DUNGEON_NIGHTMARES.md §B2 calls it "the single most
+# important hint in the game".
+#
+# THE NIGHTMARE's flagship tell is that the ambient bed and the music CUT OUT when a
+# primary entity spawns. That is a mechanic made of an ABSENCE, and an absence
+# cannot teach itself: a player who has never been told that the music is a signal
+# hears silence and assumes the audio broke. The level does have a one-shot in-level
+# scrawl for it, but a hint planted four levels earlier — in a place the player has
+# already walked, that means nothing at the time — is the KONTUR pattern and by far
+# the better version.
+#
+# Deliberately a NOTE rather than one of the wall-panel decals: notes are archived
+# in the TAB journal, and a hint the player has to still remember four levels later
+# needs to be re-readable. It is also why it is not in Zone C's near-black stretch.
+func _spawn_nightmare_plate() -> void:
+	const D := 250.0
+	var pt := _path_point(D)
+	var pos: Vector3 = pt.pos + (pt.side as Vector3) * (W / 2.0 - 0.12) + Vector3(0, 1.55, 0)
+
+	var plate := StaticBody3D.new()
+	plate.name = "LowerFloorsPlate"
+	plate.set_script(_NOTE_SCRIPT)
+	plate.note_text = "HOTEL VESPER — NOTICE TO NIGHT STAFF\n\n" \
+		+ "WE STOPPED PLAYING MUSIC ON THE LOWER FLOORS.\n\n" \
+		+ "The subjects complained they couldn't hear it stop.\n\n" \
+		+ "Anyone working below the third landing is reminded that the absence of " \
+		+ "the score is not a fault of the system. Do not report it. Do not go " \
+		+ "looking for the fault. Stand still and listen to what is left."
+	plate.position = pos
+	plate.rotation.y = atan2((pt.side as Vector3).x, (pt.side as Vector3).z)
+	add_child(plate)
+
+	# A brass-ish wall plate. Faint emission only — enough to be findable in a
+	# corridor lit at ~0.45, and well under 1.0 so it cannot clamp to flat white
+	# (Issue 21). The BODY carries it because this prop has no separate art quad.
+	var mesh := MeshInstance3D.new()
+	mesh.name = "PlateMesh"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.46, 0.30, 0.02)
+	mesh.mesh = bm
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.20, 0.17, 0.09)
+	brass.metallic = 0.5
+	brass.roughness = 0.55
+	brass.emission_enabled = true
+	brass.emission = Color(0.55, 0.46, 0.24)
+	brass.emission_energy_multiplier = 0.3
+	mesh.set_surface_override_material(0, brass)
+	plate.add_child(mesh)
+
+	var pcol := CollisionShape3D.new()
+	var pshape := BoxShape3D.new()
+	pshape.size = Vector3(0.5, 0.36, 0.14)
+	pcol.shape = pshape
+	plate.add_child(pcol)
+
 
 # ---------------------------------------------------------------- events
 
@@ -634,8 +893,27 @@ func _spawn_events() -> void:
 	_spawn_event(205.0, _ev_silhouette)
 	_spawn_event(235.0, _ev_whisper_loop)
 	_spawn_event(250.0, _ev_floor_crack)
-	# The Manager strikes once when you pass a random mid-hall point.
-	_spawn_event(randf_range(MANAGER_DIST.x, MANAGER_DIST.y), _ev_manager)
+
+	# ⚠️ The Manager no longer gets a `_spawn_event` of its own. It used to drop at
+	# randf_range(80, 180) and fire COLD — a hard cut to a fullscreen image, which is F1's
+	# diagnosis exactly. It is now the payoff of ONE of five identical telegraphs
+	# (see _telegraph), so the same 25 panic buys ~100 m of dread instead of 0.85 s of
+	# startle. MANAGER_DIST is retained only as the window TELEGRAPH_AT sits inside.
+	_telegraph_payoff = randi() % TELEGRAPH_AT.size()
+	for i in TELEGRAPH_AT.size():
+		_spawn_event(TELEGRAPH_AT[i], _telegraph.bind(i))
+
+	# Which door slams, and which one has someone standing in it. Both drawn from the
+	# Zone-B doors only (90-230 m), the stretch this pass exists to fill.
+	var zone_b: Array[int] = []
+	for d in _ajar_doors:
+		var dist: float = float(d.dist)
+		if dist >= 90.0 and dist <= 230.0:
+			zone_b.append(int(dist))
+	if not zone_b.is_empty():
+		_slam_index = zone_b.pick_random()
+		_slam_dist = float(_slam_index) + DOOR_SLAM_LEAD
+		_watcher_door = zone_b.pick_random()
 
 
 # ---------------------------------------------------------------- the noclip
@@ -831,6 +1109,7 @@ func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if not ambient:
 		return
+	ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
 	var s := GameState.load_audio("ghost_house")
 	if s:
 		ambient.stream = s

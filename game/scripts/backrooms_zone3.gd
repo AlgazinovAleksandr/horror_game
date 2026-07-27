@@ -27,12 +27,19 @@ const WADE_SLOW := 0.6             # refreshed every frame while submerged
 # A DreadZone's decay (2.0) and pressure (2.0) cancel EXACTLY, so dread alone leaves
 # the bar frozen — no threat at all in the level's finale. This is the zone's own
 # slow drip on top, the way CreatureSmiler drives its own curve. Deliberately small:
-# from the 35% entry cap it allows roughly a minute of searching, which is about one
+# from the entry cap (`backrooms.gd:ZONE_ENTRY_PANIC_CAP`, 25% — this comment said 35%
+# until 2026-07-27) it allows roughly a minute of searching, which is about one
 # unhurried sweep of the wing, and the dry platform's CalmZone still nets negative so
 # there is somewhere to recover. Pressure everywhere, exactly one island.
 # 0.5 left ~65 s, but playtest showed a first-time player needs ~90-120 s to sweep
 # the wing and find the Sump. 0.3 gives ~125 s from the entry cap.
 const DREAD_DRIP := 0.3            # panic per second, flashlight-independent
+
+# The tide line, well above head height — the water was once much deeper than this.
+const TIDE_Y := 2.35
+const TIDE_LEN := 7.0
+
+var _wader: UnseenWader = null
 
 var spawn_point: Vector3
 
@@ -79,7 +86,60 @@ func build(origin: Vector3, player: Node3D) -> void:
 	_build_digit_notes()
 	_build_seams()
 	_build_pressure()
+	_build_tide_marks()
+	_build_wader()
+	# The player's own footfalls become wading, which is what makes the unseen wader legible:
+	# what you hear out in the dark has to be audibly the same act you are performing.
+	var wade := GameState.load_audio("wade_step")
+	if wade and _player and _player.has_method("set_footstep_stream"):
+		_player.set_footstep_stream(wade)
 	set_process(true)
+
+
+# SCARY.md P10 — never rendered, never resolving. It patrols the room graph's own centres, so
+# it is always somewhere that is actually a room rather than inside the geometry.
+func _build_wader() -> void:
+	var centres: Array[Vector3] = []
+	for r in ROOMS:
+		var p: Vector2 = r["pos"]
+		centres.append(_origin + Vector3(p.x, 0.9, p.y))
+	_wader = UnseenWader.build(self, centres)
+
+
+# A tide line well above head height in the two rooms that most need a reason to exist: the
+# Descent (a 4x8 corridor on the MANDATORY route that was completely empty) and the Throat (an
+# empty 4x8 dead end whose only function was holding one apparition).
+#
+# It says the water was once far deeper than it is now, which is the cheapest possible way to
+# make a flooded wing feel like it has a history.
+func _build_tide_marks() -> void:
+	var tex := "res://assets/textures/level_backrooms/flood_tide_mark.png"
+	for spec in [["Descent", Vector2(1, 0)], ["Descent", Vector2(-1, 0)],
+			["Throat", Vector2(1, 0)], ["Throat", Vector2(-1, 0)]]:
+		var room: String = spec[0]
+		var side: Vector2 = spec[1]
+		# wall_point() clamps its own minimum clearance (Issue 26), and a flat decal only
+		# needs the house-style 0.16.
+		var pos: Vector3 = _builder.wall_point(room, side, TIDE_Y, 0.16)
+		var quad := MeshInstance3D.new()
+		quad.name = "TideMark_%s_%d" % [room, int(side.x)]
+		var qm := QuadMesh.new()
+		qm.size = Vector2(TIDE_LEN, 0.34)
+		quad.mesh = qm
+		var m := StandardMaterial3D.new()
+		if ResourceLoader.exists(tex):
+			m.albedo_texture = load(tex)
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		else:
+			# Flat-tinted fallback: a dark waterline stain. No emission (Issue 8.8) — it is
+			# scenery, and scenery in this level must not out-shine the seam tell.
+			m.albedo_color = Color(0.10, 0.12, 0.11)
+		m.roughness = 1.0
+		quad.set_surface_override_material(0, m)
+		quad.position = pos
+		# Face into the room: side (1,0) is the east wall, so its decal turns to -x.
+		quad.rotation.y = -PI / 2.0 if side.x > 0 else PI / 2.0
+		add_child(quad)
 
 
 func _build_rooms() -> void:
@@ -181,9 +241,16 @@ func _exit_tree() -> void:
 # source anywhere in the game, and both digits are written down HERE, in the Flood, in
 # the same shape the House uses for its lock: one digit per note, deliberately split.
 #
-# Placement is the point. Both notes are in the SIDE RUNS — the short east/west
-# corridors off the Basin — not on the route from the Descent to the Sump. A player who
-# walks the main line and takes the seam never sees either. That is the intent (this
+# Placement is the point. Both notes are OFF THE MANDATORY ROUTE — the Throat is a dead end
+# and EastRun is a side run — so a player who walks the main line from the Descent and takes
+# the Sump seam never sees either.
+#
+# ⚠️ That was only half true until 2026-07-28: note A sat on WestRun, which is the ONLY
+# corridor into the Sump (this file says so itself further down, where it explains why two of
+# three beartraps were removed from the forced path), so the first digit was unmissable. Fixed
+# by moving it to the Throat — see _build_digit_notes().
+#
+# That is the intent (this
 # level is entered before KONTUR, and the whole design of KONTUR is "the answers are
 # not inside it"), and it is why the notes journal exists: a player who read them in
 # passing can re-read them at the lock instead of walking two levels back.
@@ -218,8 +285,16 @@ func _build_digit_notes() -> void:
 	# doorway-free. Inset 0.22: wall_point() measures from the room's NOMINAL boundary
 	# and the wall's inner face is T/2 (0.1) inside that, so 0.22 leaves ~12 cm of
 	# clearance (Issue 26 — at 0.10 a wall prop is exactly coplanar and gets sliced).
-	_make_note("DigitNote_WestRun",
-		_builder.wall_point("WestRun", Vector2(-1, 0), 1.4, 0.22), PI / 2.0, DIGIT_NOTE_A)
+	# ⚠️ MOVED 2026-07-28: note A used to be on WestRun's west face, and WestRun is the ONLY
+	# corridor into the Sump — so the first digit was UNMISSABLE and only the second was
+	# actually hidden. KONTUR's roster gate was rebuilt (BACKLOG #24) precisely so that both
+	# digits require having searched this wing; half a code is half a rebuild. It now lives on
+	# the Throat's north face, a true dead end reached only by leaving the route.
+	#
+	# Both walls are still doorway-free: the Throat (x -2..2, z 19..27) is entered from its
+	# SOUTH wall only, and EastRun from its west and north.
+	_make_note("DigitNote_Throat",
+		_builder.wall_point("Throat", Vector2(0, 1), 1.4, 0.22), PI, DIGIT_NOTE_A)
 	_make_note("DigitNote_EastRun",
 		_builder.wall_point("EastRun", Vector2(1, 0), 1.4, 0.22), -PI / 2.0, DIGIT_NOTE_B)
 
@@ -403,6 +478,13 @@ func _process(delta: float) -> void:
 	if submerged:
 		_player.apply_slow(WADE_SLOW)
 		_player.add_panic(DREAD_DRIP * delta)
+
+	# Tell the wader whether the player is wading. It does not sample this itself — the wade
+	# footprint test above is the zone's business, and duplicating it would let the two
+	# disagree about when the player has stopped, which is the entire beat.
+	if is_instance_valid(_wader):
+		var moving: bool = submerged and _player.get_horizontal_speed() > 0.35
+		_wader.set_player_wading(moving)
 
 	# Drips on top of the bed, for texture. ⚠️ `local` is player-minus-origin, but this
 	# node is ALREADY at `origin`, so a child placed at `local` lands at origin+local —

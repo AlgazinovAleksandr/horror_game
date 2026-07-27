@@ -21,12 +21,20 @@ const LEVEL_SCREAMERS := {
 	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "all_levels_screamer"],
 	5: ["res://assets/textures/level_5_kontur/screamer_kontur.png", "kontur_scream"],
 	6: ["res://assets/textures/level_6_breach/level_6_jumpscare.jpg", "level_6_jumpscare"],
-	7: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
+	# 7 = THE NIGHTMARE. ⚠️ screamer_dungeon lives in level_9_dungeon/, NOT in
+	# screamers/ — that folder is DirAccess-scanned as the random fallback pool for
+	# the intro and ending only (the screamer_hotel.png precedent).
+	7: ["res://assets/textures/level_9_dungeon/screamer_dungeon.png", "screamer_dungeon"],
+	8: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
 }
 
 const FALLBACK_AUDIO := "all_levels_screamer"  # intro / ending levels with no dedicated scream
 
 const RESTART_DELAY := 2.5
+# How long the world goes quiet around a survivable scare (SCARY.md P5). Deliberately
+# short: this is a held breath, not a SilenceZone. Only applies to flash_scare() — a fatal
+# trigger() reloads the scene anyway, so silence before it would be silence before nothing.
+const PRE_SCARE_SILENCE := 0.6
 
 
 func _ready() -> void:
@@ -168,6 +176,21 @@ func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> v
 	if _is_triggering or _is_flashing:
 		return
 	_is_flashing = true
+
+	# SCARY.md P5 — the pre-scare silence dip. Two lines, and it improves EVERY survivable
+	# scare in the game at once: the House forest window, the Corridor Manager, the three
+	# turn mirrors, the Lab nook payoff, all eight KONTUR strike flashes, every Backrooms
+	# wrong wall. F.E.A.R.'s entire audio thesis is that the silence before the hit is what
+	# makes the hit; the longest telegraph this game had before it was 0.22 s
+	# (apparition.gd:TELEGRAPH_TIME) and everything else was a hard cut.
+	#
+	# ⚠️ Fire-and-forget, deliberately NOT awaited. Awaiting it would delay the image and
+	# the sting by the whole dip, which is the opposite of the effect — the world drops out
+	# from under the scare, it does not queue ahead of it. The dip outlives this function
+	# on its own node (parented to the tree root), and it ducks only "Ambience", so the
+	# heartbeat on "Body" keeps going. See hold_breath.gd and audio_buses.gd.
+	HoldBreath.dip(get_tree(), PRE_SCARE_SILENCE)
+
 	if ResourceLoader.exists(image_path):
 		_screamer_image.texture = load(image_path)
 	var stream := GameState.load_audio(audio_base)

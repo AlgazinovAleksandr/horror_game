@@ -42,7 +42,8 @@ Ask the user where to start if they haven't said. Scenes:
 | 4 Backrooms | `res://scenes/backrooms.tscn` | 3 zones in one scene |
 | 5 KONTUR | `res://scenes/kontur.tscn` | |
 | 6 The Breach | `res://scenes/level_6_breach.tscn` | Object 12 pursuit level |
-| 7 The Void | `res://scenes/level_3.tscn` | ⚠️ name does not match the level number |
+| 7 THE NIGHTMARE | `res://scenes/dungeon.tscn` | ⚠️ DIFFERENT EVERY LOAD — pin it with `-- --dungeon-seed N` or a finding is not reproducible. See `.claude/agents/dungeon-tester.md` |
+| 8 The Void | `res://scenes/level_3.tscn` | ⚠️ name does not match the level number |
 | Menu | `res://scenes/main_menu.tscn` | |
 
 Starting mid-game means the player has **none** of the earlier levels' context. KONTUR in particular

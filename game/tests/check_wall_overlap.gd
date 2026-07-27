@@ -70,6 +70,18 @@ func _process(_delta: float) -> bool:
 	bad += _check_wall_props(boxes)
 	print("WALL-OVERLAP result: %d overlapping pair(s)" % bad)
 	print("WALL-OVERLAP %s" % ("PASS" if bad == 0 else "FAIL"))
+	# ⚠️ This used to just `return true`, never calling quit(), so the process exited
+	# 0 whatever it found — the assertion CLAUDE.md calls "run this before calling any
+	# procedurally-built level done" could not actually fail the suite. It printed
+	# "WALL-OVERLAP FAIL" into a green column. Fixed 2026-07-27.
+	# Also report the counts so run_tests.sh's pass-line grep shows the sample size:
+	# a scene that failed to build has 0 boxes and would otherwise "pass" silently.
+	print("  %d checks, %d failed" % [boxes.size(), bad])
+	if boxes.size() == 0:
+		print("  FAIL no CSG boxes found — did %s fail to build?" % _scene)
+		quit(1)
+		return true
+	quit(0 if bad == 0 else 1)
 	return true
 
 

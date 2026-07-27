@@ -7,7 +7,7 @@ signal carried_changed(item: String)    # drives the "CARRYING: …" HUD line
 var current_objective: String = ""       # current level goal shown to the player
 var carried_item: String = ""            # "" | "cellar key" | "vinegar" | "hammer" | …
 
-var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=backrooms, 5=kontur, 6=breach, 7=void, 8=ending
+var current_level: int = 0       # 0=intro, 1=lab, 2=house, 3=corridor, 4=backrooms, 5=kontur, 6=breach, 7=nightmare, 8=void, 9=ending
 var has_keycard: bool = false     # Level 1 unlock item
 var level2_code: String = "472"  # Combination lock answer for Level 2
 var level2_code_correct: bool = false  # Set to true by combination_lock.gd on correct entry
@@ -38,9 +38,24 @@ const SCENE_CORRIDOR := "res://scenes/corridor.tscn"
 const SCENE_BACKROOMS := "res://scenes/backrooms.tscn"
 const SCENE_KONTUR  := "res://scenes/kontur.tscn"
 const SCENE_LEVEL_6_BREACH := "res://scenes/level_6_breach.tscn"   # Object 12, loose
+# ⚠️ Unnumbered on purpose, like corridor/backrooms/kontur. DUNGEON_NIGHTMARES.md
+# specs THE NIGHTMARE as "level 9" in the eventual 12-level order, but three of the
+# levels ahead of it are unbuilt, so today it is level 7. Naming the script/scene
+# `dungeon` rather than `level_9_dungeon` means the future renumber renames nothing.
+# (The ASSET folders stay `level_9_dungeon/` — renaming those would break every
+# .import UID, and asset folder numbers already track identity not index.)
+const SCENE_DUNGEON := "res://scenes/dungeon.tscn"   # THE NIGHTMARE
 const SCENE_LEVEL_3 := "res://scenes/level_3.tscn"   # The Void
 const SCENE_ENDING  := "res://scenes/ending.tscn"
 const SCENE_MAIN_MENU := "res://scenes/main_menu.tscn"
+
+
+func _ready() -> void:
+	# Autoloads initialise before any scene's _ready(), so this is the one place guaranteed
+	# to run before a player or a level routes audio anywhere. Without it, setting
+	# `bus = "Body"` logs an error and silently falls back to Master — which would put the
+	# heartbeat back on the duckable path and break every silence effect. See audio_buses.gd.
+	AudioBuses.ensure_core()
 
 
 func reset_level_state() -> void:
@@ -148,8 +163,9 @@ func start_current_level() -> void:
 		4: get_tree().change_scene_to_file(SCENE_BACKROOMS)
 		5: get_tree().change_scene_to_file(SCENE_KONTUR)
 		6: get_tree().change_scene_to_file(SCENE_LEVEL_6_BREACH)
-		7: get_tree().change_scene_to_file(SCENE_LEVEL_3)
-		8: get_tree().change_scene_to_file(SCENE_ENDING)
+		7: get_tree().change_scene_to_file(SCENE_DUNGEON)
+		8: get_tree().change_scene_to_file(SCENE_LEVEL_3)
+		9: get_tree().change_scene_to_file(SCENE_ENDING)
 		_: get_tree().change_scene_to_file(SCENE_INTRO)
 
 func advance_level() -> void:
@@ -158,7 +174,11 @@ func advance_level() -> void:
 	current_level += 1
 	start_current_level()
 
-const AUDIO_SUBDIRS := ["shared", "level_1_lab", "level_2_house", "level_3_corridor", "level_backrooms", "level_5_kontur", "level_6_breach", "level_4_void", "intro"]
+# ⚠️ This list is not derived from the filesystem — a new audio folder is INVISIBLE
+# until it is added here, and load_audio() will silently return null for every file
+# in it. Also note the extension loop is outermost in load_audio(), so a .wav in any
+# subdir beats a .ogg in the right one: base names must be globally unique.
+const AUDIO_SUBDIRS := ["shared", "level_1_lab", "level_2_house", "level_3_corridor", "level_backrooms", "level_5_kontur", "level_6_breach", "level_9_dungeon", "level_4_void", "intro"]
 
 # Try loading an audio file by base name — searches all audio subdirectories.
 static func load_audio(base_name: String) -> AudioStream:

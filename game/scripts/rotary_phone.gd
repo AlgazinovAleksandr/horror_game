@@ -41,6 +41,15 @@ signal smashed
 # reads as "distant". KONTUR needs the opposite: Gate 6 is "ignore the phone", so the
 # ring has to be an unmistakable, sustained temptation heard for a whole room's
 # length. It overrides both to a real recorded ring at full level.
+# Backrooms Zone 2 (the Sprawl) reuses this phone ALREADY OFF THE HOOK: it never rings, and
+# instead leaks `phone_whisper` continuously at low level from an alcove. Something else
+# answered it. Defaults true so zone 1's and KONTUR's phones are completely unaffected.
+#
+# ⚠️ Pair it with `open_note = false`. A silent phone that still opened a read-to-die note on
+# E would be a trap with no tell at all, which is §8.11 (never punish a scare the player could
+# not have seen coming).
+@export var rings: bool = true
+
 @export var ring_audio: String = "rotary_ring"
 @export var ring_volume_db: float = RING_VOLUME_DB
 # Larger unit_size = audible from further away before distance attenuation bites.
@@ -126,6 +135,12 @@ func _build_mesh() -> void:
 
 func _process(delta: float) -> void:
 	if _answered or _smashed:
+		return
+	if not rings:
+		# Off the hook: a continuous, quiet leak instead of a ring. Self-restarted, because
+		# every .wav.import in this project is loop_mode=0.
+		if _whisper_player.stream and not _whisper_player.playing:
+			_whisper_player.play()
 		return
 	_ring_timer -= delta
 	if _ring_timer <= 0.0:

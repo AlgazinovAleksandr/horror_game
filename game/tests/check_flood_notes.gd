@@ -20,8 +20,14 @@ extends SceneTree
 
 const ZONE3_ORIGIN := Vector3(-200, 0, 0)
 # Room centres from backrooms_zone3.gd's ROOMS table, in zone-local space.
+# Where each digit note lives, so the visibility ray below starts from the right room's
+# centre. ⚠️ Note A moved WestRun -> Throat on 2026-07-28: WestRun is the ONLY corridor into
+# the Sump, so the first digit was unmissable and only the second was actually hidden, which
+# half-defeated BACKLOG #24's whole point (KONTUR's roster code must require having searched
+# this wing). Both entries here are now genuinely off the mandatory route — the Throat is a
+# dead end and EastRun is a side run.
 const ROOMS := {
-	"WestRun": Vector3(-9, 0, 15),
+	"Throat": Vector3(0, 0, 23),
 	"EastRun": Vector3(9, 0, 15),
 }
 

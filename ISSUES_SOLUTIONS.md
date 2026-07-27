@@ -1243,3 +1243,139 @@ top-down ray through the figure's own column, and a 16-ray horizontal fan for el
 concave collider. And when an implementation and its test disagree about the same
 coordinates, write the throwaway probe — the argument from first principles had been
 confidently wrong for three rounds before the probe settled it in one run.
+
+---
+
+## Issue 41 — RoomBuilder emits COINCIDENT wall slabs when abutting rooms have different heights
+
+**Symptom.** Would have been the "merging textures" bug again, at scale, in every
+corridor-to-chamber doorway of THE NIGHTMARE. Caught before it shipped.
+
+**Where it came from.** `DUNGEON_NIGHTMARES.md` §B6 step 6 asks for `h = 3.2`
+chambers and `h = 2.6` corridors, on the reasoning that "the height change alone
+makes chambers feel like rooms". `RoomBuilder` has supported a per-room `"h"` key
+for its whole life, so this looked free.
+
+**Root cause.** `RoomBuilder._emit_wall_segment()` tracks which stretches of a wall
+plane are already built in `_built_walls`, keyed:
+
+```gdscript
+var key := "%s|%.2f|%.2f" % [axis, fixed, h]     # room_builder.gd:228
+```
+
+The key includes the HEIGHT. Two abutting rooms share a wall plane, so with equal
+heights the second room's wall is correctly subtracted away by the first's. With
+different heights they get **different keys**, both rooms build, and the shared
+stretch ends up with a 3.2 m slab and a 2.6 m slab occupying the same space.
+
+**Why nobody had hit it.** ⚠️ **No shipped level uses per-room `h` at all.** Every
+`ROOMS` table in the project is uniform, so the interval dedup had only ever been
+exercised in the one case where the height component of the key is constant.
+
+**How it was measured** (`tests/probe_mixed_height.gd`, kept as the evidence):
+a two-room fixture, a 3.2 chamber abutting a 2.6 corridor on `z = 4`.
+
+```
+MIXED-HEIGHT slabs on the shared plane z=4: 4   (1 = deduped, 2 = both emitted)
+MIXED-HEIGHT result: 2 coincident-face pair(s)
+MIXED-HEIGHT CONFLICT CONFIRMED
+```
+
+**Fix.** Every room in the dungeon is ONE height. The chamber/corridor contrast is
+delivered instead by a separate drop-ceiling `CSGBox3D` hung over each corridor at
+2.6 m (`dungeon.gd:_add_corridor_drop_ceilings()`) — 0.6 m clear of the builder's
+own ceiling, so nothing is coplanar and the read is the same.
+
+**General lesson.** A builder option that no level has ever used is not a supported
+feature, it is an untested one. Before designing around a key you have not seen in a
+`ROOMS` table, build the two-room fixture and look.
+
+---
+
+## Issue 42 — The image-generation pipeline cannot produce an alpha channel at all
+
+**Symptom.** Two textures generated explicitly as cutouts — a blood smear on glass
+and an iron grate, both prompted with "fully transparent background, clean alpha
+channel" — came back fully opaque, with the background painted in.
+
+**Root cause.** The Gemini endpoint behind `nano-banana-pro/generate_image.py`
+returns **JPEG bytes whatever the output filename says** (this is Issue 1, still
+true). JPEG has no alpha channel, so a transparent background is not something the
+prompt can ask for — it is not representable in the format that comes back. Running
+`sips -s format png` fixes the CONTAINER, which is what makes Godot import the file
+at all, but it cannot invent transparency that was never in the data.
+
+Confirmed across all 14 images generated for THE NIGHTMARE: every one arrived as
+`JFIF standard 1.01 ... components 3`, i.e. RGB with no alpha.
+
+**Consequences to plan around.**
+- Any RGBA cutout — billboards especially — must be **hand-authored or
+  post-processed**, never expected from generation. The two RGBA files in
+  `level_9_dungeon/` that DO have real alpha (`dn_hollow_figure.png`,
+  `dn_tally_wall.png`, both verified `alpha_extrema == (0, 255)`) were supplied by
+  the user, not generated.
+- A prop designed around see-through-ness needs a fallback that does not need it.
+  The dungeon's grate became an opaque panel, and the teaching silhouette is drawn
+  AT the grate rather than behind it (`creature_hollow.gd:begin_teaching()`'s
+  `reveal_anchor`).
+
+**RULE.** Verify alpha, do not assume it:
+```bash
+file game/assets/textures/<f>.png        # "PNG image data ... RGBA" is necessary
+python3 -c "from PIL import Image; im=Image.open('<f>'); \
+  print(im.mode, im.getchannel('A').getextrema() if 'A' in im.mode else None)"
+# real alpha == mode contains A AND extrema != (255, 255)
+```
+A `.png` that is really a JPEG has no alpha and `ResourceLoader.exists()` still
+returns true for it (Issue 25) — so neither the extension nor the guard tells you
+anything.
+
+---
+
+## Issue 43 — Doorway floor-bridges z-fight with EACH OTHER on a fine room lattice
+
+**Symptom.** `check_wall_overlap.gd` on the dungeon reported up to 19 coincident-face
+pairs, every one of them `+y faces coincide` between two boxes of size
+`2.2 x 0.2 x 2.6` or `2.6 x 0.2 x 2.2` — i.e. between two floor bridges.
+
+**Root cause.** `RoomBuilder._emit_floor_bridge()` extends each bridge `BRIDGE_PAD`
+(1.3 m) either side of its doorway plane, and sinks every one of them by the same
+`BRIDGE_SINK` (4 mm). `BRIDGE_SINK` exists to stop a bridge fighting the ROOM FLOOR
+(Issue 20) and does that correctly — but it gives every bridge in the level an
+identical y, so any two bridges that overlap in plan are exactly coplanar.
+
+Two bridges overlap in plan whenever two doorways are within 2.6 m of each other.
+In a hand-authored level that never happens; in a 3 m cell lattice a corner junction
+is a 1×1 room with doorways on two perpendicular walls **3 m apart**, so it happens
+at every single corner.
+
+**Fix** (`dungeon.gd:_stagger_bridge_overlaps()`), level-local so the four levels
+that share `RoomBuilder` are untouched: after `build()`, give each bridge that
+overlaps an already-placed one the lowest 3 mm step that clears every bridge it
+overlaps. Result: 0 pairs on all five test seeds.
+
+**Two mistakes worth recording, both caught by measuring:**
+
+1. **Counting collisions is not enough.** The first version offset a bridge by
+   `3 mm × (number of bridges it overlapped)`. Two bridges that both overlap the
+   same third one then get the SAME offset and are coplanar with each other. It has
+   to be a conflict-free assignment against the y-values already taken.
+2. ⚠️ **Stagger DOWN, not up.** Raising bridges closes the 4 mm `BRIDGE_SINK` gap
+   and starts a NEW fight against the room floor at y=0 — measured, bridges raised
+   to −0.101 / −0.098 put their top faces within 1–2 mm of the floor plane, which is
+   exactly what `BRIDGE_SINK` exists to prevent. Going down keeps every bridge at
+   least 4 mm clear; the cost is a sub-centimetre dip in the doorway, which is a
+   DROP rather than a step and is two orders of magnitude below the 140 mm lip that
+   once made the House cellar unenterable.
+
+**⚠️ Do not identify the bridges by NAME.** `RoomBuilder` names every one of them
+`"DoorFloor"`, and Godot renames name-colliding siblings to `@CSGBox3D@N` — so
+`name.begins_with("DoorFloor")` matches exactly one bridge out of forty and silently
+does nothing, which is what the first implementation did. Identify by geometry: a
+bridge is `BRIDGE_PAD * 2 = 2.6 m` along one horizontal axis, and every room
+dimension on the lattice is a multiple of `CELL = 3.0`.
+
+**General lesson.** A shared builder's constants encode assumptions about the SCALE
+of the levels built with it. `BRIDGE_PAD` of 1.3 m is invisible at hand-authored
+room spacing and pathological at 3 m. When a new level changes the scale by an order
+of magnitude, re-derive the constants rather than inheriting them.

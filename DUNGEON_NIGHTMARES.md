@@ -1,7 +1,31 @@
 # DUNGEON_NIGHTMARES.md — Level 9: THE NIGHTMARE
 
-**Status:** design specification. Nothing here is implemented yet.
-**Written:** 2026-07-27.
+**Status:** ⭐ **BUILT AND SHIPPED, 2026-07-28.** This document remains the authoritative
+design; the sections below describe what was intended, and every place the build
+deviates from them is listed in "Deviations from this document" immediately after this
+header. `CLAUDE.md`'s Level 7 section is the shipped summary.
+**Written:** 2026-07-27. **Implemented:** 2026-07-28.
+
+---
+
+## Deviations from this document
+
+Seven, all forced by measurement rather than preference. Each is commented at the site.
+
+| § | Spec said | Shipped | Why |
+|---|---|---|---|
+| B2 | "Level 9" | **Level 7** (Void 7→8, ending 8→9) | Three of the levels ahead of it are unbuilt. Files are named `dungeon.*`, unnumbered like `corridor`/`backrooms`/`kontur`, so the future renumber renames nothing. Asset folders stay `level_9_dungeon/`. |
+| B6 §1 | `K = 9` chambers | **12, floor of 9** | Seven sconces must fit in seven distinct non-bed chambers. Pure rejection sampling at K=9 produced 7 chambers on 2 seeds in 200 — one **unwinnable** dungeon per ~100 restarts. |
+| B6 §6 | `h = 3.2` chambers, `h = 2.6` corridors | **uniform height + corridor drop-ceilings** | `RoomBuilder` keys wall dedup on `(axis, plane, HEIGHT)`, so mixed heights emit two coincident slabs per shared plane. Measured in `tests/probe_mixed_height.gd`; ISSUES_SOLUTIONS **Issue 41**. |
+| B5 | candle energy 1.0, attenuation 2.4 | **2.2 / 1.4** | At the spec values with ambient 0.02, a chamber renders as pure black with a lit patch of floor — not "you cannot see the far wall" but "you cannot see the room". **The 4.5 m RANGE is untouched**, and range is what enforces §B7. |
+| B7 | ambient ~0.02 | **0.045** | Same measurement. Still ~5× darker than any other level. |
+| B12 | `dn_child_smear` and `dungeon_grate` as RGBA cutouts | **opaque** | The generation pipeline cannot produce alpha at all — it returns JPEG bytes whatever the filename says. ISSUES_SOLUTIONS **Issue 42**. The smear is a fullscreen `flash_scare` payload and needs none; the grate became a panel, with the teaching silhouette drawn AT it via `begin_teaching()`'s `reveal_anchor`. |
+| B12 | `dn_sconce` / `dn_sconce_lit` on a quad | **real geometry, art unused** | The generated art has its own pale background baked in and rendered as a framed picture bolted to the wall — **Issue 35** verbatim, resolved the documented way. |
+
+**Not deviations, but worth recording:** `dungeon_wall_ash` was never generated because
+`level_6_breach/breach_incinerator_wall.png` already matches its brief exactly; and
+`RoomBuilder`'s floor bridges z-fight with *each other* on a 3 m lattice, which needed a
+level-local stagger (**Issue 43**).
 **Companion to** `SCARY.md`, which holds the game-wide fear work. This file is one level.
 
 A level dedicated to **Dungeon Nightmares** (KMonkey / Joey To, 2014) and **Dungeon Nightmares II:

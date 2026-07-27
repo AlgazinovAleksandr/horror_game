@@ -237,8 +237,14 @@ Logged in `BACKLOG.md`; repeated here because two of them are actively degrading
    `BREATH_OFFSET` is a **world-space** `(0, 1.2, 1.6)`. So the breathing is always to the world +z
    of the player, **not behind their facing**, despite the comment. KONTUR's best audio beat is
    broken.
-3. `vignette.gd` is entirely commented out (`Vignette.spawn()` is `pass`) but still called by
-   `level_3.gd:29`. The Void has no vignette.
+3. ~~`vignette.gd` is entirely commented out (`Vignette.spawn()` is `pass`) but still called by
+   `level_3.gd:29`. The Void has no vignette.~~ ✅ **FIXED 2026-07-28.** Restored, and two
+   things had to change to make it safe: the layer was `-1`, i.e. BEHIND the 3D viewport
+   where it drew nothing at all; and the shader alpha-blended its tint over the screen,
+   but every caller passes a LIGHT colour (the Void's is `Color(0.65, 0.55, 1.0)`) because
+   the tint is meant to colour the DARKENING — so it rendered as a bright purple halo
+   round the edges. It is now `blend_mul` at layer 5, and screenshot-verified on the Lab,
+   the House and the Void.
 4. `hud_canvas.tscn:10` caps the panic red tint at 0.1 — see §2.4.
 5. `apparition_director.gd:108` claims `is_input_frozen()` protects the player during a beartrap QTE,
    but `beartrap.gd` never calls `freeze_input()` — it only calls `apply_slow()`. The documented

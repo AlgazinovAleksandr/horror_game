@@ -62,6 +62,17 @@ const ROUTES := [
 		],
 		"door": "BackDoor",     # added by BACKLOG #30 — this level had none at all
 	},
+	{
+		"scene": "res://scenes/dungeon.tscn", "label": "Nightmare",
+		# Both doors are in the hand-built Antechamber, which is always identical no
+		# matter what the generator rolled — so this route is stable across seeds
+		# even though the dungeon behind it never is.
+		"waypoints": [
+			Vector3(-3.2, 0, -46.0), Vector3(0, 0, -46.0), Vector3(3.2, 0, -46.0),
+		],
+		"door": "ExitDoor",     # extra_lock'd until 7/7 sconces — but "can the ray
+								# SEE it" is a separate question from "does it open"
+	},
 ]
 
 const FRAME_BUDGET := 1600      # per route, ~26 s of simulated walking

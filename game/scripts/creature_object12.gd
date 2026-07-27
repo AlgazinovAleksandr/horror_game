@@ -27,13 +27,22 @@ signal contact_fatal()
 
 enum State { PATROL, INVESTIGATE, CHASE, SEARCH, STAGGERED }
 
-const PATROL_SPEED := 1.8
-const INVESTIGATE_SPEED := 2.6
+# ⚠️ These five are @export rather than const so THE NIGHTMARE's Matron can be a
+# RETUNE of this creature instead of a fork (DUNGEON_NIGHTMARES.md §B4.2/§B13).
+# EVERY DEFAULT IS THE LEVEL 6 VALUE, unchanged — Level 6 sets none of them and
+# therefore behaves exactly as it always has.
+#
+# The Nightmare overrides chase_speed to 3.4, which is BELOW the player's 4.0 walk,
+# not between walk and sprint like the value here. That is the whole resolution of
+# that level's central problem: walking away always works, so sprinting is a
+# shortcut you MAY buy with panic and never the answer (§B1 rule 1).
+@export var patrol_speed: float = 1.8
+@export var investigate_speed: float = 2.6
 # Must beat the player's walk (player.gd SPEED = 4.0) or it's not a threat; must lose
 # to the player's sprint (SPEED * SPRINT_MULTIPLIER = 6.4) or sprinting is pointless.
-const CHASE_SPEED := 5.0
-const CONTACT_DIST := 1.0
-const DETECT_RANGE := 10.0
+@export var chase_speed: float = 5.0
+@export var contact_dist: float = 1.0
+@export var detect_range: float = 10.0
 const FOV_DOT := 0.5           # wide cone (~120 deg) — this creature actively hunts
 const CHEST := 0.9
 const SEARCH_TIME := 8.0
@@ -390,7 +399,7 @@ func _tick_patrol(delta: float) -> void:
 		_last_seen_pos = _player.global_position
 		_enter(State.CHASE)
 		return
-	_follow_waypoints(delta, PATROL_SPEED)
+	_follow_waypoints(delta, patrol_speed)
 
 
 func _tick_investigate(delta: float) -> void:
@@ -402,16 +411,16 @@ func _tick_investigate(delta: float) -> void:
 	if _investigate_t >= INVESTIGATE_GIVEUP_TIME:
 		_enter(State.PATROL)
 		return
-	_move_toward(_investigate_target, INVESTIGATE_SPEED, delta)
+	_move_toward(_investigate_target, investigate_speed, delta)
 
 
 func _tick_chase(delta: float) -> void:
 	var here := get_creature_position()
 	var flat := Vector2(here.x - _player.global_position.x, here.z - _player.global_position.z).length()
-	if flat <= CONTACT_DIST:
+	if flat <= contact_dist:
 		_contact()
 		return
-	_move_toward(_player.global_position, CHASE_SPEED, delta)
+	_move_toward(_player.global_position, chase_speed, delta)
 	if _detect_player():
 		_last_seen_pos = _player.global_position
 		_los_lost_t = 0.0
@@ -430,7 +439,7 @@ func _tick_search(delta: float) -> void:
 	var here := get_creature_position()
 	var to_target := Vector2(_last_seen_pos.x - here.x, _last_seen_pos.z - here.z)
 	if to_target.length() > WAYPOINT_ARRIVE_DIST:
-		_move_toward(_last_seen_pos, INVESTIGATE_SPEED, delta)
+		_move_toward(_last_seen_pos, investigate_speed, delta)
 		return
 	# Arrived at the last-known position — scan in place for the rest of SEARCH_TIME
 	# before giving up. This is the one Mr.X/Alien:Isolation lesson worth keeping:
@@ -547,7 +556,7 @@ func _detect_player() -> bool:
 	var here := get_creature_position() + Vector3(0, CHEST, 0)
 	var target := _camera.global_position
 	var to_player := target - here
-	if to_player.length() > DETECT_RANGE:
+	if to_player.length() > detect_range:
 		return false
 	if not _has_los(here, target):
 		return false

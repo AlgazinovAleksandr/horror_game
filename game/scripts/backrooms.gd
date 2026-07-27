@@ -227,10 +227,20 @@ func _enter_zone(n: int) -> void:
 			_teleport(_zone2.spawn_point)
 			_announce("THE SPRAWL")
 			GameState.set_objective("Four walls tear. Only one is thin — listen for it")
+			# ⚠️ ISSUE 18 FIX, in the shipped game. `enable_standstill_panic()` is armed for
+			# the WHOLE level (+3/s after 4 s still), and the Sprawl's tell is a sound you
+			# have to stop and localise — on top of a floor-wide DreadZone. So the zone was
+			# taxing the exact posture its own puzzle demands. Suspended here, restored on the
+			# way into the Flood, whose tell is visual and where standing still is not asked
+			# for. This REMOVES pressure; nothing in this pass adds any to the Backrooms.
+			if is_instance_valid(_player) and _player.has_method("set_standstill_suspended"):
+				_player.set_standstill_suspended(true)
 		3:
 			_teleport(_zone3.spawn_point)
 			_announce("THE FLOOD")
 			GameState.set_objective("The way out does not show itself in the light")
+			if is_instance_valid(_player) and _player.has_method("set_standstill_suspended"):
+				_player.set_standstill_suspended(false)
 
 
 func _teleport(to: Vector3) -> void:
@@ -247,6 +257,11 @@ func _on_zone_mistake(which: int) -> void:
 	_player.jolt_camera(0.1, 0.35)
 	if which == 2:
 		_teleport(_zone2.spawn_point)
+		# The room gets more crowded as you fail. ZERO extra panic — the mistake already
+		# charges WRONG_WALL_PANIC, and a scare with no number attached cannot be optimised
+		# against (SCARY.md §0.2). See congregation.gd.
+		if _zone2.has_method("populate_one_more"):
+			_zone2.populate_one_more()
 	else:
 		_teleport(_zone3.spawn_point)
 
@@ -779,12 +794,13 @@ func _play(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 func _ensure_bus() -> void:
 	# One bus for the whole ambient bed, so Zone 2's SilenceZone can duck every
 	# looping source with a single tween instead of chasing individual players.
-	if AudioServer.get_bus_index(AUDIO_BUS) != -1:
-		return
-	var idx := AudioServer.bus_count
-	AudioServer.add_bus(idx)
-	AudioServer.set_bus_name(idx, AUDIO_BUS)
-	AudioServer.set_bus_send(idx, "Master")
+	#
+	# Delegates to AudioBuses rather than hand-rolling the add/name/send, which also
+	# changes the ROUTING: this bus used to send straight to Master, so a global
+	# HoldBreath dip of "Ambience" was inaudible in the one level that fires
+	# flash_scare on every wrong turn and every wrong wall. It now nests under
+	# Ambience, so the level's own SilenceZone duck and the global dip compose.
+	AudioBuses.ensure(AUDIO_BUS)
 
 
 func set_bed_volume_db(db: float) -> void:

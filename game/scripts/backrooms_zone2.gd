@@ -7,8 +7,8 @@ class_name BackroomsZone2
 # wall. Four glitch walls tear identically on the four sides of a big pillar hall;
 # only one is real, and the tell is not visual — near the real one the ambient bed
 # fades to nothing. You listen your way out. Touch a fake and it goes solid, costs
-# 18 panic, and the real wall re-randomises, so brute force is a losing line: two
-# mistakes puts you at 36 of 50.
+# `backrooms.gd:WRONG_WALL_PANIC` (12, not the 18 this comment claimed until
+# 2026-07-27), and the real wall re-randomises, so brute force is a losing line.
 #
 # The scale is the other half of the horror. Zone 1 is 3 m corridors; this is a
 # 40 m room with a 4.5 m ceiling and nothing to orient by — the pillars are
@@ -46,6 +46,36 @@ var _tell_water: AudioStreamPlayer3D    # the positive tell (BUG_FIX.md 3.5) at 
 var _tell_whisper: AudioStreamPlayer3D  # layered with it, closer/quieter
 var _real_side: String = "N"
 var _lights: Array = []
+var _congregation: Congregation = null
+
+const CONGREGATION_START := 6       # grows by one per wrong wall, capped in congregation.gd
+const LOW_CEIL_H := 3.0             # zone 1's correct height, for contrast against HEIGHT 4.5
+const _NOTE_SCRIPT := preload("res://scripts/note.gd")
+
+const SPRAWL_NOTE := """The ceiling is wrong here.
+
+I measured it. Four and a half metres in the hall, three in the corner by the alcoves. Nobody builds a room like that. Nobody builds a room this big with nothing in it.
+
+I stopped counting the pillars at thirty. I went back and counted again and got thirty-six, and then thirty. I do not think the number is the thing that is changing.
+
+If you are standing still to listen — good. That is the only thing that works down here. Listen for the water."""
+
+
+# Called by backrooms.gd on a wrong wall: the player's own mistakes populate the room.
+func populate_one_more() -> void:
+	if _congregation:
+		_congregation.add_one()
+
+
+func _pillar_positions() -> Array[Vector3]:
+	var out: Array[Vector3] = []
+	var span := (PILLAR_GRID - 1) * PILLAR_SPACING
+	var start := -span / 2.0
+	for i in range(PILLAR_GRID):
+		for j in range(PILLAR_GRID):
+			out.append(_origin + Vector3(start + i * PILLAR_SPACING, 0.0,
+				start + j * PILLAR_SPACING))
+	return out
 
 
 func build(origin: Vector3) -> void:
@@ -63,7 +93,13 @@ func build(origin: Vector3) -> void:
 	_build_lights()
 	_build_glitch_walls()
 	_build_pressure()
+	_build_alcove_contents()
+	_build_low_ceiling()
 	_randomise_real_wall()
+	# THE CONGREGATION. Zero panic, no rules — see congregation.gd. Kept OFF the calm island
+	# so the one recovery anchor in the zone stays a place you can stand and breathe.
+	_congregation = Congregation.build(self, _origin, _pillar_positions(),
+		CONGREGATION_START, [_origin], 8.0)
 
 
 # ---------------------------------------------------------------- geometry
@@ -101,8 +137,9 @@ func _build_pillars() -> void:
 
 func _build_alcoves() -> void:
 	# Identical recesses punched into the perimeter — they look like they must lead
-	# somewhere and none of them do. Three per side, skipping the centre (the glitch
-	# wall's gap lives there).
+	# somewhere. TWO per side (8 total), at ±11 m, skipping the centre (the glitch
+	# wall's gap lives there). The comment here said "three per side" until 2026-07-27;
+	# the loop has always been `for k in [-1, 1]`.
 	for s in SIDES:
 		var axis: Vector3 = SIDE_AXIS[s]
 		for k in [-1, 1]:
@@ -235,6 +272,86 @@ func _on_wall_touched(is_real: bool, side: String) -> void:
 
 
 # ---------------------------------------------------------------- pressure
+
+# Five of the eight alcoves were completely empty, so all eight read as holes rather than as
+# a set — and the zone had NOTHING to read and NOTHING to interact with anywhere in 1600 m².
+#
+# ⚠️ Zero panic here, deliberately. The phone is an EMITTER, not a trap: `open_note` stays
+# false, so it cannot be answered into the Backrooms' read-to-die note the way zone 1's can.
+# It is already off the hook — something else answered it.
+func _build_alcove_contents() -> void:
+	var alc := func(side: String, k: int) -> Vector3:
+		var axis: Vector3 = SIDE_AXIS[side]
+		return axis * (HALF + ALCOVE_D / 2.0) \
+			+ Vector3(axis.z, 0, axis.x) * (k * 11.0)
+
+	# A note — the only thing to read in the zone.
+	var note_pos: Vector3 = alc.call("S", -1)
+	var note := StaticBody3D.new()
+	note.name = "SprawlNote"
+	note.set_script(_NOTE_SCRIPT)
+	note.note_text = SPRAWL_NOTE
+	note.is_trap = false
+	note.position = note_pos + Vector3(0, 1.35, 0)
+	add_child(note)
+	var nm := MeshInstance3D.new()
+	var nb := BoxMesh.new()
+	nb.size = Vector3(0.32, 0.42, 0.01)
+	nm.mesh = nb
+	nm.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(false))
+	note.add_child(nm)
+	var ncol := CollisionShape3D.new()
+	var nshape := BoxShape3D.new()
+	nshape.size = Vector3(0.4, 0.5, 0.12)
+	ncol.shape = nshape
+	note.add_child(ncol)
+	# A small lamp, or a sheet of paper in a 40 m hall is unfindable.
+	var nl := OmniLight3D.new()
+	nl.light_energy = 0.22
+	nl.omni_range = 2.0
+	nl.position = note_pos + Vector3(0, 1.8, 0)
+	add_child(nl)
+
+	# A rotary phone, already off the hook, whispering. Audible from across a few metres and
+	# it stops as you close on it — so it is a thing to walk toward that gives nothing back.
+	var phone := RotaryPhone.new()
+	phone.name = "SprawlPhone"
+	phone.position = alc.call("E", 1)
+	phone.open_note = false
+	phone.rings = false
+	add_child(phone)
+
+	# The remaining alcoves get furniture, so the eight read as a set.
+	for spec in [["N", 1], ["W", -1], ["W", 1], ["S", 1], ["E", -1]]:
+		var p: Vector3 = alc.call(spec[0], int(spec[1]))
+		var b := CSGBox3D.new()
+		b.name = "AlcProp%s%d" % [spec[0], int(spec[1])]
+		b.size = Vector3(1.1, 0.75, 0.6)
+		b.position = p + Vector3(0, 0.375, 0)
+		b.use_collision = true
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.42, 0.36, 0.20)
+		m.roughness = 0.9
+		b.material = m
+		add_child(b)
+
+
+# The 4.5 m ceiling is this zone's stated identity — "deliberately wrong-scale against zone
+# 1's 3 m corridors" — and NOTHING sold it, because a ceiling you never see the edge of has
+# no scale at all. A second, partial ceiling at zone 1's correct 3.0 m over one corner gives
+# the eye a join to compare against, so the wrongness becomes legible instead of theoretical.
+#
+# ⚠️ Offset well clear of the 4.5 m slab (a 1.5 m gap), and sized to stop short of the
+# pillars' outer row, so no two surfaces are anywhere near coplanar (Issues 19/20/23).
+func _build_low_ceiling() -> void:
+	var low := CSGBox3D.new()
+	low.name = "SprawlLowCeiling"
+	low.size = Vector3(16.0, T, 16.0)
+	low.position = Vector3(-10.0, LOW_CEIL_H + T / 2.0, -10.0)
+	low.use_collision = true
+	low.material = _ceil_mat
+	add_child(low)
+
 
 func _build_pressure() -> void:
 	# The whole hall is a DreadZone. Per player.gd:_update_panic, dread is the only

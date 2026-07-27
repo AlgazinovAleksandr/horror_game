@@ -11,7 +11,9 @@ const SHAKE_MAX := 60.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	GameState.current_level = 7
+	# ⚠️ The Void is level 8 since THE NIGHTMARE was inserted at 7 (2026-07-27).
+	# The scene file is still level_3.tscn — its name has never matched its index.
+	GameState.current_level = 8
 
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:

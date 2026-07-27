@@ -53,10 +53,13 @@ var _flash_base_energy: float = 1.0
 # Backrooms-only state
 var _standstill_panic_enabled: bool = false
 var _standstill_timer: float = 0.0
+var _standstill_suspended: bool = false  # Sprawl only — its tell requires standing still
 var _smiler_active: bool = false        # suspends standstill + dark ticks (Smiler runs its own dread)
+var _no_decay: bool = false             # THE NIGHTMARE's silence: panic holds, never climbs
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
 var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
+var _qte_active: bool = false           # clamped but not frozen (the beartrap escape) — see begin_qte()
 var _hidden: bool = false               # inside a HidingSpot — movement blocked, look restricted
 var _hide_spot: Node = null
 var _hide_yaw_center: float = 0.0
@@ -64,6 +67,9 @@ var _hide_overlay: Control = null
 var _base_fov: float = 75.0
 var _footstep_echo_enabled: bool = false
 var _echo_player: AudioStreamPlayer3D = null
+var _echo_trail_steps: int = 0                  # P2: extra steps after the player STOPS
+var _echo_trail_stream: AudioStream = null      # `footstep_trail`, if present
+var _was_moving: bool = false                   # for the moving -> stopped transition
 var _dead_click_player: AudioStreamPlayer = null
 const FOOTSTEP_INTERVAL := 0.5
 const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
@@ -78,6 +84,12 @@ func _ready() -> void:
 	add_to_group("player")
 	interact_label.visible = false
 	_flash_base_energy = flashlight.light_energy
+	# Your own body goes on the un-duckable bus. This is the half of the silence
+	# architecture that makes the other half mean anything: when a HoldBreath dip or a
+	# SilenceZone takes the world away, your pulse and your footsteps are what is left.
+	# Duck those too and "silence" is just the volume going down. See audio_buses.gd.
+	footstep_player.bus = AudioBuses.BODY
+
 	var fs := GameState.load_audio("footstep")
 	if fs:
 		footstep_player.stream = fs
@@ -87,6 +99,7 @@ func _ready() -> void:
 		_heartbeat_player = AudioStreamPlayer.new()
 		_heartbeat_player.stream = hb_stream
 		_heartbeat_player.volume_db = -20.0
+		_heartbeat_player.bus = AudioBuses.BODY
 		add_child(_heartbeat_player)
 
 	_panic_hud = _PANIC_HUD_SCENE.instantiate()
@@ -243,14 +256,44 @@ func _handle_footsteps(delta: float) -> void:
 				footstep_player.play()
 			if _footstep_echo_enabled and _echo_player:
 				# A phantom step answers a beat later, two paces behind you.
-				get_tree().create_timer(FOOTSTEP_ECHO_DELAY).timeout.connect(_play_echo_step)
+				get_tree().create_timer(FOOTSTEP_ECHO_DELAY).timeout \
+					.connect(_play_echo_step.bind(false))
+		_was_moving = true
 	else:
 		_footstep_timer = 0.0
+		# SCARY.md P2 — the stop-delayed variant, and the reason this whole feature is worth
+		# more than a doubled footstep: when the PLAYER halts, the thing behind them takes
+		# `_echo_trail_steps` more steps, decelerating, and then stops too.
+		#
+		# Fires only on the moving -> stopped transition, so standing still does not emit
+		# forever, and `_echo_trail_steps` defaults to 0 so the Backrooms' existing plain
+		# echo is completely unchanged.
+		if _was_moving and _echo_trail_steps > 0 and _footstep_echo_enabled and _echo_player:
+			var delay := FOOTSTEP_ECHO_DELAY
+			for i in _echo_trail_steps:
+				# Increasing gaps: 0.4, 0.4+0.30, 0.4+0.30+0.45 ... it is slowing down.
+				delay += FOOTSTEP_ECHO_DELAY * (0.75 + 0.35 * float(i))
+				get_tree().create_timer(delay).timeout.connect(_play_echo_step.bind(true))
+		_was_moving = false
 
 
-func _play_echo_step() -> void:
-	if _echo_player and _echo_player.stream:
-		_echo_player.play()
+# `trail` picks the sample. ⚠️ The two paths are kept separate on purpose: swapping
+# `_echo_player.stream` in place would leak the trail sample into the Backrooms' ordinary
+# in-motion echoes, which must keep sounding exactly like the player's own footstep.
+#
+# The trail uses `footstep_trail` where it exists — purpose-made rather than a pitch-shift,
+# per the apparition_snarl precedent, because a mechanically pitched-down copy of your own
+# step reads as a glitch while a different sound reads as a different foot.
+func _play_echo_step(trail: bool) -> void:
+	if not _echo_player:
+		return
+	var want: AudioStream = _echo_trail_stream if (trail and _echo_trail_stream) \
+		else footstep_player.stream
+	if not want:
+		return
+	if _echo_player.stream != want:
+		_echo_player.stream = want
+	_echo_player.play()
 
 
 func _play_dead_click() -> void:
@@ -318,6 +361,15 @@ func _update_panic(delta: float, target: Node) -> void:
 	elif _dark_zones > 0 and not flashlight.visible and not _smiler_active:
 		# A live Smiler suspends the dark creep — its own dread curve takes over.
 		_panic += delta * DARK_PANIC_RATE
+	elif _no_decay:
+		# THE NIGHTMARE's silence: while a primary entity is present the level ducks
+		# its ambient bus and stops panic HEALING — with ZERO additive pressure. Net
+		# panic change from the mere presence of a monster is zero; all the pressure
+		# is in what you choose to do about it.
+		# ⚠️ Deliberately not a DreadZone. A DreadZone would add +2/s on top, which
+		# is the Corridor Zone-C stacking problem the design explicitly rejects
+		# (DUNGEON_NIGHTMARES.md §B1 rule 4).
+		pass
 	else:
 		var base_decay := DREAD_DECAY_RATE if _dread_zones > 0 else PANIC_DECAY_RATE
 		var decay := base_decay * (CALM_DECAY_MULT if _calm_zones > 0 else 1.0)
@@ -329,7 +381,8 @@ func _update_panic(delta: float, target: Node) -> void:
 
 	# Backrooms: standing still too long lets panic climb (the maze forbids rest).
 	# Suspended while a Smiler is active — then freezing is the correct, safe move.
-	if _standstill_panic_enabled and not _smiler_active and not _is_moving:
+	if _standstill_panic_enabled and not _smiler_active and not _standstill_suspended \
+			and not _is_moving:
 		_standstill_timer += delta
 		if _standstill_timer >= STANDSTILL_GRACE:
 			_panic += delta * STANDSTILL_PANIC_RATE
@@ -420,7 +473,15 @@ func enable_standstill_panic() -> void:
 
 
 # Phantom footsteps two paces behind. Builds a quiet echo player behind the head.
-func enable_footstep_echo() -> void:
+#
+# `trail_steps` is SCARY.md P2's stop-delayed upgrade: after the player halts, that many
+# further echo steps play at increasing intervals, so the thing behind them takes a couple
+# more strides and then stops too. Defaults to 0, which is exactly the behaviour the
+# Backrooms has always had.
+func enable_footstep_echo(trail_steps: int = 0) -> void:
+	_echo_trail_steps = trail_steps
+	if not _echo_trail_stream:
+		_echo_trail_stream = GameState.load_audio("footstep_trail")
 	if _footstep_echo_enabled:
 		return
 	_footstep_echo_enabled = true
@@ -429,6 +490,11 @@ func enable_footstep_echo() -> void:
 		_echo_player.stream = footstep_player.stream
 	_echo_player.volume_db = FOOTSTEP_ECHO_VOLUME_DB
 	_echo_player.position = Vector3(0, 0, 1.4)  # +z is behind (forward is -z)
+	# On BODY too, even though the echo is the one footstep that is NOT yours. That is
+	# the point: it must survive a silence dip, so the thing two paces behind you keeps
+	# walking while the world goes quiet. Ducking it would delete the effect exactly when
+	# it is most legible.
+	_echo_player.bus = AudioBuses.BODY
 	add_child(_echo_player)
 
 
@@ -459,6 +525,36 @@ func set_smiler_active(active: bool) -> void:
 	_smiler_active = active
 
 
+# Suspend ONLY the standstill tax, leaving the dark-zone creep alone.
+#
+# ⚠️ Deliberately not reusing set_smiler_active(), which suspends both. The Backrooms
+# Sprawl needs this because its tell is a SOUND you have to stop and localise, while
+# `enable_standstill_panic()` is armed for the whole level — so standing still to listen
+# cost +3/s on top of the floor-wide DreadZone. That is Issue 18 (never tax the exact
+# posture a puzzle demands) sitting in the shipped game, and this removes it. Borrowing the
+# Smiler flag would also collide with an actual Smiler, which lives in zone 1.
+func set_standstill_suspended(suspended: bool) -> void:
+	_standstill_suspended = suspended
+
+
+# Swap the footstep sample. The Flood uses it so the player's own wading sounds like wading
+# — which is what makes SCARY.md P10's unseen wader legible, because the thing you hear in
+# the distance has to be audibly the same ACT you are performing.
+func set_footstep_stream(stream: AudioStream) -> void:
+	if stream:
+		footstep_player.stream = stream
+
+
+# THE NIGHTMARE only: suppress panic DECAY without adding any pressure. Driven by
+# entity presence (the Matron's hunt window), not by an Area3D. See _update_panic.
+func set_no_decay(enabled: bool) -> void:
+	_no_decay = enabled
+
+
+func has_no_decay() -> bool:
+	return _no_decay
+
+
 # Intro Room opt-ins (default off everywhere else). Reversible, unlike
 # kill_flashlight()'s permanent one-way lock — the Intro Room's switch un-locks it.
 func lock_flashlight() -> void:
@@ -479,13 +575,33 @@ func unfreeze_input() -> void:
 	_input_frozen = false
 
 
-# Is the player currently unable to move? True during a beartrap escape QTE, the Lab
-# locker push, the intro wake-up, and while hidden. ApparitionDirector uses this to
+# A QTE that clamps the player without literally freezing input. The beartrap escape is
+# the only one: it deliberately uses apply_slow() rather than freeze_input(), so the
+# player can still limp and look while mashing E — that IS the beartrap's design and it
+# must not change. But for fairness purposes a player at 45 % speed mashing a key is
+# just as unable to demonstrate anything as a frozen one, so it has to read as busy.
+func begin_qte() -> void:
+	_qte_active = true
+
+
+func end_qte() -> void:
+	_qte_active = false
+
+
+# Is the player currently unable to act freely? True during a beartrap escape QTE, the
+# Lab locker push, the intro wake-up, and while hidden. ApparitionDirector uses this to
 # refuse to spawn: the HOLD apparition kills you for fleeing, and a player who cannot
 # move cannot demonstrate that they are NOT fleeing — the same double-jeopardy the
 # KONTUR Blackout and the Backrooms Flood each made once (Issue 18).
+#
+# ⚠️ The beartrap clause of that docstring was a LIE until 2026-07-27: beartrap.gd only
+# ever called apply_slow(), never freeze_input(), so the documented protection did not
+# exist and a HOLD apparition could spawn onto a clamped player (GAME_MECHANICS_IDEAS
+# §3(e)). `_qte_active` is what makes the sentence true, without changing how the
+# beartrap actually plays. JournalUI's can_open() wants the same broader meaning — TAB
+# during a beartrap escape would be a free pause button.
 func is_input_frozen() -> bool:
-	return _input_frozen
+	return _input_frozen or _qte_active
 
 
 # ------------------------------------------------------- automated-test control

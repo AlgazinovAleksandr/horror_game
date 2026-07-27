@@ -91,4 +91,9 @@ func _initialize() -> void:
 		print("MAZE-GEN PASS")
 	else:
 		print("MAZE-GEN FAIL")
-	quit()
+	# ⚠️ Was a bare `quit()`, i.e. exit code 0 no matter how many seeds failed — so
+	# every FAIL line above was printed into a green suite and this test could never
+	# fail run_tests.sh (whose only signal is the exit code). Fixed 2026-07-27; the
+	# same defect was live in check_wall_overlap.gd, which returned true from
+	# _process and never called quit() at all.
+	quit(0 if failures == 0 else 1)

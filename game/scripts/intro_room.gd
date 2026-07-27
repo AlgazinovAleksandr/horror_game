@@ -22,9 +22,24 @@ const GURNEY_TOP_Y := 0.6           # frame top 0.5, mattress top 0.6 — see _b
 const SWITCH_POS := Vector3(-5.77, 1.3, -1.0)  # snug against WallLeft's inner face (-5.85)
 const TABLE_POS := Vector3(0, 0.4, 0.0)
 const EXIT_DOOR_POS := Vector3(0, 1.1, -8.5)
+const DOOR_SIZE := Vector3(1.0, 2.2, 0.15)   # panel extents; _corrupt_room() boards across this
 const WHEELCHAIR_POS := Vector3(3.0, 0.0, -3.0)    # floor anchor — open floor between the table and the door
 const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door (spans x -0.5..0.5)
 const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
+
+# --- "the ward is occupied" (2026-07-28) ---------------------------------------------
+# This room had ZERO scares: no panic source, no RandomAmbient, no ApparitionDirector, no
+# objective line — 60-120 s of nothing, which is a full level's worth of dead air relative
+# to everything after it. Everything added below is DREAD ONLY: the intro has never had a
+# fail state and deliberately still doesn't, so nothing here calls add_panic().
+const SWITCH_PRESSES := 2           # the first press does not work — see _on_switch_stuck
+const GLIMPSE_ENERGY := 0.55        # weak, dying; the working reveal settles at 0.9
+const GLIMPSE_TIME := 0.4           # how long the ward is visible before it goes again
+const FUMBLE_JOLT_PROGRESS := 0.55  # INTRO.md's specced-but-never-built mid-walk jolt
+const NIGHTMARE_IMAGE := "res://assets/textures/intro/nightmare_face.png"
+const AMBIENT_MIN := 20.0           # level-local scare metronome, ZERO panic (not
+const AMBIENT_MAX := 40.0           # RandomAmbient, which carries 5/8/12)
+const BREATH_VOLUME_DB := -22.0     # the thing at the far wall you walked away from
 
 # Nodes that must survive a clear-and-rebuild pass. This scene is never reloaded
 # mid-playthrough in the normal flow, but the twist ending reuses this same
@@ -47,6 +62,9 @@ var _path_glow_lights: Array[OmniLight3D] = []
 var _path_glow_audio: AudioStreamPlayer3D = null
 var _ceiling_lights: Array[OmniLight3D] = []
 var _switch_flipped: bool = false     # half of the exit lock; the note is the other half
+var _far_breath: AudioStreamPlayer3D = null   # cut when the lights come on
+var _ambient_timer: Timer = null              # level-local, zero-panic scare metronome
+var _wheelchair_moved: MovedProp = null       # armed when the note is read
 
 
 func _ready() -> void:
@@ -55,9 +73,13 @@ func _ready() -> void:
 	_clear_old_scene()
 
 	_build_room()
-	_build_gurney(GURNEY_POS)                    # the player's own
-	_build_gurney(Vector3(4.5, 0, 6.0))          # scattered extra beds — the room isn't empty
-	_build_gurney(Vector3(-4.3, 0, 5.0))
+	_build_gurney(GURNEY_POS)                    # the player's own — never occupied
+	# ⚠️ Occupied. The two spare beds were bare, which made the ward read as storage; a
+	# covered body on each makes it read as a ward with other subjects in it, and it is the
+	# strongest thing available at level 0's "strictly ordinary" register — nothing
+	# supernatural, nothing that moves, nothing the game ever comments on.
+	_build_gurney(Vector3(4.5, 0, 6.0), true)
+	_build_gurney(Vector3(-4.3, 0, 5.0), true)
 	_build_iv_stand(Vector3(0.8, 0, 6.5))
 	_build_iv_stand(Vector3(5.3, 0, 6.3))
 	_build_wheelchair()
@@ -101,6 +123,7 @@ func _clear_old_scene() -> void:
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
+		ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
 		var s := GameState.load_audio("ambient_asylum")
 		if s:
 			ambient.stream = s
@@ -132,9 +155,14 @@ func _build_room() -> void:
 	# Ceiling fluorescents — off until the switch is flipped, then flickered up
 	# in _on_switch_flipped(). No fixture mesh: this room reads as plain damp
 	# concrete, not a lab with a distinct fitting texture.
-	for z in [6.0, 0.0, -6.0]:
+	# ⚠️ Names are UNIQUE per tube. Three siblings all called "CeilingLight" meant Godot
+	# renamed two of them to @OmniLight3D@NNN (Issue 17 — the same rename that silently
+	# broke every door lookup in four levels), so only one was ever findable by name.
+	# Nothing depended on it yet; a suffix costs nothing and keeps them addressable.
+	for i in [0, 1, 2]:
+		var z: float = [6.0, 0.0, -6.0][i]
 		var light := OmniLight3D.new()
-		light.name = "CeilingLight"
+		light.name = "CeilingLight_%d" % i
 		light.position = Vector3(0, ROOM_HEIGHT - 0.3, z)
 		light.light_energy = 0.0
 		light.light_color = Color(0.75, 0.8, 0.85)
@@ -144,7 +172,7 @@ func _build_room() -> void:
 		_ceiling_lights.append(light)
 
 
-func _build_gurney(pos: Vector3) -> void:
+func _build_gurney(pos: Vector3, occupied: bool = false) -> void:
 	var frame := CSGBox3D.new()
 	frame.name = "GurneyFrame"
 	frame.size = Vector3(0.9, 0.5, 2.0)
@@ -186,6 +214,48 @@ func _build_gurney(pos: Vector3) -> void:
 		dm.roughness = 0.9
 		decal.set_surface_override_material(0, dm)
 		add_child(decal)
+
+	if occupied:
+		_build_sheeted_form(pos)
+
+
+# A covered body on a gurney. Two boxes — a long low mound and a slightly taller rise at
+# the head end — which is all the silhouette needs to read, per Issue 35's finding that
+# "the SILHOUETTE carries a prop here and art does not".
+#
+# ⚠️ NOT emissive, and a plain dull off-white rather than a bright one (Issue 8.8 /
+# 21/27/33). At this room's light energy a pale emissive form would be the brightest thing
+# in a pitch-dark ward, i.e. it would announce itself during the blind walk — and the whole
+# point is that you do not see these until the lights come on, and then nobody mentions it.
+#
+# ⚠️ Never called for the player's own gurney: something solid on the bed you spawn lying
+# on would push the player out of the world, and tests/check_spawn_blocked.gd asserts
+# exactly that nothing invisible blocks a spawn.
+func _build_sheeted_form(pos: Vector3) -> void:
+	var sheet_mat := StandardMaterial3D.new()
+	sheet_mat.albedo_color = Color(0.44, 0.43, 0.40)
+	sheet_mat.roughness = 0.95
+
+	# Head end toward -z, matching the gurneys' long axis.
+	# Unique per bed, for the same Issue-17 reason as the ceiling tubes.
+	var tag := "%.0f_%.0f" % [pos.x * 10.0, pos.z * 10.0]
+	var body := CSGBox3D.new()
+	body.name = "GurneySheet_" + tag
+	body.size = Vector3(0.62, 0.20, 1.55)
+	body.position = pos + Vector3(0, 0.70, 0.10)
+	body.use_collision = true
+	body.material = sheet_mat
+	add_child(body)
+
+	var head := CSGBox3D.new()
+	head.name = "GurneySheetHead_" + tag
+	head.size = Vector3(0.34, 0.26, 0.38)
+	# Sits proud of the mound rather than flush with it — two coplanar faces here would
+	# be the coincident-surface family all over again (Issues 19/20/23).
+	head.position = pos + Vector3(0, 0.73, -0.80)
+	head.use_collision = true
+	head.material = sheet_mat
+	add_child(head)
 
 
 # Thin pole + small "bag" + flat base — enough silhouette to read as an IV stand
@@ -442,6 +512,32 @@ func _build_table_note_candle() -> void:
 func _on_intro_note_read() -> void:
 	GameState.intro_note_read = true
 	_refresh_exit_lock()
+	_arm_wheelchair()
+
+
+# The wheelchair turns to face the table.
+#
+# It has stood at WHEELCHAIR_POS since this room was rebuilt, fully modelled, doing
+# nothing. It sits in the open floor between the table and the door, so the walk from
+# reading the note to leaving passes it — which is the one moment in this room with a
+# guaranteed before-and-after.
+#
+# ⚠️ Armed on the note, not at _ready(): MovedProp applies its delta the first time the
+# player is far enough away and facing elsewhere, and a prop that was never observed in
+# position A cannot read as having moved from it. Reading the note is the earliest point
+# the player has certainly seen it under the lights.
+#
+# ⚠️ Rotation only, no translation. Wheeling it across the floor would need clearance
+# checks against the table and the door; a 34° turn cannot collide with anything and is
+# the more unsettling read anyway — nothing moved, something is facing you.
+func _arm_wheelchair() -> void:
+	if _wheelchair_moved:
+		return
+	var wc := get_node_or_null("Wheelchair") as Node3D
+	if not wc:
+		return
+	_wheelchair_moved = MovedProp.attach(wc, "wheelchair", Vector3.ZERO, deg_to_rad(34.0))
+	_wheelchair_moved.arm()
 
 
 # The exit opens only once the room is lit AND the briefing has been read. Kept in one
@@ -485,11 +581,11 @@ func _build_exit_door() -> void:
 	body.position = EXIT_DOOR_POS
 	add_child(body)
 
-	_DOOR_SCRIPT.build_visual(body, Vector3(1.0, 2.2, 0.15), "")
+	_DOOR_SCRIPT.build_visual(body, DOOR_SIZE, "")
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, 2.2, 0.2)
+	shape.size = Vector3(DOOR_SIZE.x, DOOR_SIZE.y, 0.2)
 	col.shape = shape
 	body.add_child(col)
 
@@ -582,6 +678,98 @@ func _on_wakeup_finished() -> void:
 	ScreenText.scrawl(get_tree(), NIGHTMARE_TEXT, 4.0)
 	_spawn_path_glow()
 	_spawn_light_switch()
+	_spawn_fumble_jolt()
+	_spawn_far_breath()
+	_start_local_ambient()
+
+
+# INTRO.md §2 specced this and it was never built: "~50-60% of the way: ONE scripted jolt —
+# nightmare image flashes again for ~0.35s + camera jolt. Survivable, no panic added."
+# The constant, the asset (`nightmare_face.png`, used only by main_menu's cold open) and the
+# spec all existed; only the code was missing.
+#
+# ⚠️ Deliberately NO add_panic(), per INTRO.md: "the intro has never had a fail state and
+# this pass shouldn't add one; the beat is pure atmosphere."
+func _spawn_fumble_jolt() -> void:
+	var g0 := Vector2(GURNEY_POS.x, GURNEY_POS.z)
+	var g1 := Vector2(SWITCH_POS.x, SWITCH_POS.z)
+	var xz := g0.lerp(g1, FUMBLE_JOLT_PROGRESS)
+
+	# CorridorEvent is generic despite the name — a one-shot Area3D that emits `fired` on
+	# player entry. Reused here exactly as INTRO.md suggested.
+	var ev := CorridorEvent.new()
+	ev.name = "FumbleJolt"
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(2.6, 2.4, 2.6)
+	col.shape = shape
+	ev.add_child(col)
+	ev.position = Vector3(xz.x, 1.2, xz.y)
+	ev.fired.connect(_on_fumble_jolt)
+	add_child(ev)
+
+
+func _on_fumble_jolt() -> void:
+	Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.35)
+	player.jolt_camera(0.08, 0.4)
+
+
+# Something breathing at the far wall — the end of the ward the player is walking AWAY
+# from. Audible only during the blind fumble; cut the instant the lights come on, so it is
+# never available for inspection and never resolves into anything.
+#
+# ⚠️ On the duckable Ambience bus, so flash_scare's HoldBreath pre-duck takes it with the
+# rest of the world. During the fumble jolt the breathing stops for 0.6 s — which is the
+# correct reading, because the dip is the room holding its breath too.
+func _spawn_far_breath() -> void:
+	var s := GameState.load_audio("nook_breath")
+	if not s:
+		return
+	_far_breath = AudioStreamPlayer3D.new()
+	_far_breath.name = "FarBreath"
+	_far_breath.stream = s
+	_far_breath.volume_db = BREATH_VOLUME_DB
+	_far_breath.unit_size = 5.0
+	_far_breath.bus = AudioBuses.AMBIENCE
+	# Just inside WallFront, the one wall in the room with nothing on it at all.
+	_far_breath.position = Vector3(0, 1.4, ROOM_SIZE.y / 2.0 - 0.6)
+	add_child(_far_breath)
+	# Every .wav.import in this project is loop_mode=0, so loops are self-restarted.
+	_far_breath.finished.connect(_far_breath.play)
+	_far_breath.play()
+
+
+# A level-LOCAL scare metronome at zero panic.
+#
+# ⚠️ Deliberately NOT RandomAmbient.register_player(). That autoload is global and carries
+# 5 / 8 / 12 panic per event, which would give this room a fail state by the back door and
+# break the "unloseable intro" rule. This plays the same kinds of sound and adds nothing.
+func _start_local_ambient() -> void:
+	_ambient_timer = Timer.new()
+	_ambient_timer.one_shot = true
+	_ambient_timer.timeout.connect(_on_local_ambient)
+	add_child(_ambient_timer)
+	_ambient_timer.start(randf_range(AMBIENT_MIN, AMBIENT_MAX))
+
+
+func _on_local_ambient() -> void:
+	var pick: String = ["floor_creak", "pipe_groan", "gurney_creak"].pick_random()
+	var s := GameState.load_audio(pick)
+	if s:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = s
+		p.volume_db = -8.0
+		p.bus = AudioBuses.AMBIENCE
+		# Somewhere in the room that is not on top of the player.
+		p.position = Vector3(
+			randf_range(-ROOM_SIZE.x / 2.0 + 1.0, ROOM_SIZE.x / 2.0 - 1.0),
+			randf_range(0.3, 2.4),
+			randf_range(-ROOM_SIZE.y / 2.0 + 1.0, ROOM_SIZE.y / 2.0 - 1.0))
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+	if _ambient_timer:
+		_ambient_timer.start(randf_range(AMBIENT_MIN, AMBIENT_MAX))
 
 
 func _spawn_path_glow() -> void:
@@ -618,19 +806,75 @@ func _spawn_light_switch() -> void:
 	# the room" is +X. Without this the plate stood parallel to the wall instead
 	# of flush against it — visible edge-on, not as a mounted switch.
 	sw.rotation.y = PI / 2.0
+	sw.presses_needed = SWITCH_PRESSES
+	sw.stuck.connect(_on_switch_stuck)
 	sw.flipped.connect(_on_switch_flipped)
 	add_child(sw)
 
 
+# The first press does not work.
+#
+# The switch clunks, and one tube at the FAR end of the ward — the end the player is
+# walking toward — stutters alight for GLIMPSE_TIME and dies. That is the whole beat: for
+# a third of a second the room is not an abstract dark space, it is a ward with things in
+# it, and then it is taken away again. Nothing chases, nothing spawns, no panic is added
+# (this room has no fail state and must not gain one).
+#
+# ⚠️ Why the far tube and not the near one: the glimpse has to show the player somewhere
+# they have NOT been. They woke at z=+7 and have crossed that end already; the table, the
+# wheelchair and the door are all at negative z. Lighting the end behind them would reveal
+# only floor they have walked.
+#
+# ⚠️ Raises a LIGHT, never emission (Issues 21/27/33). And it tweens back to exactly 0.0
+# rather than to a small value, so a stuck press cannot leave the room permanently dimly
+# lit and rob the reveal of its contrast.
+func _on_switch_stuck(_press_index: int) -> void:
+	_play_at_switch("switch_clunk")
+
+	var far := _far_ceiling_light()
+	if far:
+		var t := create_tween()
+		t.tween_property(far, "light_energy", GLIMPSE_ENERGY, 0.06)
+		t.tween_interval(GLIMPSE_TIME)
+		t.tween_property(far, "light_energy", 0.0, 0.10)
+		# A dying tube, not a working one: the buzz is quiet and it stops with the light.
+		var buzz := GameState.load_audio("fluorescent_buzz_on")
+		if buzz:
+			var bp := AudioStreamPlayer3D.new()
+			bp.stream = buzz
+			bp.volume_db = -12.0
+			bp.position = far.position
+			add_child(bp)
+			bp.finished.connect(bp.queue_free)
+			bp.play()
+
+
+# The ceiling tube furthest from where the player woke up.
+func _far_ceiling_light() -> OmniLight3D:
+	var best: OmniLight3D = null
+	var best_d := -1.0
+	for light in _ceiling_lights:
+		var d: float = absf((light as OmniLight3D).position.z - GURNEY_POS.z)
+		if d > best_d:
+			best_d = d
+			best = light
+	return best
+
+
+func _play_at_switch(base_name: String) -> void:
+	var s := GameState.load_audio(base_name)
+	if not s:
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.stream = s
+	p.position = SWITCH_POS
+	add_child(p)
+	p.finished.connect(p.queue_free)
+	p.play()
+
+
 func _on_switch_flipped() -> void:
-	var clunk := GameState.load_audio("switch_clunk")
-	if clunk:
-		var p := AudioStreamPlayer3D.new()
-		p.stream = clunk
-		p.position = SWITCH_POS
-		add_child(p)
-		p.finished.connect(p.queue_free)
-		p.play()
+	_play_at_switch("switch_clunk")
 
 	player.unlock_flashlight()
 
@@ -650,7 +894,23 @@ func _on_switch_flipped() -> void:
 		at.finished.connect(_path_glow_audio.queue_free)
 		_path_glow_audio = null
 
+	# The breathing stops with the darkness. It is never available for inspection under
+	# the lights — a sound the player cannot go and check is a sound they keep.
+	if _far_breath:
+		_far_breath.finished.disconnect(_far_breath.play)
+		var bt := create_tween()
+		bt.tween_property(_far_breath, "volume_db", -50.0, 0.5)
+		bt.finished.connect(_far_breath.queue_free)
+		_far_breath = null
+
+	# ⚠️ One tube stays dead — the one over the table (z = TABLE_POS.z), so the note the
+	# player has to walk over and read is lit by the candle alone. The reveal otherwise
+	# floods the room evenly and hands back every shadow the fumble just earned; leaving a
+	# hole in the middle of the ceiling keeps the one place the player MUST stand still
+	# lit by a single flickering source.
 	for light in _ceiling_lights:
+		if is_equal_approx((light as OmniLight3D).position.z, TABLE_POS.z):
+			continue
 		_flicker_on(light, 0.9)
 
 	var ct := create_tween()
@@ -687,11 +947,12 @@ func _flicker_on(light: OmniLight3D, target: float) -> void:
 # throbs blood-red, the exit is boarded over, and the new note is the only
 # brightly lit thing left.
 #
-# NOT updated for the bigger room in this pass — see INTRO.md §7/§8. The plank/
-# red-light/spotlight positions below are still relative to the OLD 5.6 m room
-# and will read as visibly wrong (planks floating mid-room, spotlight missing
-# the relocated table) until a dedicated follow-up recomputes them against
-# ROOM_SIZE/ROOM_HEIGHT/EXIT_DOOR_POS/TABLE_POS. Deliberately deferred.
+# ⚠️ FIXED 2026-07-27 (INTRO.md §7's deferred follow-up). Every position below used to
+# be a literal computed against the OLD 5.6 m room: the planks sat at z = -2.45 while
+# the door is at z = -8.5, so the game's FINAL BEAT rendered three boards floating in
+# open space in the middle of the ward. They are now derived from EXIT_DOOR_POS and
+# DOOR_SIZE, so they follow the door if the room is ever rescaled again. The spotlight
+# at (0, 2.8, 0) was always correct — TABLE_POS is (0, 0.4, 0) — and is left alone.
 func _corrupt_room() -> void:
 	candle_light.light_energy = 0.0
 	candle_light.visible = false
@@ -699,9 +960,11 @@ func _corrupt_room() -> void:
 	_red_light = OmniLight3D.new()
 	_red_light.light_color = Color(0.8, 0.06, 0.04)
 	_red_light.light_energy = 0.5
-	_red_light.omni_range = 7.0
+	# Range was 7.0 for a 5.6 m room. In an 18 m ward that left the far half unlit,
+	# so the throb — the whole visual of the corrupted room — only reached the table.
+	_red_light.omni_range = 11.0
 	_red_light.shadow_enabled = true
-	_red_light.position = Vector3(0, 2.4, -1.0)
+	_red_light.position = Vector3(0, 2.4, ROOM_SIZE.y * -0.25)
 	add_child(_red_light)
 
 	# The door you came through is gone — planks where it used to be.
@@ -711,10 +974,13 @@ func _corrupt_room() -> void:
 	var plank_mat := StandardMaterial3D.new()
 	plank_mat.albedo_color = Color(0.10, 0.07, 0.04)
 	plank_mat.roughness = 0.95
+	# Boarded flush across the doorway, standing proud of where the door panel was so
+	# the planks never z-fight the back wall (the coincident-surface family, Issue 20).
+	var plank_z := EXIT_DOOR_POS.z + DOOR_SIZE.z / 2.0 + 0.06
 	for plank in [
-		[Vector3(0, 1.6, -2.45), 0.35],
-		[Vector3(0, 1.0, -2.45), -0.3],
-		[Vector3(0, 0.5, -2.45), 0.15],
+		[Vector3(0, EXIT_DOOR_POS.y + 0.55, plank_z), 0.35],
+		[Vector3(0, EXIT_DOOR_POS.y - 0.05, plank_z), -0.3],
+		[Vector3(0, EXIT_DOOR_POS.y - 0.65, plank_z), 0.15],
 	]:
 		var mesh_inst := MeshInstance3D.new()
 		var mesh := BoxMesh.new()

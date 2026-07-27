@@ -143,6 +143,54 @@ Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — th
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
 | `shared/note_paper.png` | Aged cream paper — faint ruled lines, slight yellowing at edges | All notes (`note.gd` base material for both safe and trap notes) | done |
+| `shared/rusted_iron.png` | Corroded iron surface grain, seamless | `beartrap.gd:_metal_material()`; also the sconce brackets in THE NIGHTMARE (`wall_sconce.gd` `IRON_TEX`) — GRAIN only, never a picture of a sconce | done |
+| `shared/beartrap_plate.png` | Corroded iron pressure plate, circular wear | `beartrap.gd:_metal_material()` | done |
+
+### level_6_breach/  (Level 6 — THE BREACH)
+| file_name | texture_description | where_used | status |
+|-----------|---------------------|------------|--------|
+| `level_6_breach/breach_wall_ruptured.png` | Facility wall torn open, structural rupture, exposed rebar; seamless | Level 6 — `RUPTURED_ROOMS` wall skin (`level_6_breach.gd:_rooms_with_skins()`) | done |
+| `level_6_breach/breach_wall_organic.png` | Wall overtaken by organic growth, wet membrane; seamless | Level 6 — `ORGANIC_ROOMS` wall skin | done |
+| `level_6_breach/breach_floor_scorched.png` | Scorched, blistered floor; seamless | Level 6 — organic-room floors | done |
+| `level_6_breach/breach_incinerator_wall.png` | Charred, blood-slicked masonry, value ≤ 0.25; seamless | Level 6 — the Incinerator skin. **Also THE NIGHTMARE's deepest wall tier** (`dungeon.gd:_rooms_with_skins()`), which is why `dungeon_wall_ash` was never generated — this file already matches that brief exactly | done |
+| `level_6_breach/hiding_locker_front.png` | Steel locker front elevation | `hiding_spot.gd` (`prop_kind = "locker"`) | done |
+| `level_6_breach/hiding_cabinet_front.png` | Cabinet front elevation (RGBA) | `hiding_spot.gd` (`prop_kind = "cabinet"`) — also THE NIGHTMARE's two hiding spots | done |
+| `level_6_breach/hiding_desk_front.png` | Desk front elevation | `hiding_spot.gd` (`prop_kind = "desk"`) | done |
+| `level_6_breach/object12_sign.png` | Facility warning sign plate | Level 6 — `_make_sign()` | done |
+| `level_6_breach/level_6_jumpscare.jpg` | Level 6 fatal screamer (user-supplied; genuinely JPEG, hence the honest `.jpg`) | `screamer.gd` `LEVEL_SCREAMERS[6]` | done |
+| `level_6_breach/screamer_breach.png` | Superseded generated screamer | Replaced by `level_6_jumpscare.jpg` | to_be_added |
+
+### level_9_dungeon/  (Level 7 — THE NIGHTMARE)
+⚠️ The folder number is the level's **identity** in the eventual 12-level order, not
+its current index — it is level 7 today. Asset folder names already drift from level
+numbers (`level_4_void/` holds level 8's art) and must not be renamed: it would break
+every `.import` UID.
+
+⚠️ **Everything generated for this level arrived as JPEG-in-a-`.png` and has no alpha
+channel** — see ISSUES_SOLUTIONS Issue 42. All were re-encoded with `sips`. The only
+two files here with real transparency are the two the user supplied.
+
+| file_name | texture_description | where_used | status |
+|-----------|---------------------|------------|--------|
+| `level_9_dungeon/dungeon_wall_stone.png` | Damp grey castle stone blocks, dark mortar, black damp patches; seamless, value ≤ 0.30 | Level 7 — the base wall skin (`dungeon.gd:_build_geometry()`) | done |
+| `level_9_dungeon/dungeon_floor.png` | Worn uneven flagstones, cracked, wet joints; seamless | Level 7 — all floors | done |
+| `level_9_dungeon/dungeon_ceiling.png` | Rough vaulted stone from below, darker than the walls; seamless | Level 7 — all ceilings, and the corridor drop-ceilings (Issue 41) | done |
+| `level_9_dungeon/dungeon_wall_brick.png` | Dark brown-red brick, crumbling mossy mortar; seamless | Level 7 — the middle wall tier, 4+ rooms from spawn | done |
+| `level_9_dungeon/dungeon_door.png` | Heavy banded oak door, iron straps and studs, front elevation | Level 7 — both level doors via `Door.build_visual()` | done |
+| `level_9_dungeon/dungeon_pillar.png` | Rough stone column, vertically tileable | Level 7 — **not currently loaded**; generated as a NICE-to-have for future chamber pillars | to_be_added |
+| `level_9_dungeon/dungeon_grate.png` | Rusted iron grating, crossed bars | Level 7 — the sealed alcove's grate (`dungeon.gd:_build_grate()`). ⚠️ Opaque: the gaps could not be transparent (Issue 42), so it is a panel set into the wall and the teaching silhouette is drawn AT it | done |
+| `level_9_dungeon/dn_cot.png` | Iron camp cot with stained mattress, seen from above (user-supplied) | Level 7 — the Antechamber cot and the bed (`dungeon_cot.gd`), on a flat quad sized to the FRAME. ⚠️ No emission: at 0.22 it rendered as a blown-out white slab (Issue 21) | done |
+| `level_9_dungeon/dn_sconce.png` | Wrought-iron wall sconce, unlit (user-supplied) | **Superseded.** `wall_sconce.gd` is real geometry now — the art has its own pale background baked in and rendered as a framed picture bolted to the wall (Issue 35) | to_be_added |
+| `level_9_dungeon/dn_sconce_lit.png` | The same sconce, burning | **Superseded** for the same reason | to_be_added |
+| `level_9_dungeon/dn_hollow_figure.png` | Small child-shaped shadow with two dull red eye points; **real RGBA cutout**, alpha extrema (0, 255) (user-supplied) | Level 7 — the Hollow One's spark-reveal billboard (`creature_hollow.gd`), the Child (`dn_child.gd`) and the Kneeling Man (`kneeling_man.gd`), each tinted differently. ⚠️ Must stay a real cutout or it billboards as a solid rectangle | done |
+| `level_9_dungeon/dn_tally_wall.png` | Gouged tally strokes; **real RGBA cutout** (user-supplied) | Level 7 — the Antechamber wall beside the scrawl | done |
+| `level_9_dungeon/dn_note.png` | Aged handwritten diary page (user-supplied) | Level 7 — **not currently loaded**; notes use `shared/note_paper.png` via `note.gd:paper_material()` | to_be_added |
+| `level_9_dungeon/dn_child_smear.png` | Wet blood handprint and drag smear across glass | Level 7 — the Child's sprint-past `flash_scare()`. Opaque, which is fine: a `flash_scare` payload is a FULLSCREEN overlay and needs no alpha (the `shared_screamer.png` precedent) | done |
+| `level_9_dungeon/painting_matron.png` | Antique portrait, burned woman, elongated neck, eyes CLOSED, blood from the frame | Level 7 — the Weeping Frames' resting state (`weeping_frame.gd`) | done |
+| `level_9_dungeon/painting_matron_open.png` | The same portrait with the eyes wide open and the canvas smouldering | Level 7 — the 5-sconce kill-state swap, shown during the ignition wind-up. ⚠️ Ignition emission is capped at 0.9 (Issue 21) | done |
+| `level_9_dungeon/painting_witness.png` | Antique portrait, half-flesh half-skull figure in an explorer's coat | Level 7 — the second Weeping Frame variant | done |
+| `level_9_dungeon/dn_stillone_face.png` | Fleshless skull, dried skin, jaw open, harsh underlight | Level 7 — **not currently loaded**; generated as a NICE-to-have `flash_scare` payload | to_be_added |
+| `level_9_dungeon/screamer_dungeon.png` | Charred screaming woman lunging out of black | Level 7 — fatal screamer, `screamer.gd` `LEVEL_SCREAMERS[7]`. ⚠️ Lives HERE, not in `screamers/` — that folder is auto-scanned as the intro/ending fallback pool only | done |
 
 ### ui/
 | file_name | texture_description | where_used | status |

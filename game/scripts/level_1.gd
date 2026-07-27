@@ -460,6 +460,14 @@ func _spawn_notes() -> void:
 	# actively trying to kill you. See kontur.gd.
 	_make_note(_builder.wall_point("Morgue", Vector2(0, -1), 1.4, 0.1), 0.0,
 		"K.O.N.T.U.R. — INTERNAL CIRCULAR 12/4\n(This page does not belong to this facility.)\n\n...evacuation from a Class-II Object follows Protocol 4-B. Personnel leave by the door marked in BLACK.\n\nRed seals denote contained growth. A red seal is not an exit. A red seal opened from the inside has never once been closed again.\n\nFiled: Barkhan-9. Do not remove from the archive.")
+	# NIGHTMARE HINT 1/3 — the answer to THE NIGHTMARE's Still Ones, six levels
+	# ahead (DUNGEON_NIGHTMARES.md §B2, §B9). Same filing logic as the KONTUR
+	# circular above it: a page that does not belong to this facility, left in the
+	# one room that is actively trying to kill you. It is meaningless here and
+	# load-bearing later — that is the KONTUR pattern, and it is why the notes
+	# journal (TAB) exists.
+	_make_note(_builder.wall_point("Morgue", Vector2(-1, 0), 1.4, 0.16), -PI / 2.0,
+		"TRIAL 7 — OBSERVER LOG, NIGHT 3\n(Filed in error. Not this facility.)\n\nThe still ones do not move while you are looking at them. Everyone works that out in the first minute and it does not help, because you cannot look at all of them.\n\nWhat nobody works out in time: THE LIGHT ATTRACTS THEM. Every flash brings each one a step closer, and a flash struck close to one that has already woken is the last thing the subject does.\n\nHold your breath and hold your ground. Do not strike a light in the rooms.")
 
 
 func _on_maintenance_note_read() -> void:
@@ -1105,6 +1113,7 @@ func _boost_ambient(energy: float) -> void:
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
+		ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
 		var s := GameState.load_audio("ambient_lab")
 		if s:
 			ambient.stream = s

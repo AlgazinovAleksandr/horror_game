@@ -12,11 +12,21 @@ class_name LightSwitch
 # not fire in isolation from the prop.
 
 signal flipped
+# Emitted for each press that does NOT throw it, carrying the 1-based press index. The
+# level decides what a failed press looks like; see intro_room.gd:_on_switch_stuck().
+signal stuck(press_index: int)
 
 const TEX := "res://assets/textures/intro/"
 const PLATE_SIZE := Vector2(0.32, 0.48)
 
+# How many presses it actually takes. Defaults to 1 so the prop behaves exactly as before
+# unless a level asks for more — the Intro sets 2, because the switch sticking once is
+# the only beat in the game that can frighten a player at zero mechanical cost: the room
+# is revealed for a moment and then taken away again.
+@export var presses_needed: int = 1
+
 var _used: bool = false
+var _presses: int = 0
 var _face_mat: StandardMaterial3D
 
 
@@ -75,8 +85,17 @@ func _build() -> void:
 func interact() -> void:
 	if _used:
 		return
-	_used = true
+	_presses += 1
+
+	# The plate blips on every press, successful or not. This is what stops a stuck press
+	# reading as a broken game rather than as a stuck switch: the player gets unambiguous
+	# feedback that the input registered, and only the LIGHTS fail to arrive.
 	var t := create_tween()
 	t.tween_property(_face_mat, "emission_energy_multiplier", 2.2, 0.1)
 	t.tween_property(_face_mat, "emission_energy_multiplier", 0.9, 0.2)
+
+	if _presses < presses_needed:
+		stuck.emit(_presses)
+		return
+	_used = true
 	flipped.emit()

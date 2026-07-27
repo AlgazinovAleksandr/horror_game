@@ -32,6 +32,28 @@ const FOREST_SCARE_PATH := TEX + "screamer_forest.png"
 const FOREST_SCARE_DIST := 1.5
 const FOREST_SCARE_PANIC := 25.0
 
+# --- THE GUEST (2026-07-28) -----------------------------------------------------------
+# The House is the only level in the game with genuine backtracking pressure: the Bathroom
+# map -> the key -> the Kitchen -> the cellar -> back to the ChildRoom lock crosses the
+# ground floor repeatedly, and every route passes through the Landing, which was EMPTY.
+#
+# So nothing is ever seen. The house is simply not arranged the way you left it, one step
+# per quest milestone, with no sound, no event and no acknowledgement — SCARY.md P6, whose
+# whole mechanic is the asymmetry that **if the player never notices, nothing happens**.
+#
+# ⚠️ ZERO PANIC, all four stages. The fridge below is the only new panic in this level.
+const GUEST_LANDING_SPOT := Vector3(1.6, 0.25, 12.5)    # mid-Landing, facing the bathroom
+const GUEST_CELLAR_SPOT := Vector3(6.3, 0.25, 3.8)      # top of the cellar route
+const GUEST_HALLWAY_SPOT := Vector3(0.0, 0.11, 7.4)     # Hallway, between you and the exit
+
+# The fridge — the single new panic term in the atmosphere pass. Voluntary, optional,
+# off the quest path, one-shot. See house_fridge.gd's header.
+const FRIDGE_PANIC := 10.0
+
+# The footsteps overhead, after the scripted one-shot. Zero panic, on a long gap.
+const OVERHEAD_MIN := 40.0
+const OVERHEAD_MAX := 70.0
+
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy, fixture_material]
 
@@ -43,6 +65,15 @@ var _lights: Array = []           # [OmniLight3D, base_energy, fixture_material]
 const FIXTURE_EMISSION := 0.6
 var _window_pos: Vector3
 var _forest_fired: bool = false
+# THE GUEST. `_guest_stage` is the number of stages already applied, and it is what
+# save_progress carries — a back-door return must not un-rearrange the house.
+var _guest_chair: CSGBox3D = null
+var _music_box: CSGBox3D = null
+var _bedroom_painting: StaticBody3D = null
+var _guest_stage: int = 0
+var _guest_props: Array[MovedProp] = []
+var _overhead_timer: float = 0.0     # recurring footsteps, armed by _ev_footsteps_above
+var _fridge_opened: bool = false
 var _creak_timer: float = 0.0
 var _pipe_timer: float = 0.0
 var _blackout_clock: float = 0.0
@@ -71,7 +102,9 @@ func _ready() -> void:
 	_spawn_cursed_props()
 	_spawn_tv()
 	_spawn_bathroom_mirror()
+	_spawn_landing_mirror()
 	_spawn_cellar_contents()
+	_spawn_cellar_props()
 	_spawn_music_box()
 	_spawn_room_props()
 	_spawn_events()
@@ -202,6 +235,11 @@ func save_progress() -> Dictionary:
 		"code_correct": GameState.level2_code_correct,
 		"apparition_fired": _apparition_fired,
 		"forest_fired": _forest_fired,
+		# ⚠️ SCARY.md P6's explicit warning: "register moved props in save_progress() so a
+		# back-door return does not un-move them." One int covers all four stages because
+		# they are monotonic.
+		"guest_stage": _guest_stage,
+		"fridge_open": _fridge_opened,
 	}
 
 
@@ -212,6 +250,18 @@ func _restore_progress() -> void:
 	_apparition_fired = bool(data.get("apparition_fired", false))
 	_forest_fired = bool(data.get("forest_fired", false))
 	GameState.level2_code_correct = bool(data.get("code_correct", false))
+
+	# The house stays rearranged. Forced rather than re-armed: the player already saw these
+	# moved before they left, so waiting for another look-away would visibly un-move them.
+	var stage := int(data.get("guest_stage", 0))
+	if stage > 0:
+		_force_guest_stages(stage)
+	# A fridge that has been opened must not be re-openable for another 10 panic.
+	if bool(data.get("fridge_open", false)):
+		_fridge_opened = true
+		var fridge := get_node_or_null("Fridge")
+		if fridge:
+			fridge.queue_free()
 	if bool(data.get("map_solved", false)):
 		_map_solved = true
 		var map := get_node_or_null("HouseMap")
@@ -411,8 +461,14 @@ func _spawn_notes() -> void:
 		"The first number is scratched by the door frame. It is 4.", false)
 	_make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.1), PI,
 		"I checked everywhere. The second number must be 7. I'm sure of it.\n\nI'm sure.", false)
-	_make_note(Vector3(CELLAR_CENTER.x - 1.5, CELLAR_Y + 1.4, CELLAR_CENTER.y - 2.0), 0.0,
+	# The cellar note is THE GUEST's last trigger: reading it is the deepest point of the
+	# route, so the walk back up is the longest single stretch the player will make with
+	# their back to the whole house.
+	var cellar_note := _make_note(
+		Vector3(CELLAR_CENTER.x - 1.5, CELLAR_Y + 1.4, CELLAR_CENTER.y - 2.0), 0.0,
 		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.", false)
+	if cellar_note:
+		cellar_note.read.connect(func() -> void: _advance_guest(4))
 	# Two trap notes (read-to-die).
 	_make_note(_builder.wall_point("Bathroom", Vector2(1, 0), 1.3, 0.1), -PI / 2.0,
 		"it got in it got in it got in it got in it got in\n\nDONT READ THIS dont read this stop stop stop stop", true)
@@ -420,7 +476,10 @@ func _spawn_notes() -> void:
 		"Subject 44 was removed on day 3.\nSubject 45 was removed on day 1.\nSubject 46 was removed on day 6.\n\nYou are not going to make it.", true)
 
 
-func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> void:
+# Returns the note body so a caller can hook its `read` signal (note.gd emits that on OPEN,
+# which is the generic hook the project lacked until level_1.gd's locker gate needed it).
+# Existing call sites ignore the return — additive.
+func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> StaticBody3D:
 	var note := StaticBody3D.new()
 	note.set_script(_NOTE_SCRIPT)
 	note.note_text = text
@@ -439,6 +498,7 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> void:
 	shape.size = Vector3(0.4, 0.5, 0.12)
 	col.shape = shape
 	note.add_child(col)
+	return note
 
 
 # ---------------------------------------------------------------- lock + doors
@@ -588,14 +648,22 @@ func _spawn_cursed_props() -> void:
 	# (The east wall is the bedroom's only doorway — a collider/ScaryObject there both
 	# blocks entry AND spikes panic as you push against it. The note with digit 2 is on
 	# the north wall, the bed on the west, so the south wall is clear.)
-	_make_cursed_body(_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.08),
+	# Handle kept: THE GUEST puts this face-down on the floor at stage 2.
+	_bedroom_painting = _make_cursed_body(
+		_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.08),
 		Vector2(0.8, 1.0), 0.0, 0.8, Color(0.1, 0.08, 0.07), TEX + "painting_house.png")
 	_make_cursed_body(_builder.wall_point("LivingRoom", Vector2(0, -1), 1.5, 0.08),
 		Vector2(0.7, 1.1), 0.0, 1.2, Color(0.05, 0.07, 0.08), "")
 
 
+# Returns the StaticBody3D so a caller can keep a handle on it — THE GUEST needs one for
+# the bedroom painting. Every existing call site ignores the return, so this is additive.
+#
+# ⚠️ ScaryObject is a plain Node with no transform, which BREAKS the Node3D chain, so the
+# body's local transform IS its global transform. That is why the world position lives on
+# the body (Issue 10) and why MovedProp's global_position arithmetic works on it unchanged.
 func _make_cursed_body(pos: Vector3, size: Vector2, y_rot: float, intensity: float,
-		albedo: Color, tex_path: String) -> void:
+		albedo: Color, tex_path: String) -> StaticBody3D:
 	var scary := ScaryObject.new()
 	scary.scare_intensity = intensity
 	add_child(scary)
@@ -621,6 +689,7 @@ func _make_cursed_body(pos: Vector3, size: Vector2, y_rot: float, intensity: flo
 	shape.size = Vector3(size.x, size.y, 0.1)
 	col.shape = shape
 	body.add_child(col)
+	return body
 
 
 # ---------------------------------------------------------------- new scares
@@ -678,6 +747,70 @@ func _spawn_tv() -> void:
 	add_child(_tv_card)
 
 
+# The Landing was 24 m² of nothing — and it is the hub EVERY route crosses (Bathroom map ->
+# Kitchen -> cellar -> ChildRoom lock all pass through it), so it was the highest-traffic
+# empty space in the game.
+#
+# A LivingMirror rather than another gaze panel. The House already has five cursed panels
+# and the living-room mirror at intensity 1.2 kills from full in ~2 s of staring, so a sixth
+# would just be more of the same tax. LivingMirror's figure appears only when you are NOT
+# looking head-on (LOOK_DOT 0.8) — which is exactly how you cross a hub — and it costs
+# nothing at all unless the player chooses to stand and stare.
+#
+# ⚠️ NOT placed with wall_point(). Every one of the Landing's four walls has a doorway at
+# its centre (z=11, z=14, x=-4, x=+4), and wall_point() returns the wall CENTRE — so the
+# usual idiom would have sealed an exit, which is the Session-11 bug that walled off the
+# third breaker room. This is hand-placed OFF-centre on the south wall, east of the
+# Hallway doorway (which spans x -0.8..0.8).
+func _spawn_landing_mirror() -> void:
+	# South wall plane is z=11; the inner face is T/2 (0.1) in from that, and the figure
+	# hangs 0.05 behind the glass, so 0.22 of inset is the documented minimum.
+	var mirror := LivingMirror.new()
+	mirror.name = "LandingMirror"
+	mirror.position = Vector3(2.5, 1.5, 11.22)
+	mirror.rotation.y = PI      # LivingMirror faces local -Z; PI turns it to face +z
+	add_child(mirror)
+
+
+# The cellar was 49 m² with four objects in it — atmospherically the heaviest room in the
+# level and physically almost bare.
+#
+# ⚠️ NO NEW PANIC HERE, deliberately. This leg already carries a DreadZone at net-zero
+# decay, a DarkZone, a beartrap worth 55 and an 18-panic HOLD apparition, and the level has
+# no CalmZone anywhere — so it is the one stretch with no recovery mechanism at all. What it
+# needed was things to search, not more cost.
+func _spawn_cellar_props() -> void:
+	var cx: float = CELLAR_CENTER.x
+	var cz: float = CELLAR_CENTER.y
+	var floor_y: float = CELLAR_Y
+
+	# ⚠️ Everything is clear of the ramp corridor (x 4.2..5.8) and of the split-N-wall
+	# doorway at (5, z=-2.5). walk_cellar.gd walks that route and check_wall_overlap.gd
+	# asserts the 2 cm rule against the shell.
+	# Shelving against the west wall (inner face x=1.6).
+	_make_prop(Vector3(2.1, floor_y + 0.75, cz - 1.0), Vector3(0.5, 1.5, 2.5),
+		Color(0.24, 0.19, 0.15))
+	# A dead boiler in the south-east corner (south inner face z=-9.4).
+	_make_prop(Vector3(7.4, floor_y + 0.65, cz - 2.6), Vector3(0.7, 1.3, 0.7),
+		Color(0.20, 0.18, 0.17))
+	# Two crates, stacked, near the foot of the ramp but clear of the apparition's trigger
+	# box (x 3.75..6.25, z -2.75..-1.25).
+	_make_prop(Vector3(6.9, floor_y + 0.30, cz + 2.4), Vector3(0.66, 0.6, 0.66),
+		Color(0.30, 0.23, 0.16))
+	_make_prop(Vector3(6.85, floor_y + 0.80, cz + 2.5), Vector3(0.58, 0.4, 0.58),
+		Color(0.28, 0.21, 0.15))
+
+	# A Watcher in the deepest corner, appearing once the player is already inside and
+	# heading for the third note. Zero panic, no kill radius, no rule — it is a photograph.
+	#
+	# ⚠️ vanish_within is 3.0, not the 10.0 default: the whole cellar is 7x7 m, so a
+	# 10 m despawn radius would delete it before it was ever visible.
+	_spawn_event(Vector3(cx, floor_y + 1.2, cz + 1.0), Vector3(3.0, 2.4, 1.6),
+		func() -> void:
+			Watcher.spawn(self, Vector3(cx + 0.6, floor_y, cz - 2.4),
+				"res://assets/textures/shared/watcher_figure.png", 3.0))
+
+
 func _spawn_bathroom_mirror() -> void:
 	# North wall — the west wall (Vector2(-1,0)) is the bathroom's only doorway, and the
 	# mirror's collider there blocks the entrance.
@@ -691,8 +824,94 @@ func _spawn_bathroom_mirror() -> void:
 	add_child(mirror)
 
 
+# The Kitchen was 42 m² — the joint-largest room in the level — holding ONE counter.
+#
+# ⚠️ Two doorways constrain everything here and both have a test watching them:
+#   * the cellar ramp at (5, z=3), width 1.6, i.e. x 4.2..5.8. check_cellar_key.gd
+#     raycasts (5, 1.2, 3 +/- 1.2), so nothing may stand in z 1.8..4.2 near x=5.
+#   * Hallway <-> Kitchen at (x=1.5, z=6), width 1.4, i.e. z 5.3..6.7.
+# Everything below is placed clear of both, and check_doorways.gd re-asserts it.
+func _furnish_kitchen(kc: Vector3) -> void:
+	# A sink unit continuing the north-wall run, east of the counter (counter spans
+	# x 3..7; the east wall's inner face is at 8.4).
+	_make_prop(Vector3(kc.x + 2.6, 0.45, kc.z + 2.4), Vector3(1.1, 0.9, 0.7),
+		Color(0.62, 0.63, 0.62))
+
+	# A table and two chairs, mid-room. One of these chairs is The Guest's prop — see
+	# _arm_guest(). It has to start somewhere the player will certainly see it, and the
+	# middle of the kitchen is on the mandatory route to the cellar.
+	_make_prop(Vector3(kc.x - 0.4, 0.38, kc.z + 0.4), Vector3(1.4, 0.75, 0.9),
+		Color(0.33, 0.24, 0.18))
+	_make_prop(Vector3(kc.x - 1.3, 0.25, kc.z + 0.4), Vector3(0.44, 0.5, 0.44),
+		Color(0.30, 0.22, 0.17))
+	_guest_chair = _make_prop(Vector3(kc.x + 0.5, 0.25, kc.z + 0.4),
+		Vector3(0.44, 0.5, 0.44), Color(0.30, 0.22, 0.17))
+	_guest_chair.name = "KitchenChair"
+
+	# The fridge, against the east wall. x=7.9 leaves its face at 8.28, clear of the wall's
+	# inner face at 8.4 — the >= 2 cm rule check_wall_overlap.gd asserts.
+	var fridge := HouseFridge.new()
+	fridge.name = "Fridge"
+	fridge.position = Vector3(7.9, 0.0, kc.z + 0.9)
+	fridge.rotation.y = -PI / 2.0     # its door faces -x, into the room
+	fridge.opened.connect(_on_fridge_opened)
+	add_child(fridge)
+
+
+# The level owns the consequence, not the prop. A voluntary, optional, one-shot 10 —
+# see the header of house_fridge.gd for why this is the one place panic is spent.
+func _on_fridge_opened() -> void:
+	_fridge_opened = true
+	var p := _player()
+	if not p:
+		return
+	p.jolt_camera(0.08, 0.45)
+	p.add_panic(FRIDGE_PANIC)
+
+
+# The child's music box, as a real object.
+#
+# ⚠️ It used to be a bare looping AudioStreamPlayer3D at the ChildRoom's centre with NO
+# physical object at all — the level's most distinctive sound had no source you could ever
+# find. Giving it a body matters for its own sake, and it is also what makes The Guest's
+# last beat possible: the loop is a CHILD of the body, so when MovedProp carries the body
+# into the Hallway the sound goes with it, and the level's soundtrack becomes retroactively
+# suspicious. See _arm_guest().
 func _spawn_music_box() -> void:
-	_loop_audio("music_box", _builder.room_center("ChildRoom") + Vector3(0, 0.6, 0), -12.0)
+	var cc: Vector3 = _builder.room_center("ChildRoom")
+	# On the floor by the west wall, clear of the small bed at x+1.5 and of both doorways
+	# (ChildRoom is entered at (0, z=14); the exit lock is on its north wall).
+	var pos := Vector3(cc.x - 1.6, 0.11, cc.z - 1.2)
+	_music_box = _make_prop(pos, Vector3(0.30, 0.22, 0.24), Color(0.42, 0.26, 0.14),
+		0.0, TEX + "house_music_box.png")
+	_music_box.name = "MusicBox"
+
+	# A brass-ish lid, flat-tinted rather than textured: per Issue 35 the SILHOUETTE
+	# carries a prop here and art does not, and this one has to read at floor level in a
+	# dim room.
+	var lid := CSGBox3D.new()
+	lid.name = "MusicBoxLid"
+	lid.size = Vector3(0.32, 0.03, 0.26)
+	lid.position = Vector3(0, 0.13, 0)
+	var lm := StandardMaterial3D.new()
+	lm.albedo_color = Color(0.55, 0.45, 0.20)
+	lm.metallic = 0.6
+	lm.roughness = 0.4
+	lid.material = lm
+	_music_box.add_child(lid)
+
+	var s := GameState.load_audio("music_box")
+	if s:
+		var a := AudioStreamPlayer3D.new()
+		a.name = "MusicBoxAudio"
+		a.stream = s
+		a.volume_db = -12.0
+		a.unit_size = 6.0
+		a.bus = AudioBuses.AMBIENCE
+		a.position = Vector3(0, 0.2, 0)
+		_music_box.add_child(a)      # a child, so it travels with the box
+		a.finished.connect(a.play)
+		a.play()
 
 
 # Solid furniture so each room reads as a place. No panic — these are just props.
@@ -721,6 +940,7 @@ func _spawn_room_props() -> void:
 	# doorway at z=3 and re-block the descent).
 	var kc: Vector3 = _builder.room_center("Kitchen")
 	_make_prop(Vector3(kc.x, 0.45, kc.z + 2.4), Vector3(4.0, 0.9, 0.7), Color(0.35, 0.3, 0.24))
+	_furnish_kitchen(kc)
 	# Bathroom: a bathtub.
 	var bc: Vector3 = _builder.room_center("Bathroom")
 	_make_prop(Vector3(bc.x + 1.4, 0.3, bc.z), Vector3(0.9, 0.6, 2.2), Color(0.7, 0.72, 0.72))
@@ -756,6 +976,7 @@ func _spawn_bathroom_map(bc: Vector3) -> void:
 	map.won.connect(func() -> void:
 		_map_solved = true
 		_build_cellar_key(map_pos)
+		_advance_guest(1)
 	)
 	add_child(map)
 
@@ -788,12 +1009,67 @@ func _spawn_cellar_contents() -> void:
 	_cellar_gate.used.connect(_on_cellar_gate_used)
 	add_child(_cellar_gate)
 
+	_spawn_nightmare_hint(c)
+
 	# The key itself is no longer a straight pickup — see _spawn_bathroom_map(), a 2D
 	# map-and-chase minigame on a stand in the Bathroom. Winning it calls
 	# _build_cellar_key() below directly; the Landing 2-drawer search from an earlier
 	# pass has been removed (Landing reverts to being an empty pass-through — a
 	# deliberate trade for this bigger quest). The map lived on the Kitchen counter
 	# briefly in between; that is why some comments still said "Kitchen".
+
+
+# NIGHTMARE HINT 2/3 — a candle stub on a cellar shelf with a scrawl over it
+# (DUNGEON_NIGHTMARES.md §B2). It teaches the ONE number a player of THE NIGHTMARE
+# needs and is never told in that level: a candle burns for sixty seconds.
+#
+# The cellar is the right place for it — it is already a DreadZone + DarkZone the
+# player enters carrying a light they are watching the battery of, so a note about
+# a light running out reads as atmosphere here and as instructions later. Same
+# plant-it-early logic as the four KONTUR hints.
+func _spawn_nightmare_hint(c: Vector2) -> void:
+	var shelf := CSGBox3D.new()
+	shelf.name = "CellarShelf"
+	shelf.size = Vector3(0.9, 0.06, 0.3)
+	shelf.position = Vector3(c.x - 2.6, CELLAR_Y + 1.15, c.y - 1.8)
+	shelf.use_collision = true
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.15, 0.11, 0.07)
+	wood.roughness = 0.9
+	shelf.material = wood
+	add_child(shelf)
+
+	# A burned-down stub. Unlit, dark albedo, NO emission: this is a clue to find
+	# with the flashlight, not a beacon (Issues 27/33 — a prop with real presence
+	# does not also wear a findability glow).
+	var stub := MeshInstance3D.new()
+	stub.name = "CandleStub"
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.028
+	cm.bottom_radius = 0.032
+	cm.height = 0.09
+	stub.mesh = cm
+	var wax := StandardMaterial3D.new()
+	wax.albedo_color = Color(0.52, 0.50, 0.44)
+	wax.roughness = 0.9
+	stub.set_surface_override_material(0, wax)
+	stub.position = shelf.position + Vector3(0.0, 0.08, 0.0)
+	add_child(stub)
+
+	var scrawl := Label3D.new()
+	scrawl.name = "CellarScrawl"
+	scrawl.text = "SIXTY SECONDS.\nCOUNT THEM."
+	scrawl.font_size = 48
+	scrawl.pixel_size = 0.0026
+	scrawl.modulate = Color(0.70, 0.06, 0.06)
+	scrawl.outline_size = 0
+	scrawl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# ⚠️ Not billboarded. A billboarded label mounted this close to a wall rotates
+	# INTO the wall at most viewing angles — the same reason kontur.gd's signs and
+	# level_6_breach.gd's never billboard.
+	scrawl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	scrawl.position = shelf.position + Vector3(0.0, 0.55, 0.02)
+	add_child(scrawl)
 
 
 # The key's own visual — an alpha-cutout quad lying flat, same trick as the
@@ -862,6 +1138,82 @@ func _on_cellar_key_taken() -> void:
 	_has_cellar_key = true
 	GameState.set_carried("cellar key")
 	GameState.set_objective("Unlock the cellar door under the kitchen stairs")
+	_advance_guest(2)
+
+
+# ------------------------------------------------------------------------- THE GUEST
+#
+# Four stages, one per quest milestone. Each one is a MovedProp: the delta is applied the
+# first time the player is more than 6 m away AND facing elsewhere, so the change always
+# happens off-screen and is always discovered rather than witnessed.
+#
+# ⚠️ Stages are IDEMPOTENT and monotonic. `_advance_guest(n)` is a no-op if stage n is
+# already applied, because the milestones that drive it are not strictly ordered — a player
+# can re-enter the level through a back door with the key already taken.
+#
+# ⚠️ Deliberately only FOUR authored moves, and the chair moves at most twice. A prop that
+# keeps moving is a mechanic; this has to stay an anomaly. Do not add a repeating cycle.
+func _advance_guest(stage: int) -> void:
+	if stage <= _guest_stage:
+		return
+	# Apply every stage up to `stage`, so a restored snapshot lands in the right state even
+	# if it skipped one (e.g. the key was taken but the map's stage never fired).
+	for s in range(_guest_stage + 1, stage + 1):
+		_apply_guest_stage(s)
+	_guest_stage = stage
+
+
+func _apply_guest_stage(stage: int) -> void:
+	match stage:
+		1:
+			# The kitchen chair is standing in the middle of the Landing, facing the
+			# bathroom door — the room the player just came out of.
+			_move_guest_prop(_guest_chair, "chair_landing", GUEST_LANDING_SPOT,
+				deg_to_rad(-90.0))
+		2:
+			# The bedroom painting is face-down on the floor. (The bedroom lamp dying is
+			# already _ev_bedroom_dark's beat — not doubled up here.)
+			if _bedroom_painting:
+				var p: Vector3 = _bedroom_painting.position
+				_move_guest_prop(_bedroom_painting, "painting_down",
+					Vector3(p.x, 0.06, p.z + 0.55) - p, deg_to_rad(96.0))
+		3:
+			# The chair is back — at the top of the cellar route, facing the way you came.
+			_move_guest_prop(_guest_chair, "chair_cellar", GUEST_CELLAR_SPOT,
+				deg_to_rad(180.0))
+		4:
+			# The payoff. The music box — the level's signature sound, which until this
+			# pass had no object at all — is sitting in the Hallway, playing, between the
+			# player and the exit. The loop is a child of the body, so the sound moved too.
+			_move_guest_prop(_music_box, "music_box_hallway", GUEST_HALLWAY_SPOT, 0.0)
+
+
+# `target_or_delta` is an ABSOLUTE position for props being relocated across the house, and
+# MovedProp wants a delta — so convert here, once, rather than at four call sites.
+func _move_guest_prop(prop: Node3D, key: String, target: Vector3, yaw: float,
+		absolute: bool = true) -> void:
+	if not prop or not is_instance_valid(prop):
+		return
+	var delta: Vector3 = (target - prop.position) if absolute else target
+	var mp := MovedProp.attach(prop, key, delta, yaw)
+	mp.arm()
+	_guest_props.append(mp)
+
+
+# Restoring a snapshot must not re-arm the wait — the player already SAW these moved before
+# they walked back through the door, so re-arming would silently un-move them until they
+# happened to look away again. apply_now() is MovedProp's restore path.
+#
+# ⚠️ Delegates to _advance_guest() rather than looping _apply_guest_stage() itself. The first
+# version did the latter and DOUBLE-APPLIED every delta that _advance_guest had already
+# attached: the chair's Landing move is (-3.9, 0, +6.1), and applying it twice put the chair
+# at (-2.3, 18.6) — outside the house, through two walls. Caught by
+# tests/check_house_guest.gd. `_advance_guest` is the only thing that may attach, precisely
+# because it is the only thing that tracks what has already been attached.
+func _force_guest_stages(stage: int) -> void:
+	_advance_guest(stage)
+	for mp in _guest_props:
+		mp.apply_now()
 
 
 func _on_cellar_gate_used() -> void:
@@ -876,6 +1228,7 @@ func _on_cellar_gate_used() -> void:
 	_cellar_gate.open()
 	_play_at("creak", Vector3(5, 1.2, 3), 2.0)
 	GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
+	_advance_guest(3)
 
 
 # ---------------------------------------------------------------- apparition
@@ -928,6 +1281,30 @@ func _ev_footsteps_above() -> void:
 	var p := _player()
 	if p:
 		p.add_panic(6.0)
+	# ⚠️ And from now on they come back, at ZERO panic, on a 40-70 s gap.
+	#
+	# This fired exactly once, for 6 panic, and never again — in a house that is entirely
+	# SINGLE-STOREY (every room's floor is at y=0; the only vertical element is the cellar
+	# ramp). One footstep event is a noise; a recurring one makes an upstairs that does not
+	# exist into a permanent resident. The panic stays on the first one only, because the
+	# point is presence, not pressure.
+	_overhead_timer = randf_range(OVERHEAD_MIN, OVERHEAD_MAX)
+
+
+# Footsteps on the ceiling of whichever room the player is standing in — so they track,
+# rather than always coming from the fixed Hallway spot the one-shot used.
+func _tick_overhead(delta: float) -> void:
+	if _overhead_timer <= 0.0:
+		return
+	_overhead_timer -= delta
+	if _overhead_timer > 0.0:
+		return
+	var p := _player()
+	if p:
+		var above := p.global_position + Vector3(randf_range(-1.5, 1.5), 3.2,
+			randf_range(-1.5, 1.5))
+		_play_at("footsteps_above", above, 1.0)
+	_overhead_timer = randf_range(OVERHEAD_MIN, OVERHEAD_MAX)
 
 
 func _ev_bedroom_dark() -> void:
@@ -976,6 +1353,7 @@ func _boost_ambient(energy: float) -> void:
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
+		ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
 		var s := GameState.load_audio("ambient_house")
 		if s:
 			ambient.stream = s
@@ -994,6 +1372,7 @@ func _process(delta: float) -> void:
 	_tick_timers(delta)
 	_drive_lights()
 	_tick_tv_card(delta)
+	_tick_overhead(delta)
 
 
 const TV_CARD_HOLD := 8.0  # BUG_FIX.md 2.2: was 4.5 — playtest read it as gone too fast
