@@ -20,8 +20,8 @@ var _attempts: int = 0
 
 # THE LOCK SIZES ITSELF FROM ITS ANSWER.
 #
-# It used to be hard-coded to three digits. KONTUR's roster gate answers "Subject 47",
-# and on a three-digit lock that is ambiguous — is it 047 or 470? Nothing in the game
+# It used to be hard-coded to three digits. KONTUR's roster gate answers a two-digit
+# code, and on a three-digit lock that is ambiguous — is it 047 or 470? Nothing in the game
 # states a padding convention, so a playtester who knew the answer still failed twice
 # and spent 87 seconds at it. A two-digit answer now gets a two-digit lock and the
 # question disappears.

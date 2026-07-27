@@ -294,6 +294,18 @@ func _slide() -> void:
 	)
 
 
+# Jump straight to the shoved-aside state, no tween, no player freeze, no `moved`
+# signal. Used when a level restores a saved snapshot (GameState.level_progress): the
+# player already earned this the hard way before walking back a level, and making them
+# mash SPACE through three more bars to re-open a breaker they have already thrown
+# would be the exact "replay the whole level" complaint the snapshot exists to answer.
+func move_aside_instantly() -> void:
+	if _done:
+		return
+	_done = true
+	global_position += global_transform.basis.x.normalized() * SHOVE_DIST * float(SHOVES_NEEDED)
+
+
 func _find_player() -> CharacterBody3D:
 	var nodes := get_tree().get_nodes_in_group("player")
 	if nodes.size() > 0:

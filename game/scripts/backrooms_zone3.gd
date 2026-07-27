@@ -4,10 +4,14 @@ class_name BackroomsZone3
 # ZONE 3 — THE FLOOD.
 #
 # The last inversion. Five levels have taught the player that the flashlight is
-# safety; here the exit seam is only visible with it OFF, and the whole zone is a
-# DarkZone, so looking for the way out costs +3/s on top of the dread. Two decoy
-# seams glow only while the light is ON — the exact inverse — so the instinct to
-# light the room up doesn't just fail, it actively misleads.
+# safety; here the exit seam is only visible with it OFF. Two decoy seams glow only
+# while the light is ON — the exact inverse — so the instinct to light the room up
+# doesn't just fail, it actively misleads.
+#
+# ⚠️ There is NO DarkZone here, despite what this header said for a long time. One was
+# removed deliberately: a room solved by turning the flashlight off must not also tax
+# the flashlight being off (+3/s AND decay suppressed). That is ISSUES_SOLUTIONS
+# Issue 18, which this project has now made twice.
 #
 # Built on RoomBuilder rather than raw boxes: it de-dupes shared walls and bridges
 # the floor under every doorway, which is the whole reason the Issue-5 void-fall
@@ -71,6 +75,8 @@ func build(origin: Vector3, player: Node3D) -> void:
 
 	_build_rooms()
 	_build_water()
+	_build_water_audio()
+	_build_digit_notes()
 	_build_seams()
 	_build_pressure()
 	set_process(true)
@@ -107,6 +113,145 @@ func _build_water() -> void:
 	water.set_surface_override_material(0, m)
 	water.position = Vector3(0, WATER_Y, 14.0)
 	add_child(water)
+
+
+# BACKLOG #20: "in the backrooms when you are at the water stage there is no water
+# sound. Make it look more realistic like it is indeed the water."
+#
+# It was right: this zone had NO continuous audio of any kind. The only sound was a
+# `water_drip` one-shot every 3-8 s — and that name resolves to the HOUSE CELLAR's
+# drip (level_2_house/water_drip.wav), a lone plink in an empty room, which is the
+# opposite of standing in it.
+#
+# Four looping emitters rather than one: AudioStreamPlayer3D attenuates with distance,
+# and this wing is ~28 m end to end, so a single source at the centre fades out in the
+# rooms furthest from it — the Sump and the Cistern, which is exactly where the player
+# spends longest. Placed at the room centres of the four largest chambers so coverage
+# is continuous while every position still has a nearest source, which keeps it
+# directional rather than a flat wall of noise.
+const WATER_BED_ROOMS := ["Basin", "Cistern", "Sump", "Throat"]
+const WATER_BED_UNIT := 13.0
+const WATER_BED_DB := -6.0
+
+var _water_beds: Array[AudioStreamPlayer3D] = []
+
+
+func _build_water_audio() -> void:
+	var stream := GameState.load_audio("water")
+	if not stream:
+		return
+	for room in WATER_BED_ROOMS:
+		var c: Vector3 = _builder.room_center(room)
+		var a := AudioStreamPlayer3D.new()
+		a.name = "WaterBed_" + room
+		a.stream = stream
+		a.volume_db = WATER_BED_DB
+		a.unit_size = WATER_BED_UNIT
+		a.max_db = 0.0
+		add_child(a)
+		a.position = Vector3(c.x, WATER_Y + 0.2, c.z)
+		# ⚠️ Every .wav.import in this project is loop_mode=0, so the node has to
+		# restart itself. Canonical form, lifted from level_1.gd:_add_beacon_layer().
+		a.finished.connect(a.play)
+		a.play()
+		_water_beds.append(a)
+
+
+# Mirror of the above. ⚠️ DISCONNECT BEFORE STOP: `finished` is wired to `play`, so
+# stopping a still-connected player makes it emit `finished` and immediately restart
+# itself. level_1.gd learned this the hard way with the breaker beacons.
+func _free_water_audio() -> void:
+	for a in _water_beds:
+		if is_instance_valid(a):
+			if a.finished.is_connected(a.play):
+				a.finished.disconnect(a.play)
+			a.stop()
+			a.queue_free()
+	_water_beds.clear()
+
+
+func _exit_tree() -> void:
+	_free_water_audio()
+
+
+# BACKLOG #24: KONTUR's roster gate used to answer to "47", which the player already
+# knew from the intro note ("You are Subject 47") — so a gate designed to be the one
+# whose answer is carried from the first minute of the game was, in practice, the one
+# gate nobody had to look for. The code is now KONTUR's own ROSTER_CODE with no other
+# source anywhere in the game, and both digits are written down HERE, in the Flood, in
+# the same shape the House uses for its lock: one digit per note, deliberately split.
+#
+# Placement is the point. Both notes are in the SIDE RUNS — the short east/west
+# corridors off the Basin — not on the route from the Descent to the Sump. A player who
+# walks the main line and takes the seam never sees either. That is the intent (this
+# level is entered before KONTUR, and the whole design of KONTUR is "the answers are
+# not inside it"), and it is why the notes journal exists: a player who read them in
+# passing can re-read them at the lock instead of walking two levels back.
+#
+# ⚠️ Both walls are chosen for having NO doorway. EastRun (x 6..12, z 13..17) is
+# entered from its west wall and its north wall; WestRun (x -12..-6, z 13..17) from its
+# east and north. So the free faces are the outer ones. wall_point() returns the wall
+# CENTRE, which is exactly where a doorway sits — hanging a prop on a wall that has one
+# silently seals the room (the Records warning-sign bug, CLAUDE.md).
+const _NOTE_SCRIPT := preload("res://scripts/note.gd")
+
+const DIGIT_NOTE_A := """KONTUR — INTERNAL. DO NOT COPY.
+
+The personnel gate on sub-level 2 wants the subject number. I keep forgetting it, so I
+am writing it where the water will not reach.
+
+The FIRST digit is 6.
+
+I have put the second one on the far side. If they find one of these they still do not
+get in."""
+
+const DIGIT_NOTE_B := """...and the SECOND digit is 3.
+
+If you are holding both halves then you have been down here longer than I managed. The
+gate is past the kitchen, in records. It does not open twice.
+
+— Ops"""
+
+
+func _build_digit_notes() -> void:
+	# EastRun's east face and WestRun's west face — the two outer walls, both
+	# doorway-free. Inset 0.22: wall_point() measures from the room's NOMINAL boundary
+	# and the wall's inner face is T/2 (0.1) inside that, so 0.22 leaves ~12 cm of
+	# clearance (Issue 26 — at 0.10 a wall prop is exactly coplanar and gets sliced).
+	_make_note("DigitNote_WestRun",
+		_builder.wall_point("WestRun", Vector2(-1, 0), 1.4, 0.22), PI / 2.0, DIGIT_NOTE_A)
+	_make_note("DigitNote_EastRun",
+		_builder.wall_point("EastRun", Vector2(1, 0), 1.4, 0.22), -PI / 2.0, DIGIT_NOTE_B)
+
+
+func _make_note(note_name: String, pos: Vector3, y_rot: float, text: String) -> void:
+	var note := StaticBody3D.new()
+	note.name = note_name    # findable, and legible in a failing assertion (Issue 17)
+	note.set_script(_NOTE_SCRIPT)
+	note.note_text = text
+	note.is_trap = false
+	note.position = pos
+	note.rotation.y = y_rot
+	add_child(note)
+	var mesh := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.32, 0.42, 0.01)
+	mesh.mesh = bm
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(false))
+	note.add_child(mesh)
+	# Faintly lit. Every other note in the game sits in a room with a lamp; this wing
+	# is near-black by design and a wholly unlit page on a dark wall is not "hidden",
+	# it is absent. Kept low (Issue 21: emission is most of a surface's colour here).
+	var glow := OmniLight3D.new()
+	glow.light_color = Color(0.85, 0.85, 0.78)
+	glow.light_energy = 0.22
+	glow.omni_range = 1.8
+	note.add_child(glow)
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.4, 0.5, 0.12)
+	col.shape = shape
+	note.add_child(col)
 
 
 func _build_seams() -> void:
@@ -202,8 +347,9 @@ func _build_pressure() -> void:
 		cist.z + randf_range(-1.5, 1.5))
 	add_child(trap)
 
-	# One non-teach HOLD apparition in the Throat: by now the player has been taught
-	# the rule in the Lab, so this one is allowed to be fatal.
+	# A HOLD apparition in the Throat. Fatal by now — the rule was taught in the Lab —
+	# but armed through ApparitionDirector.arm(), whose global ledger keeps it
+	# survivable in the rare case this is the player's first one.
 	var tc: Vector3 = _builder.room_center("Throat")
 	var appar := Apparition.spawn(self, Apparition.Rule.HOLD,
 		Vector3(tc.x, 0, tc.z), false)
@@ -211,8 +357,8 @@ func _build_pressure() -> void:
 	MazeKit.zone_box(self, trigger, Vector3(tc.x, 1.2, tc.z - 3.0),
 		Vector3(4.0, 2.4, 1.2), "ThroatEvent")
 	trigger.fired.connect(func() -> void:
-		if is_instance_valid(appar) and appar.has_method("appear"):
-			appar.appear()
+		if is_instance_valid(appar):
+			ApparitionDirector.arm(appar as Apparition)
 	)
 
 	# BUG_FIX.md 4.4: a second one in the Sump — the deepest, most remote room (it
@@ -228,8 +374,8 @@ func _build_pressure() -> void:
 	MazeKit.zone_box(self, sump_trigger, Vector3(suc.x, 1.2, suc.z - 3.0),
 		Vector3(4.0, 2.4, 1.2), "SumpEvent")
 	sump_trigger.fired.connect(func() -> void:
-		if is_instance_valid(sump_appar) and sump_appar.has_method("appear"):
-			sump_appar.appear()
+		if is_instance_valid(sump_appar):
+			ApparitionDirector.arm(sump_appar as Apparition)
 	)
 
 
@@ -258,11 +404,16 @@ func _process(delta: float) -> void:
 		_player.apply_slow(WADE_SLOW)
 		_player.add_panic(DREAD_DRIP * delta)
 
+	# Drips on top of the bed, for texture. ⚠️ `local` is player-minus-origin, but this
+	# node is ALREADY at `origin`, so a child placed at `local` lands at origin+local —
+	# i.e. near the player, which is what was wanted, but only by accident of the two
+	# errors cancelling. Stated plainly now: place it relative to the player IN LOCAL
+	# SPACE, which is what a child of this node needs.
 	_drip_timer -= delta
 	if _drip_timer <= 0.0:
 		_drip_timer = randf_range(3.0, 8.0)
-		_play("water_drip", Vector3(local.x + randf_range(-6, 6), 2.0,
-			local.z + randf_range(-6, 6)), -4.0)
+		var near_player := Vector3(local.x + randf_range(-6, 6), 2.0, local.z + randf_range(-6, 6))
+		_play("water_drip", near_player, -4.0)
 
 
 func _play(base_name: String, pos: Vector3, volume_db: float) -> void:

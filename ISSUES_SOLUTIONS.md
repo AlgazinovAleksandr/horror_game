@@ -1095,3 +1095,151 @@ loop over that collection has to honour it, and a partial/incremental writer is 
 final writer is safe — it is a hint to go read the final writer. Grep for all mutators of a
 collection before trusting any single one of them. The tell that this had never been checked: the
 guard existed verbatim eleven lines above the function that lacked it.
+
+---
+
+## Issue 37 — `AABB.intersects_segment()` returns a Variant, and a `-> bool` signature turns that into a crash
+
+**Symptom.** Reported as a gameplay bug: *"in level 6 the first and last doors work fine.
+However, if you try to use at least some of the other doors, you get kicked out of the game."*
+Nothing about the doors themselves looked different.
+
+**Cause.** Found in the user's own Godot logs
+(`~/Library/Application Support/Godot/app_userdata/horror_game/logs/godot2026-07-26T19.46.01.log`),
+as the last line of the session:
+
+```
+SCRIPT ERROR: Trying to return value of type "Vector3" from a function whose return type is "bool".
+   at: SlamDoor.check_blocks_path (res://scripts/slam_door.gd:189)
+   GDScript backtrace (most recent call first):
+       [0] check_blocks_path (res://scripts/slam_door.gd:189)
+       [1] _tick_slam_doors (res://scripts/level_6_breach.gd:352)
+       [2] _process (res://scripts/level_6_breach.gd:565)
+```
+
+`AABB.intersects_segment()` does **not** return a bool. It returns a Variant: the
+intersection **point** (a `Vector3`) on a hit, and **`null`** on a miss. `slam_door.gd`
+declared `-> bool` and returned it directly, so *every* outcome was a hard runtime type
+error — the second log variant is the `Nil` case.
+
+**Why "first and last work".** Those are `BackDoor` and `ExitDoor`, built from `door.gd`,
+which has no `check_blocks_path` and is never touched by `_tick_slam_doors()`. All four
+`SlamDoor`s crashed. It only *looked* door-specific because the call site is guarded twice:
+the door must be `_closed` (so the player has to have slammed one) **and** Object 12 must
+have left `PATROL` (so the familiarization window must have elapsed). A run where you never
+slam a door never crashes.
+
+**Fix.** `return aabb.intersects_segment(local_from, local_to) != null`.
+
+**Why existing tests missed it.** `check_level6_breach.gd` never closed a door;
+`walk_level6_breach.gd` teleports player and creature to the Incinerator and never touches
+a `SlamDoor` at all. The whole code path was untested. `check_level6_breach.gd` now closes
+each door through the real `interact()` and asserts both the return **type** and both
+answers; verified to reproduce the exact `SCRIPT ERROR` above with the fix removed.
+
+**General lesson.** Godot's Variant-returning geometry helpers (`intersects_segment`,
+`intersects_ray`, `intersect_ray` on a space state) are a trap under GDScript's static
+typing: the annotation is checked at *runtime*, so the mistake ships silently and then
+takes the whole game down mid-frame. Grep for these by name whenever one appears in a
+typed function. Also: **read the engine's own logs before reading the code** — this was a
+five-minute find there and would have been a long hunt from the source.
+
+---
+
+## Issue 38 — A `queue_free()`d node keeps its NAME for the rest of the frame, so every replacement got renamed
+
+**Symptom.** `get_node("ExitDoor")` returned null in the Lab and the House. Probing the
+built level showed the doors as `@StaticBody3D@332` and `@StaticBody3D@334`.
+
+**Cause.** All five procedurally-built levels start with
+
+```gdscript
+func _clear_old_scene() -> void:
+    for child in get_children():
+        if not PRESERVE.has(child.name):
+            child.queue_free()
+```
+
+`queue_free()` is **deferred to the end of the frame**. The old `.tscn` nodes are therefore
+still children — and still holding their names — for the whole of `_ready()`, which is when
+the replacement level is built. Godot renames a colliding sibling using the **class** name
+(the same mechanism as Issue 17), so the new `ExitDoor` became `@StaticBody3D@332`.
+
+**Fix.** `remove_child(child)` before `child.queue_free()`. `remove_child` detaches
+immediately, so the name is free by the time the new node is added.
+
+**Why nobody noticed.** Nothing in the shipping game looked a door up by name — doors are
+reached by raycast. It surfaced the moment the new autoplay harness tried to assert "can
+the player reach the exit", and it would have surfaced next as a mysterious null in any
+future save/restore or scripted-sequence code.
+
+**General lesson.** `queue_free()` is not `free()`. If you are rebuilding a scene in
+`_ready()` and any name matters — for lookup, for tests, for a later `get_node` — detach
+the old nodes explicitly. The same shape bit KONTUR's bottle shelf in the same session:
+`BottleItem.interact()` emits `taken` *before* its own `queue_free()`, so a respawn in that
+handler collided with the corpse and every later `get_node("Bottle_vinegar")` resolved to
+the dead one, whose `_taken` guard was already true.
+
+---
+
+## Issue 39 — A suppression rule tuned against a period comparable to its own is a deadlock
+
+**Symptom.** `tests/count_apparitions.gd` reported **0 apparitions in 400 seconds** after
+the apparition's pacing was moved from a bare 60 s countdown into `ApparitionDirector`. The
+game's flagship monster had been switched off, and the test — informational at the time —
+reported it as a tidy "0 in 400 s".
+
+**Cause.** The director refuses to fire within `MIN_GAP_AFTER_AMBIENT` of a `RandomAmbient`
+scare, so the two scare systems stop landing in the same breath. It was set to **30 s**.
+`RandomAmbient` fires every **18–35 s**. The window in which the condition can be satisfied
+barely exists.
+
+**Fix.** Three things, and the second two matter more than the first:
+1. `MIN_GAP_AFTER_AMBIENT` → 8.0, well under `RandomAmbient.MIN_INTERVAL` (18).
+2. `OVERDUE_AFTER` — the *soft* conditions (ambient spacing, panic level) are dropped once
+   an appearance has been held back that long. The hard fairness conditions (paused tree,
+   open note, frozen input, a level's own veto) are never relaxed. An appearance can now be
+   delayed but never cancelled.
+3. `count_apparitions.gd` **asserts** instead of printing: a minimum count, and a minimum
+   gap. It also counts *appearances* (`visible`) rather than instantiations, because
+   Apparition nodes exist dormant from level build and one was being logged as a phantom
+   sighting at t=2.1 s.
+
+**General lesson.** Two of them. When adding a gate on "time since some other system did
+X", check X's own period first — a condition whose window is the same order as the thing it
+waits for is a deadlock, not a preference. And any feature that can be silently suppressed
+to zero needs a test that fails at zero; this is Issue 34 restated, where an assist masked
+a mechanic that had never been implemented at all.
+
+---
+
+## Issue 40 — A shape query against CSG reports nothing when it is fully INSIDE the solid
+
+**Symptom.** `Apparition._fits()` approved a spawn point 0.8 m inside a wall. The test's own
+independently-written shape query at the same coordinates flagged it correctly, so the two
+disagreed about identical geometry.
+
+**Diagnosis.** `tests/probe_shape_vs_csg.gd`, kept in the repo as the evidence. Cylinder,
+box and sphere all behave the same way against the CSG walls:
+
+```
+--- at (-31.0, 0.0, 14.4)  (0.8 m inside the Plant north wall) ---
+  cylinder   -> 2 hits  @CSGBox3D@118, @CSGBox3D@118
+--- at (-31.0, 0.0, 14.5)  (dead centre of the wall slab) ---
+  cylinder   -> 0 hits
+```
+
+CSG collision is a **concave trimesh**. A shape that straddles a face intersects triangles
+and is reported; a shape sitting wholly within the slab intersects none and comes back
+clean. So `intersect_shape` silently approves exactly the case a clearance check exists to
+reject.
+
+**Fix.** `_fits()` uses **rays**, which is what the rest of this project asserts with:
+line-of-sight from the player's eye (which also catches "the point is inside a wall",
+because the segment must cross that wall's near face to reach it), a head-room ray, a
+top-down ray through the figure's own column, and a 16-ray horizontal fan for elbow room.
+
+**General lesson.** Do not use `intersect_shape` as a containment test against CSG or any
+concave collider. And when an implementation and its test disagree about the same
+coordinates, write the throwaway probe — the argument from first principles had been
+confidently wrong for three rounds before the probe settled it in one run.

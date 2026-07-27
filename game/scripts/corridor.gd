@@ -61,6 +61,7 @@ const MANAGER_PANIC := 25.0
 const MANAGER_DIST := Vector2(80.0, 180.0)  # walked-distance window for the fire point
 
 var _manager_fired: bool = false
+var _furthest_reached: float = 0.0
 
 # Turn mirrors: walk into the creature in the glass and it flashes back at you.
 # [{pos, fired}] — proximity-tested in _process so each fires once.
@@ -112,11 +113,48 @@ func _ready() -> void:
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 	RandomAmbient.register_player(_player)
 	GameState.set_objective("Find room 217 — keep walking, do not run")
+	_place_player()
+
+
+# ---------------------------------------------------------------- progress snapshot
+#
+# The Corridor has no puzzle state — the level IS the walk. What it has instead is 320
+# metres, and that is exactly what makes re-entry painful: coming BACK from the
+# Backrooms used to drop the player at the corridor mouth with the whole hall to walk
+# again before they could reach the noclip and go forward. So the only thing worth
+# remembering is how far they got.
+#
+# ⚠️ Deliberately capped short of the noclip onset (_total_len - 10). Respawning INSIDE
+# the noclip trigger would fire the fall-through the instant the level loaded, bouncing
+# the player straight back to the Backrooms they were trying to leave.
+const RETURN_MARGIN := 14.0
+
+func save_progress() -> Dictionary:
+	return {"furthest": _furthest_reached, "manager_fired": _manager_fired}
+
+
+func _place_player() -> void:
+	if not _player:
+		return
+	if not GameState.entered_from_ahead:
+		return                       # the .tscn already puts them at the mouth
+	var data := GameState.get_level_progress(3)
+	var dist: float = minf(float(data.get("furthest", 0.0)), _total_len - RETURN_MARGIN)
+	if dist <= 1.0:
+		return
+	var pt := _path_point(dist)
+	_player.global_position = pt.pos + Vector3(0, 0.1, 0)
+	# Face back the way they came, toward the exit — they re-entered through it.
+	_player.rotation.y = atan2(pt.dir.x, pt.dir.z)
+	_manager_fired = bool(data.get("manager_fired", false))
 
 
 func _process(_delta: float) -> void:
 	# Walk into a turn mirror and the creature in the glass flashes at you once.
 	var pp := _player.global_position
+	# Cheap high-water mark for the progress snapshot. Path distance is not recoverable
+	# from a position (the hall zigzags and doubles back in x), so track it as we go.
+	_furthest_reached = maxf(_furthest_reached, _nearest_path_distance(pp))
 	for m in _turn_mirrors:
 		if m.fired:
 			continue
@@ -145,6 +183,25 @@ func _build_segments() -> void:
 
 # Point on the centerline at walked distance `dist`.
 # Returns pos (floor level), dir (walk direction) and side (lateral unit vector).
+# Approximate path distance of a world position, by walking the segment table. Good
+# enough for a respawn marker; it is never used for anything the player can see.
+func _nearest_path_distance(pos: Vector3) -> float:
+	var here := Vector2(pos.x, pos.z)
+	var best_d := 0.0
+	var best_sq := INF
+	for seg in _segments:
+		var p0: Vector2 = seg.p0
+		var dir: Vector2 = seg.dir
+		var seg_len: float = seg.len
+		var t: float = clampf((here - p0).dot(dir), 0.0, seg_len)
+		var closest: Vector2 = p0 + dir * t
+		var d_sq: float = closest.distance_squared_to(here)
+		if d_sq < best_sq:
+			best_sq = d_sq
+			best_d = float(seg.start_d) + t
+	return best_d
+
+
 func _path_point(dist: float) -> Dictionary:
 	for i in range(_segments.size()):
 		var seg: Dictionary = _segments[i]

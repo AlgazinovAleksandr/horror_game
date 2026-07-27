@@ -15,7 +15,8 @@ class_name CreatureObject12
 # Contact is instant-fatal, exactly like every other creature in the game — no grab or
 # struggle QTE. Sustained aimed flashlight (apply_light_damage(), driven every frame by
 # the level orchestrator, which owns the "is the player actually aiming at it" check)
-# drains a shield and stops it in STAGGERED for STAGGER_DURATION — a temporary repel,
+# drains a shield and stops it in STAGGERED for STAGGER_MIN..STAGGER_MAX seconds — a
+# temporary repel,
 # not a kill. The only permanent defeat is being lured into the level's PurgeChamber,
 # which calls lure_into_trap() directly.
 
@@ -44,7 +45,20 @@ const SHIELD_MAX := 100.0
 const SHIELD_DRAIN_RATE := 40.0   # ~2.5s of sustained aimed light to stagger
 const SHIELD_REGEN_DELAY := 3.0
 const SHIELD_REGEN_RATE := 15.0
-const STAGGER_DURATION := 25.0
+# ⚠️ Was a flat STAGGER_DURATION := 25.0. BACKLOG #26 asked for "only 5 seconds or
+# something like that (can be random from 3-7)", and the user confirmed 5-7 with the
+# blind restricted to an active chase. Randomised so the window can't be counted out:
+# a fixed number turns a panicked escape into arithmetic.
+#
+# Note what the backlog item actually described — "it is inactive for the very short
+# period" — was NOT this constant. 25 s was real. What was broken is in
+# apply_light_damage(): the stagger could only trigger from CHASE or INVESTIGATE, so
+# emptying the shield of a creature that was PATROLling or SEARCHing did nothing at all
+# and it just kept coming. That reads as "the blind lasted no time"; it had never
+# started. The condition is now CHASE-only and explicit, and the shield does not drain
+# outside a chase, so light is never silently wasted.
+const STAGGER_MIN := 5.0
+const STAGGER_MAX := 7.0
 const STAGGER_TILT_DEG := 35.0
 
 var _player: CharacterBody3D
@@ -65,6 +79,7 @@ var _last_seen_pos: Vector3 = Vector3.ZERO
 var _search_t: float = 0.0
 var _los_lost_t: float = 0.0
 var _stagger_t: float = 0.0
+var _stagger_len: float = STAGGER_MAX   # rolled per stagger, see STAGGER_MIN/MAX
 var _block_t: float = 0.0   # set by force_block(); pauses movement under any state
 
 var _shield: float = SHIELD_MAX
@@ -267,12 +282,21 @@ func notify_noise(pos: Vector3, radius: float) -> void:
 # aiming a lit flashlight at this creature within FOV+LOS (mirrors _detect_player's
 # raycast shape, camera -> creature instead of creature -> camera).
 func apply_light_damage(delta: float) -> void:
-	if not _active or _state == State.STAGGERED:
+	if not _active:
+		return
+	# ⚠️ CHASE only, and the guard is FIRST so the shield isn't drained in states that
+	# could never pay out. Previously the drain happened in every state while the
+	# stagger could only fire from CHASE/INVESTIGATE, so a player lighting up a
+	# patrolling or searching creature emptied the whole pool for no effect, then
+	# watched it refill at SHIELD_REGEN_RATE — indistinguishable, from the outside,
+	# from a blind that lasted no time at all (BACKLOG #26). Confirmed with the user:
+	# you can only blind it while it is actually chasing you.
+	if _state != State.CHASE:
 		return
 	_shield_idle_t = 0.0
 	_shield = maxf(0.0, _shield - SHIELD_DRAIN_RATE * delta)
 	_update_wound_tint()
-	if _shield <= 0.0 and (_state == State.CHASE or _state == State.INVESTIGATE):
+	if _shield <= 0.0:
 		_enter_stagger()
 
 
@@ -420,7 +444,7 @@ func _tick_search(delta: float) -> void:
 
 func _tick_staggered(delta: float) -> void:
 	_stagger_t += delta
-	if _stagger_t >= STAGGER_DURATION:
+	if _stagger_t >= _stagger_len:
 		_shield = SHIELD_MAX
 		_update_wound_tint()
 		if _body_collider:
@@ -438,6 +462,7 @@ func _tick_staggered(delta: float) -> void:
 func _enter_stagger() -> void:
 	_enter(State.STAGGERED)
 	_stagger_t = 0.0
+	_stagger_len = randf_range(STAGGER_MIN, STAGGER_MAX)
 	# ⚠️ Non-solid while staggered (found 2026-07-24 playtest): the capsule (radius 0.3)
 	# stops wherever it happened to be walking, which can be dead-center in a doorway
 	# (width as low as 1.6-1.8 m). Each side gap then shrinks to ~0.6 m — less than the
@@ -449,7 +474,7 @@ func _enter_stagger() -> void:
 		_body_collider.disabled = true
 	if _visual_root:
 		_visual_root.rotation.x = deg_to_rad(-STAGGER_TILT_DEG)
-	staggered.emit(STAGGER_DURATION)
+	staggered.emit(_stagger_len)
 
 
 func _contact() -> void:

@@ -24,6 +24,12 @@ const FLOOR_Z_MIN := -3.5
 const FLOOR_Z_MAX := 72.5
 const FLOOR_STEP := 1.0
 
+# The deliberate hole behind the red door (kontur.gd:_open_the_void()) and the z at
+# which the spine jumps to the randomised `_dark_x` offset.
+const VOID_Z_MIN := 9.5
+const VOID_Z_MAX := 13.5
+const FACILITY_SPINE_Z := 58.0
+
 var _frame := 0
 var _fails := 0
 var _stage := 0
@@ -63,16 +69,42 @@ func _process(delta: float) -> bool:
 		else:
 			# A shut gate is SUPPOSED to seal its doorway; anything else is the
 			# "prop blocks the room" bug.
-			var is_gate: bool = nm == "FungalBarrier" or nm.begins_with("ChoiceDoor_")
+			#
+			# ⚠️ RosterSeal and AirlockSeal were missing from this list, so this check
+			# reported FAIL on a level that was behaving exactly as designed — and had
+			# done so for long enough that the red result was just background noise. A
+			# permanently-failing test is worse than no test: it teaches everyone to
+			# stop reading the column. (Found 2026-07-27; confirmed identical on HEAD
+			# before any of this session's changes.)
+			var is_gate: bool = nm == "FungalBarrier" \
+				or nm.begins_with("ChoiceDoor_") \
+				or nm == "RosterSeal" or nm == "AirlockSeal"
 			print("  %s %s  <- %s" % ["GATE(ok)  " if is_gate else "BLOCKED   ", d[3], nm])
 			if not is_gate:
 				_fails += 1
 
-	print("--- floor coverage along the spine (x=0) ---")
+	# ⚠️ Two things this probe used to get wrong, both of which made it report holes in
+	# a floor that is exactly as designed:
+	#
+	#   * It walked x = 0 the whole way. KONTUR builds the Airlock/Escort/Terminus
+	#     spine at ONE OF THREE randomised x offsets (`_dark_x`) so gate 7's answer
+	#     moves every run — so past the Blackout there is genuinely no floor at x=0
+	#     about two runs in three, and the test's verdict was a coin flip.
+	#   * It counted the deliberate void behind the red door (gate 1's whole point,
+	#     `_open_the_void()`) as a defect.
+	#
+	# Follow the actual spine, and skip the void on purpose.
+	var dark_x: float = float(current_scene.get("_dark_x"))
+	print("--- floor coverage along the spine (x=0, then x=%.1f past the Blackout) ---" % dark_x)
 	var z := FLOOR_Z_MIN
 	var holes: Array = []
 	while z <= FLOOR_Z_MAX:
-		var q2 := PhysicsRayQueryParameters3D.create(Vector3(0, 1.0, z), Vector3(0, -1.5, z))
+		if z >= VOID_Z_MIN and z <= VOID_Z_MAX:
+			z += FLOOR_STEP
+			continue                      # the hole behind the red door, by design
+		var probe_x: float = 0.0 if z < FACILITY_SPINE_Z else dark_x
+		var q2 := PhysicsRayQueryParameters3D.create(
+			Vector3(probe_x, 1.0, z), Vector3(probe_x, -1.5, z))
 		q2.exclude = [player.get_rid()]
 		if space.intersect_ray(q2).is_empty():
 			holes.append(z)

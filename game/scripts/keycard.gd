@@ -8,6 +8,9 @@ func _ready() -> void:
 
 func interact() -> void:
 	GameState.has_keycard = true
+	# The HUD's carried line — this keycard is walked a long way back through a dark
+	# morgue to a door, and until now nothing on screen confirmed you were holding it.
+	GameState.set_carried("keycard")
 	_show_feedback()
 	var level := get_tree().current_scene
 	if level and level.has_method("on_keycard_taken"):

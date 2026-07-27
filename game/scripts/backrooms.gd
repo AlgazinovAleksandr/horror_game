@@ -111,9 +111,68 @@ func _ready() -> void:
 	_player.enable_footstep_echo()
 
 	_assign_round()
+	_spawn_back_door()
 	Vignette.spawn(self, Color(0.95, 0.88, 0.45, 1.0), 1.4)
 	GameState.set_objective("Follow the DOWN arrows — three turns in a row (0/3)")
+	_restore_progress()
 	_check_banishment()
+
+
+# ---------------------------------------------------------------- back door
+#
+# ⚠️ A deliberate softening of "no way out behind you", and worth stating plainly.
+#
+# The Backrooms is the ONLY level with no back door: it is entered by a one-way noclip
+# fall out of the Corridor, and the entry arm is capped. That was fine while it was a
+# dead end in one direction — but KONTUR's own back door leads HERE, so a player who
+# walked back from KONTUR to re-read something landed in a level with no exit but
+# clearing all three zones again. That is the precise complaint in BACKLOG #30, and it
+# is worse than the fiction it protects.
+#
+# So: one blood-red door in the entry cap, the same convention every other level uses,
+# returning to the Corridor. The zone/counter snapshot means coming back does not cost
+# the descent, and corridor.gd drops the player near the noclip rather than at its
+# mouth, so the round trip is short.
+const _DOOR_SCRIPT := preload("res://scripts/door.gd")
+
+func _spawn_back_door() -> void:
+	var body := StaticBody3D.new()
+	body.name = "BackDoor"
+	body.set_script(_DOOR_SCRIPT)
+	body.advances_level = false
+	body.goes_back = true
+	body.position = Vector3(0, 1.225, -6.9)     # inside face of EntryCap (z = -7)
+	add_child(body)
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), "")
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(1.25, 2.45, 0.2)
+	col.shape = shape
+	body.add_child(col)
+
+
+# ---------------------------------------------------------------- progress snapshot
+#
+# The descent (which of the three zones) and the loop counter within zone 1. Without
+# this, walking back from KONTUR for one note costs the whole Lobby -> Sprawl -> Flood
+# run again — and the Flood is where the roster digits now live, so that trip is one
+# players will actually make.
+
+func save_progress() -> Dictionary:
+	return {"zone": _zone, "counter": _counter}
+
+
+func _restore_progress() -> void:
+	var data := GameState.get_level_progress(4)
+	if data.is_empty():
+		return
+	var zone: int = int(data.get("zone", 1))
+	_counter = int(data.get("counter", 0))
+	if zone > 1:
+		_enter_zone(zone)      # teleports to that zone's spawn and re-announces it
+	elif _counter > 0:
+		GameState.set_objective("Follow the DOWN arrows — three turns in a row (%d/%d)"
+			% [_counter, TURNS_TO_WIN])
 
 
 # KONTUR sends the player back here when they open its wrong door and fall out of the

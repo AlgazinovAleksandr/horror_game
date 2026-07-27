@@ -16,10 +16,9 @@ const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _LOCK_SCRIPT := preload("res://scripts/combination_lock.gd")
 
-# DEBUG: see level_1.gd — a survivable apparition re-appears in front of the player
-# every DEBUG_APPAR_INTERVAL seconds while true. Flip false for release.
-const DEBUG_APPARITION := true
-const DEBUG_APPAR_INTERVAL := 60.0
+# Whether this level arms random apparitions. Pacing and the teach/fatal decision live
+# in ApparitionDirector — see level_1.gd's note on why the old DEBUG_* pair went away.
+const RANDOM_APPARITIONS := true
 
 const CREAK_MIN := 15.0
 const CREAK_MAX := 40.0
@@ -48,10 +47,11 @@ var _creak_timer: float = 0.0
 var _pipe_timer: float = 0.0
 var _blackout_clock: float = 0.0
 var _blackout_timer: float = 0.0
-var _cellar_gate: CSGBox3D
+var _cellar_gate: CellarGate
+var _has_cellar_key: bool = false
+var _map_solved: bool = false
 var _apparition: Apparition
 var _apparition_fired: bool = false
-var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 var _tv_card: Label3D
 var _tv_card_clock: float = 12.0   # time until the test card next surfaces
 var _tv_card_hold: float = 0.0     # time the card stays legible
@@ -76,6 +76,7 @@ func _ready() -> void:
 	_spawn_room_props()
 	_spawn_events()
 	_spawn_apparition()
+	_spawn_apparition_director()
 	_start_ambience()
 	_boost_ambient(0.35)
 
@@ -88,6 +89,7 @@ func _ready() -> void:
 	# neither upstairs nor a search any more, so name the prop rather than a room: the
 	# map is the thing to find, and finding it is the whole of the puzzle.
 	GameState.set_objective("Find the folded map — it hides the cellar key")
+	_restore_progress()      # last — overrides the fresh-level objective above
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_blackout_clock = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
@@ -99,8 +101,18 @@ func _player() -> CharacterBody3D:
 
 func _clear_old_scene() -> void:
 	for child in get_children():
-		if not PRESERVE.has(child.name):
-			child.queue_free()
+		if PRESERVE.has(child.name):
+			continue
+		# ⚠️ remove_child BEFORE queue_free. queue_free() is deferred to the end of the
+		# frame, so a node freed this way is STILL A CHILD — and still holding its name
+		# — while _ready() builds the replacement level. Godot then renames the new
+		# node on the collision (Issue 17), and every later get_node("ExitDoor") in
+		# these levels silently missed: probed on the Lab, both doors came back as
+		# @StaticBody3D@332 / @334. remove_child() detaches immediately, so the name is
+		# free by the time the new door is added. (Found 2026-07-27 by the autoplay
+		# harness, which is the first thing that ever looked a door up by name.)
+		remove_child(child)
+		child.queue_free()
 
 
 # ---------------------------------------------------------------- geometry
@@ -162,12 +174,60 @@ func _rooms_with_skins() -> Array:
 	return out
 
 
+# Entry vs. exit spawn — see level_1.gd's note. Coming back from the Corridor you have
+# just stepped out of the child's-room exit, not the front door.
+const ENTRY_SPAWN := Vector3(0, 0.1, -2.0)
+const EXIT_SPAWN := Vector3(0, 0.1, 17.6)
+
 func _place_player() -> void:
 	var p := _player()
 	if not p:
 		return
-	p.global_position = Vector3(0, 0.1, -2.0)
-	p.rotation = Vector3(0, PI, 0)  # face +z into the house
+	if GameState.entered_from_ahead:
+		p.global_position = EXIT_SPAWN
+		p.rotation = Vector3(0, 0, 0)
+	else:
+		p.global_position = ENTRY_SPAWN
+		p.rotation = Vector3(0, PI, 0)  # face +z into the house
+
+
+# ---------------------------------------------------------------- progress snapshot
+# See GameState.level_progress. A death still wipes this; it only survives navigation.
+
+func save_progress() -> Dictionary:
+	return {
+		"map_solved": _map_solved,
+		"has_cellar_key": _has_cellar_key,
+		"cellar_open": is_instance_valid(_cellar_gate) and bool(_cellar_gate.get("_opened")),
+		"code_correct": GameState.level2_code_correct,
+		"apparition_fired": _apparition_fired,
+		"forest_fired": _forest_fired,
+	}
+
+
+func _restore_progress() -> void:
+	var data := GameState.get_level_progress(2)
+	if data.is_empty():
+		return
+	_apparition_fired = bool(data.get("apparition_fired", false))
+	_forest_fired = bool(data.get("forest_fired", false))
+	GameState.level2_code_correct = bool(data.get("code_correct", false))
+	if bool(data.get("map_solved", false)):
+		_map_solved = true
+		var map := get_node_or_null("HouseMap")
+		if map:
+			map.queue_free()          # already solved; don't offer the minigame again
+	if bool(data.get("cellar_open", false)):
+		if is_instance_valid(_cellar_gate):
+			_cellar_gate.open()
+		GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
+	elif bool(data.get("has_cellar_key", false)):
+		_has_cellar_key = true
+		GameState.set_carried("cellar key")
+		GameState.set_objective("Unlock the cellar door under the kitchen stairs")
+	elif _map_solved:
+		# Won the map but never picked the key up — it is still lying on the counter.
+		GameState.set_objective("Collect the cellar key")
 
 
 # ---------------------------------------------------------------- cellar (lowered)
@@ -692,7 +752,9 @@ func _spawn_bathroom_map(bc: Vector3) -> void:
 	_make_prop(Vector3(map_pos.x, 0.3, map_pos.z), Vector3(0.5, 0.6, 0.4), Color(0.55, 0.5, 0.45))
 	var map := HouseMap.new()
 	map.position = map_pos
+	map.name = "HouseMap"
 	map.won.connect(func() -> void:
+		_map_solved = true
 		_build_cellar_key(map_pos)
 	)
 	add_child(map)
@@ -717,16 +779,13 @@ func _spawn_cellar_contents() -> void:
 	trap.position = Vector3(c.x + 1.5, CELLAR_Y, c.y + 0.5)
 	add_child(trap)
 
-	# The cellar gate (blocks the ramp opening until the key is found) + the key.
-	_cellar_gate = CSGBox3D.new()
+	# The cellar gate. Blocks the ramp opening (1.7 x 3.0 fills it completely — no
+	# transom leak) until the player UNLOCKS it themselves with the key; see
+	# cellar_gate.gd and _on_cellar_gate_used() below.
+	_cellar_gate = CellarGate.new()
 	_cellar_gate.name = "CellarGate"
-	_cellar_gate.size = Vector3(1.7, 3.0, 0.2)  # fills the full opening — no transom leak
 	_cellar_gate.position = Vector3(5.0, 1.5, 3.0)
-	_cellar_gate.use_collision = true
-	var gm := StandardMaterial3D.new()
-	gm.albedo_color = Color(0.12, 0.08, 0.05)
-	gm.roughness = 0.85
-	_cellar_gate.material = gm
+	_cellar_gate.used.connect(_on_cellar_gate_used)
 	add_child(_cellar_gate)
 
 	# The key itself is no longer a straight pickup — see _spawn_bathroom_map(), a 2D
@@ -745,7 +804,7 @@ func _build_cellar_key(pos: Vector3) -> void:
 	var key := KeyItem.new()
 	key.label_text = "Cellar key"
 	key.position = pos
-	key.picked_up.connect(_open_cellar_gate)
+	key.picked_up.connect(_on_cellar_key_taken)
 	add_child(key)
 	var key_tex := TEX + "house_cellar_key.png"
 	if ResourceLoader.exists(key_tex):
@@ -795,12 +854,26 @@ func _build_cellar_key(pos: Vector3) -> void:
 	key.add_child(glow)
 
 
-func _open_cellar_gate() -> void:
+# ⚠️ BACKLOG #16. This used to be wired straight to the key's `picked_up`, so winning
+# the map minigame in the Bathroom flung the cellar open from across the house and the
+# key was a formality. Now taking the key only means you are CARRYING it; the door is
+# a separate act, at the door.
+func _on_cellar_key_taken() -> void:
+	_has_cellar_key = true
+	GameState.set_carried("cellar key")
+	GameState.set_objective("Unlock the cellar door under the kitchen stairs")
+
+
+func _on_cellar_gate_used() -> void:
 	if not _cellar_gate:
 		return
-	var t := create_tween()
-	t.tween_property(_cellar_gate, "position:y", 4.6, 0.9).set_trans(Tween.TRANS_QUAD)
-	t.tween_callback(func() -> void: _cellar_gate.use_collision = false)
+	if not _has_cellar_key:
+		ScreenText.toast(get_tree(), "It is locked. Something holds it from the other side.",
+			Color(0.9, 0.85, 0.75), 2.0)
+		return
+	_has_cellar_key = false
+	GameState.set_carried("")
+	_cellar_gate.open()
 	_play_at("creak", Vector3(5, 1.2, 3), 2.0)
 	GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
 
@@ -818,7 +891,9 @@ func _trigger_apparition() -> void:
 	if _apparition_fired or not _apparition:
 		return
 	_apparition_fired = true
-	_apparition.appear()
+	# Fatal — unless this is somehow the player's first HOLD encounter, which the
+	# global ledger in ApparitionDirector.arm() decides.
+	ApparitionDirector.arm(_apparition)
 
 
 # ---------------------------------------------------------------- events
@@ -918,7 +993,6 @@ func _process(delta: float) -> void:
 	_tick_forest()
 	_tick_timers(delta)
 	_drive_lights()
-	_tick_debug_apparition(delta)
 	_tick_tv_card(delta)
 
 
@@ -944,17 +1018,12 @@ func _tick_tv_card(delta: float) -> void:
 		_tv_card_hold = TV_CARD_HOLD
 
 
-func _tick_debug_apparition(delta: float) -> void:
-	if not DEBUG_APPARITION:
+func _spawn_apparition_director() -> void:
+	if not RANDOM_APPARITIONS:
 		return
-	_dbg_appar_timer -= delta
-	if _dbg_appar_timer > 0.0:
-		return
-	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
-	# Fatal (teach=false): hold still to survive, flee → screamer + restart.
-	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
-	if a:
-		a.appear()
+	var d := ApparitionDirector.new()
+	d.name = "ApparitionDirector"
+	add_child(d)
 
 
 func _tick_forest() -> void:

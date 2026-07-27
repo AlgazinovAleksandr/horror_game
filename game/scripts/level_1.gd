@@ -17,18 +17,17 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _TRIGGER_SCRIPT := preload("res://scripts/trigger_object.gd")
 const _KEYCARD_SCRIPT := preload("res://scripts/keycard.gd")
 
-# DEBUG: while true, a survivable apparition re-appears in front of the player every
-# DEBUG_APPAR_INTERVAL seconds so it's easy to encounter and tune. Flip false for
-# release (the scripted, fires-once taught encounter below still stands).
-const DEBUG_APPARITION := true
-# 45.0 until 2026-07-26 ("during this trial I saw apparition more often than each 45
-# seconds"). Measured by tests/count_apparitions.gd, the loop was firing at exactly
-# 45.0 s — but it is not the only source. The SCRIPTED teach encounter is armed by a
-# trigger volume in the main corridor and fires whenever the player first walks in, so
-# early in the level the two stack and can land within seconds of each other. Cutting
-# APPEAR_DIST to 4 m compounded it: spawns that used to land inside a wall and go unseen
-# now all resolve in open view, so the felt rate rose without the spawn rate changing.
-const DEBUG_APPAR_INTERVAL := 60.0
+# While true, random apparitions are armed in this level. Pacing, fairness and the
+# teach/fatal decision now all live in ApparitionDirector (scripts/apparition_director.gd)
+# rather than in a per-level countdown — this flag only says whether the level wants
+# them at all. Set false to leave only the scripted, fires-once encounter below.
+#
+# ⚠️ Was `DEBUG_APPARITION` + `DEBUG_APPAR_INTERVAL = 60.0`, one identical copy in each
+# of level_1.gd / level_2.gd / kontur.gd. Renamed because it was never really a debug
+# switch: it shipped `true` and IS the random-monster feature the design documents
+# describe. Calling it DEBUG invited every future session to assume it was off in
+# release and to reason about the game as if this creature didn't exist.
+const RANDOM_APPARITIONS := true
 
 const BLACKOUT_DURATION := 1.6
 const KEYCARD_PANIC := 8.0
@@ -56,12 +55,14 @@ var _blackout_timer: float = 0.0
 var _pipe_timer: float = 0.0
 var _scheduled_blackout: float = 0.0
 var _breakers_flipped: int = 0
+# Which of the three, by node name — a bare count cannot be restored, because the
+# player chooses the order and a restored level has to put the RIGHT levers green.
+var _flipped_breakers: Dictionary = {}
 var _power_on: bool = false
 var _morgue_shutter: CSGBox3D
 var _apparition: Apparition
 var _apparition_fired: bool = false
 var _pa_speaker: AudioStreamPlayer3D
-var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 # The Records breaker: hidden behind a locker the player has to shove aside, and
 # only after finding the maintenance note in the Observation room.
@@ -73,6 +74,7 @@ var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 # it with a real search (a note on the far side of the lab) and a real cost (a push).
 # Do not re-add an ambient tell to this breaker.
 var _locker: LabLocker
+var _locker_moved: bool = false
 
 # BreakerNook: sound-only tell for its breaker, and a flag the debug-apparition
 # tick reads to suppress itself while the player is inside.
@@ -113,12 +115,15 @@ func _ready() -> void:
 	_spawn_pa_speaker()
 	_spawn_doors()
 	_spawn_apparition()
+	_spawn_apparition_director()
 	_start_ambience()
 	_boost_ambient(0.35)
 
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 	RandomAmbient.register_player(_player())
 	GameState.set_objective("Restore power — flip the breakers (0/3)")
+	# LAST, so it overrides the fresh-level objective and lamp state above.
+	_restore_progress()
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
 	_scheduled_blackout = randf_range(BLACKOUT_MIN, BLACKOUT_MAX)
 	_dark_breaker_timer = randf_range(BREAKER_SPARK_MIN, BREAKER_SPARK_MAX)
@@ -130,8 +135,18 @@ func _player() -> CharacterBody3D:
 
 func _clear_old_scene() -> void:
 	for child in get_children():
-		if not PRESERVE.has(child.name):
-			child.queue_free()
+		if PRESERVE.has(child.name):
+			continue
+		# ⚠️ remove_child BEFORE queue_free. queue_free() is deferred to the end of the
+		# frame, so a node freed this way is STILL A CHILD — and still holding its name
+		# — while _ready() builds the replacement level. Godot then renames the new
+		# node on the collision (Issue 17), and every later get_node("ExitDoor") in
+		# these levels silently missed: probed on the Lab, both doors came back as
+		# @StaticBody3D@332 / @334. remove_child() detaches immediately, so the name is
+		# free by the time the new door is added. (Found 2026-07-27 by the autoplay
+		# harness, which is the first thing that ever looked a door up by name.)
+		remove_child(child)
+		child.queue_free()
 
 
 # ---------------------------------------------------------------- geometry
@@ -258,12 +273,66 @@ func _rooms_with_skins() -> Array:
 	return out
 
 
+# ⚠️ Entry direction matters (BACKLOG #30). Coming FORWARD from the intro room you
+# arrive at reception; coming BACK through the House's back door you have just stepped
+# out of the Lab's EXIT, so that is where you should be standing. Spawning at reception
+# either way means every trip back for a note costs the whole level's walk again.
+const ENTRY_SPAWN := Vector3(0, 0.1, -1.5)
+const EXIT_SPAWN := Vector3(0, 0.1, 19.6)      # ExitVestibule, just inside the exit door
+
 func _place_player() -> void:
 	var p := _player()
 	if not p:
 		return
-	p.global_position = Vector3(0, 0.1, -1.5)
-	p.rotation = Vector3(0, PI, 0)  # face +z (north, into the lab)
+	if GameState.entered_from_ahead:
+		p.global_position = EXIT_SPAWN
+		p.rotation = Vector3(0, 0, 0)      # face -z, back down the spine
+	else:
+		p.global_position = ENTRY_SPAWN
+		p.rotation = Vector3(0, PI, 0)     # face +z (north, into the lab)
+
+
+# ---------------------------------------------------------------- progress snapshot
+#
+# See GameState.level_progress for the contract and for why a DEATH deliberately does
+# not restore. This only has to cover state the player would resent redoing: the three
+# breakers, the locker they had to earn the right to shove, and the keycard. Scares
+# (the taught apparition, the nook payoff) are recorded too, so walking back through
+# does not replay a one-time beat as if it were new.
+
+func save_progress() -> Dictionary:
+	return {
+		"breakers": _flipped_breakers.keys(),
+		"power_on": _power_on,
+		"locker_unlocked": is_instance_valid(_locker) and _locker.unlocked,
+		"locker_moved": _locker_moved,
+		"apparition_fired": _apparition_fired,
+		"nook_scare_done": _nook_scare_done,
+	}
+
+
+func _restore_progress() -> void:
+	var data := GameState.get_level_progress(1)
+	if data.is_empty():
+		return
+	for id in data.get("breakers", []):
+		var b := get_node_or_null(String(id)) as Breaker
+		if b:
+			b.set_already_flipped()
+			_flipped_breakers[id] = true
+			_breakers_flipped += 1
+	if bool(data.get("locker_unlocked", false)) and is_instance_valid(_locker):
+		_locker.unlocked = true
+	if bool(data.get("locker_moved", false)) and is_instance_valid(_locker):
+		_locker.unlocked = true
+		_locker.move_aside_instantly()
+	_apparition_fired = bool(data.get("apparition_fired", false))
+	_nook_scare_done = bool(data.get("nook_scare_done", false))
+	# Power last: it reads _breakers_flipped and opens the morgue shutter.
+	if bool(data.get("power_on", false)):
+		_restore_power()
+	elif _breakers_flipped > 0:
+		GameState.set_objective("Restore power — flip the breakers (%d/3)" % _breakers_flipped)
 
 
 # ---------------------------------------------------------------- lighting
@@ -438,28 +507,31 @@ func _spawn_power_quest() -> void:
 	# an emission texture, which made even the "hidden" Records one the brightest
 	# object in the level (playtest capture #1).
 	var exam1 := Breaker.new()
+	exam1.name = "Breaker_Exam1"   # named so restore_progress() can find it again
 	exam1.position = _builder.wall_point("Exam1", Vector2(-1, 0), 1.3, 0.15)
 	exam1.rotation.y = PI / 2.0
-	exam1.flipped.connect(_on_breaker_flipped)
+	exam1.flipped.connect(_on_breaker_flipped.bind("Breaker_Exam1"))
 	add_child(exam1)
 
 	var hidden_pos: Vector3 = _builder.wall_point("Records", Vector2(0, -1), 1.1, 0.15)
 	var hidden := Breaker.new()
+	hidden.name = "Breaker_Records"
 	hidden.position = hidden_pos
 	hidden.rotation.y = 0.0
-	hidden.flipped.connect(_on_breaker_flipped)
+	hidden.flipped.connect(_on_breaker_flipped.bind("Breaker_Records"))
 	add_child(hidden)
 	_spawn_records_locker(hidden_pos)
 
 	var dark_pos: Vector3 = _builder.wall_point("BreakerNook", Vector2(-1, 0), 1.1, 0.15)
 	var dark := Breaker.new()
+	dark.name = "Breaker_Nook"
 	dark.position = dark_pos
 	dark.rotation.y = PI / 2.0
 	# Confirmed playtest bug: emission self-illuminates regardless of scene
 	# darkness, so the "pitch black" room's breaker was clearly visible the
 	# whole time. This is the only breaker in the level that must not glow.
 	dark.glows = false
-	dark.flipped.connect(_on_breaker_flipped)
+	dark.flipped.connect(_on_breaker_flipped.bind("Breaker_Nook"))
 	# Hooked to THIS breaker's own signal, not to the shared 3/3 counter: the player
 	# picks the order they throw the three, so "the third one flipped" is not
 	# necessarily the one standing in the dark.
@@ -515,13 +587,16 @@ func _spawn_records_locker(breaker_pos: Vector3) -> void:
 		LOCKER_LIFT,
 		breaker_pos.z + LOCKER_GAP + LabLocker.SIZE.z / 2.0)
 	_locker.moved.connect(func() -> void:
+		_locker_moved = true
 		ScreenText.toast(get_tree(), "A breaker panel. Behind the locker all along.",
 			Color(0.55, 0.95, 0.6), 2.6)
 	)
 	add_child(_locker)
 
 
-func _on_breaker_flipped() -> void:
+func _on_breaker_flipped(id: String = "") -> void:
+	if id != "" and not _flipped_breakers.has(id):
+		_flipped_breakers[id] = true
 	_breakers_flipped += 1
 	# Each throw lifts the emergency glow a little.
 	for entry in _lights:
@@ -990,7 +1065,9 @@ func _trigger_apparition() -> void:
 	if _apparition_fired or not _apparition:
 		return
 	_apparition_fired = true
-	_apparition.appear()
+	# force_teach: this is the designed teaching beat for the whole game's HOLD rule,
+	# so it stays survivable even in the rare case the director already fired one.
+	ApparitionDirector.arm(_apparition, true)
 
 
 func _spawn_event(pos: Vector3, size: Vector3, callback: Callable) -> void:
@@ -1040,30 +1117,21 @@ func _process(delta: float) -> void:
 	_tick_blackout(delta)
 	_tick_pipes(delta)
 	_drive_lights(delta)
-	_tick_debug_apparition(delta)
 	_tick_dark_breaker_tell(delta)
 	_tick_nook_breath()
 
 
-func _tick_debug_apparition(delta: float) -> void:
-	if not DEBUG_APPARITION:
+func _spawn_apparition_director() -> void:
+	if not RANDOM_APPARITIONS:
 		return
+	var d := ApparitionDirector.new()
+	d.name = "ApparitionDirector"
 	# A player who can't see the apparition materialise has no fair way to judge
 	# "hold still or flee" — the same double-jeopardy mistake this project has
 	# already made twice (KONTUR Gate 7, Backrooms Flood: never stack an
 	# unmitigated extra threat on a room whose whole premise is "solve it blind").
-	if _in_breaker_nook:
-		return
-	_dbg_appar_timer -= delta
-	if _dbg_appar_timer > 0.0:
-		return
-	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
-	# A fresh FATAL apparition each cycle (teach=false): hold still and it fades, but
-	# sprint or back away and it rushes → the real screamer + restart. The scripted
-	# first encounter below stays taught/survivable so the rule is learned first.
-	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
-	if a:
-		a.appear()
+	d.suppress = func() -> bool: return _in_breaker_nook
+	add_child(d)
 
 
 func _tick_blackout(delta: float) -> void:
@@ -1161,7 +1229,7 @@ func _tick_dark_breaker_tell(delta: float) -> void:
 # this breaker) must never coin-flip a death, and a player who cannot SEE a figure
 # materialise has no fair way to judge "hold still or flee" — the double-jeopardy
 # mistake KONTUR Gate 7 and the Backrooms Flood each made once. That is also why
-# _tick_debug_apparition() suppresses the roaming fatal apparition for this whole
+# ApparitionDirector's `suppress` callable holds off the roaming apparition for this whole
 # wing; this beat does not stack with it.
 #
 # The cost is real, though: 20 panic against a PANIC_MAX of 50, followed by ~50 m of

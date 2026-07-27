@@ -89,6 +89,32 @@ func _process(_delta: float) -> bool:
 	_check("SlamDoor count == 4", counts["slam"] == 4, "%d" % counts["slam"])
 	_check("PurgeChamber count == 1", counts["purge"] == 1, "%d" % counts["purge"])
 
+	# The four SlamDoors crashed the level for the life of the feature: line 189 of
+	# slam_door.gd returned AABB.intersects_segment() — a Variant (Vector3 | null) —
+	# from a `-> bool` function, so the FIRST call after a door was closed and Object 12
+	# left PATROL raised a fatal type error and dropped the window. Nothing here ever
+	# CLOSED a door, and walk_level6_breach.gd never touches a SlamDoor at all, so the
+	# whole code path was untested. Drive the real interact() to close, then assert both
+	# the type and both answers. (2026-07-27)
+	print("--- SlamDoor.check_blocks_path (closed) returns a real bool ---")
+	var slam_doors: Array[Node] = []
+	_collect(current_scene, _slam_script, slam_doors)
+	for door in slam_doors:
+		var d3 := door as Node3D
+		var nrm: Vector3 = d3.global_transform.basis.z.normalized()
+		var mid: Vector3 = d3.global_position + Vector3(0, 1.1, 0)
+		door.call("interact")   # the real close path, not a private setter
+		var crossing: Variant = door.call("check_blocks_path", mid - nrm * 1.0, mid + nrm * 1.0)
+		var clear: Variant = door.call("check_blocks_path", mid + nrm * 1.0, mid + nrm * 3.0)
+		var tag := "%s @ %v" % [d3.name, d3.global_position.snappedf(0.1)]
+		_check("bool return (crossing) %s" % tag, typeof(crossing) == TYPE_BOOL,
+			"got %s" % type_string(typeof(crossing)))
+		_check("bool return (clear) %s" % tag, typeof(clear) == TYPE_BOOL,
+			"got %s" % type_string(typeof(clear)))
+		_check("blocks a crossing segment %s" % tag, crossing == true, "")
+		_check("ignores a clear segment %s" % tag, clear == false, "")
+		door.call("interact")   # reopen so the doorway-clearance state is left as found
+
 	print("--- floor present under the purge chamber's trap bounds ---")
 	var probe_from := Vector3(0.0, 1.0, 58.5)
 	var probe_to := Vector3(0.0, -1.0, 58.5)
@@ -116,6 +142,13 @@ func _count_props(node: Node) -> Dictionary:
 	var counts := {"hiding": 0, "slam": 0, "purge": 0}
 	_walk_count(node, counts)
 	return counts
+
+
+func _collect(node: Node, script: GDScript, out: Array[Node]) -> void:
+	if node.get_script() == script:
+		out.append(node)
+	for child in node.get_children():
+		_collect(child, script, out)
 
 
 func _walk_count(node: Node, counts: Dictionary) -> void:

@@ -9,7 +9,9 @@ extends Node3D
 #
 #   Gate 1  THE TWO DOORS   choose      <- hidden note in L1 (the Lab morgue)
 #   Gate 2  THE SHELF       use         <- the L2 House TV static card
-#   Gate 5  THE ROSTER      recall      <- the INTRO note ("You are Subject 47")
+#   Gate 5  THE ROSTER      recall      <- TWO notes in the L4 Backrooms Flood, one
+#                                          digit each, both off the main route. Was
+#                                          "47" from the intro note until BACKLOG #24
 #   Gate 3  THE OFFERING    abstain     <- the L3 Corridor door plate
 #   Gate 6  THE PHONE       destroy     <- the L4 Backrooms phone (a read-to-die trap);
 #                                          was "ignore" until BUG_FIX.md 4.6 — a hammer
@@ -59,10 +61,22 @@ const STRIKE_PANIC := 18.0        # 3 x 18 = 54 > PANIC_MAX (50)
 const FLASH_PATH := TEX + "kontur_flash.png"
 const FLASH_AUDIO := "kontur_flash"
 
-# Subject 47 — the intro room's opening note. TWO digits, deliberately: on a 3-dial
-# lock "47" is ambiguous (047? 470?) and a playtester who knew the answer still failed
-# it twice. The lock now sizes itself from this string.
-const ROSTER_CODE := "47"
+# ⚠️ Was "47" — Subject 47, from the intro room's opening note. BACKLOG #24: that made
+# the one gate designed to be answered from memory into the one gate nobody had to look
+# for, because the answer had been on screen in the first minute of the game and is in
+# the level's own objective text besides. It now has NO other source anywhere: both
+# digits are written down in the Backrooms Flood (backrooms_zone3.gd:_build_digit_notes),
+# one per note, in the two side runs off the main route — so clearing KONTUR requires
+# having actually searched the flooded wing a level earlier.
+#
+# That is a deliberately hard dependency, and two other systems exist to keep it fair:
+# the notes journal (re-read anything you found, from anywhere) and per-level progress
+# snapshots (walk back to level 4 without replaying it).
+#
+# TWO digits, deliberately: on a 3-dial lock a 2-digit answer is ambiguous (063? 630?)
+# and a playtester who knew the old answer still failed it twice. The lock sizes itself
+# from this string.
+const ROSTER_CODE := "63"
 const VOID_Y := -4.0              # same threshold the Void uses (level_3.gd)
 # Gate 8 was a 9s stillness hold ("stand here and wait") — measured as boring in
 # playtest. Replaced with a catch minigame: a marker sweeps the track; press E while
@@ -82,10 +96,10 @@ const PHONE_PRESSURE_RATE := 4.5  # panic/s while unresolved and the player is n
 
 # The shared "hold your nerve" apparition (Lab/House already have it; the Void,
 # Corridor and Backrooms deliberately don't — they run their own bespoke scares).
-# By level 5 the player has been taught the rule twice already, so this is
-# fatal from the first appearance, same as the Lab/House DEBUG_APPARITION tick.
-const DEBUG_APPARITION := true
-const DEBUG_APPAR_INTERVAL := 60.0
+# By level 5 the player has been taught the rule twice already, so this is fatal from
+# the first appearance — unless they somehow reached KONTUR without ever meeting one,
+# which ApparitionDirector's global teach ledger covers.
+const RANDOM_APPARITIONS := true
 
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy]
@@ -130,7 +144,6 @@ var _airlock_seal: CSGBox3D
 var _phone: RotaryPhone
 var _has_hammer: bool = false
 
-var _dbg_appar_timer: float = DEBUG_APPAR_INTERVAL
 
 
 func _ready() -> void:
@@ -151,6 +164,8 @@ func _ready() -> void:
 	_spawn_gate8_airlock()
 	_spawn_gate4_escort()
 	_spawn_creature()
+	_spawn_apparition_director()
+	_restore_progress()      # last — it re-applies the gate ledger and the exit lock
 	_spawn_signs()
 	_spawn_props()
 	_spawn_level_doors()
@@ -176,8 +191,18 @@ func _player() -> CharacterBody3D:
 
 func _clear_old_scene() -> void:
 	for child in get_children():
-		if not PRESERVE.has(child.name):
-			child.queue_free()
+		if PRESERVE.has(child.name):
+			continue
+		# ⚠️ remove_child BEFORE queue_free. queue_free() is deferred to the end of the
+		# frame, so a node freed this way is STILL A CHILD — and still holding its name
+		# — while _ready() builds the replacement level. Godot then renames the new
+		# node on the collision (Issue 17), and every later get_node("ExitDoor") in
+		# these levels silently missed: probed on the Lab, both doors came back as
+		# @StaticBody3D@332 / @334. remove_child() detaches immediately, so the name is
+		# free by the time the new door is added. (Found 2026-07-27 by the autoplay
+		# harness, which is the first thing that ever looked a door up by name.)
+		remove_child(child)
+		child.queue_free()
 
 
 # ---------------------------------------------------------------- geometry
@@ -294,12 +319,75 @@ func _rooms_with_skins() -> Array:
 	return out
 
 
+# Entry vs. exit spawn — see level_1.gd's note.
+const ENTRY_SPAWN := Vector3(0, 0.1, -3.0)
+
 func _place_player() -> void:
 	var p := _player()
 	if not p:
 		return
-	p.global_position = Vector3(0, 0.1, -3.0)
-	p.rotation = Vector3(0, PI, 0)   # face +z, down the spine
+	if GameState.entered_from_ahead:
+		# Terminus, just inside the exit — and at the randomised _dark_x offset, since
+		# the whole Airlock/Escort/Terminus spine moves per run (gate 7).
+		p.global_position = Vector3(_dark_x, 0.1, 94.0)
+		p.rotation = Vector3(0, 0, 0)
+	else:
+		p.global_position = ENTRY_SPAWN
+		p.rotation = Vector3(0, PI, 0)   # face +z, down the spine
+
+
+# ---------------------------------------------------------------- progress snapshot
+#
+# KONTUR has more state worth keeping than any other level: eight gates, a strike
+# count, a forfeit flag, and two per-run randomisations (which door is black, where the
+# facility spine sits) that MUST come back identical — restoring the gate ledger while
+# re-rolling the answers would mark gates passed whose puzzles now have different
+# solutions.
+#
+# ⚠️ Strikes are saved too, on purpose. They are the level's fail economy; discarding
+# them on a walk-out would make the back door a free strike-reset.
+
+func save_progress() -> Dictionary:
+	return {
+		"gates": _gates.duplicate(),
+		"strikes": _strikes,
+		"forfeited": _forfeited,
+		"has_hammer": _has_hammer,
+		"held_bottle": _held_bottle,
+		"took_offering": _took_offering,
+		"gate3_scored": _gate3_scored,
+		"gate1_done": _gate1_done,
+		"dark_x": _dark_x,
+	}
+
+
+func _restore_progress() -> void:
+	var data := GameState.get_level_progress(5)
+	if data.is_empty():
+		return
+	for key in data.get("gates", {}):
+		_gates[key] = bool(data["gates"][key])
+	_strikes = int(data.get("strikes", 0))
+	_forfeited = bool(data.get("forfeited", false))
+	_has_hammer = bool(data.get("has_hammer", false))
+	_held_bottle = String(data.get("held_bottle", ""))
+	_took_offering = bool(data.get("took_offering", false))
+	_gate3_scored = bool(data.get("gate3_scored", false))
+	_gate1_done = bool(data.get("gate1_done", false))
+	if _held_bottle != "":
+		GameState.set_carried(_held_bottle)
+		var stale := get_node_or_null("Bottle_" + _held_bottle)
+		if stale:
+			stale.queue_free()      # it is in the player's hands, not on the shelf
+	elif _has_hammer:
+		GameState.set_carried("hammer")
+	if _has_hammer:
+		var hammer := get_node_or_null("Hammer")
+		if hammer:
+			hammer.queue_free()
+		if is_instance_valid(_phone):
+			_phone.smashable = true
+	_refresh_exit()
 
 
 # ---------------------------------------------------------------- lighting
@@ -565,19 +653,8 @@ func _spawn_gate2_shelf() -> void:
 	shelf.material = sm
 	add_child(shelf)
 
-	var kinds := [
-		["bleach", TEX + "label_bleach.png", 22.3],
-		["vinegar", TEX + "label_vinegar.png", 23.5],
-		["water", TEX + "label_water.png", 24.7],
-	]
-	for entry in kinds:
-		var b := BottleItem.new()
-		b.kind = entry[0]
-		b.label_path = entry[1]
-		b.position = Vector3(3.4, 0.99, entry[2])
-		b.rotation.y = -PI / 2.0    # label faces into the room (-x)
-		b.taken.connect(_on_bottle_taken)
-		add_child(b)
+	for kind in BOTTLE_SLOTS:
+		_spawn_bottle(kind)
 
 	_barrier = FungalBarrier.new()
 	_barrier.name = "FungalBarrier"
@@ -587,8 +664,50 @@ func _spawn_gate2_shelf() -> void:
 	add_child(_barrier)
 
 
+# ⚠️ SOFTLOCK FIX (2026-07-27). BottleItem.interact() queue_free()s the bottle on
+# PICKUP, and _on_bottle_taken() used to overwrite _held_bottle with no check — so
+# "take vinegar, then take water" destroyed the vinegar permanently and gate 2 became
+# unpassable, with the exit sealed at n/8 forever and no way out but dying on purpose.
+# The shelf is now restockable and every path that would consume a bottle the player
+# still needs puts it back. A wrong guess still costs a full _strike(), so guessing
+# remains expensive (3 x 18 > PANIC_MAX ends the run on its own) — it is just no
+# longer a dead end.
+const BOTTLE_SLOTS := {
+	"bleach": 22.3,
+	"vinegar": 23.5,
+	"water": 24.7,
+}
+
+func _spawn_bottle(kind: String) -> void:
+	if not BOTTLE_SLOTS.has(kind):
+		return
+	# ⚠️ BottleItem.interact() emits `taken` BEFORE its own queue_free(), and queue_free
+	# is deferred to the end of the frame — so the bottle we are replacing is still in
+	# the tree, still holding the name, when we get here. add_child() would then rename
+	# the NEW bottle (Godot renames colliding siblings, Issue 17) and every later
+	# get_node("Bottle_vinegar") would resolve to the dead one, whose _taken is already
+	# true, so E on it does nothing. Push the corpse's name out of the way first.
+	var stale := get_node_or_null("Bottle_" + kind)
+	if stale:
+		stale.name = "DeadBottle_" + kind
+	var b := BottleItem.new()
+	b.name = "Bottle_" + kind          # unique, so it can be found again (Issue 17)
+	b.kind = kind
+	b.label_path = TEX + "label_%s.png" % kind
+	b.position = Vector3(3.4, 0.99, BOTTLE_SLOTS[kind])
+	b.rotation.y = -PI / 2.0    # label faces into the room (-x)
+	b.taken.connect(_on_bottle_taken)
+	add_child(b)
+
+
 func _on_bottle_taken(kind: String) -> void:
+	# One hand, one bottle: picking a second one up puts the first back on its slot
+	# rather than silently annihilating it.
+	if _held_bottle != "" and _held_bottle != kind:
+		_spawn_bottle(_held_bottle)
+		_notice("You set the %s back." % _held_bottle, Color(0.75, 0.75, 0.7))
 	_held_bottle = kind
+	GameState.set_carried(kind)
 	_notice("Carrying: %s" % kind.to_upper(), Color(0.6, 0.9, 0.6))
 	# Keep it on the HUD too — the notice fades, and the barrier may be a walk away.
 	GameState.set_objective("DECONTAMINATION REQUIRED — CARRYING: %s" % kind.to_upper())
@@ -599,13 +718,19 @@ func _on_barrier_sprayed() -> void:
 		_notice("It will not move. Something has to break it down.", Color(0.85, 0.85, 0.7))
 		return
 	if _held_bottle == "vinegar":
+		_held_bottle = ""
+		GameState.set_carried("")
 		_barrier.dissolve()
 		_pass_gate("shelf")
 		_play_at("acid_hiss", Vector3(0, 1.5, 27), 0.0)
 		GameState.set_objective("PERSONNEL CHECKPOINT — STATE YOUR SUBJECT NUMBER")
 	else:
-		# The bottle is spent, so a wrong guess costs a walk back as well as panic.
+		# The bottle is spent — but the store room is not empty, so the shelf restocks.
+		# The cost of a wrong guess is the strike and the walk back, not the run.
+		var spent := _held_bottle
 		_held_bottle = ""
+		GameState.set_carried("")
+		_spawn_bottle(spent)
 		_strike("IT DRANK IT")
 
 
@@ -639,9 +764,9 @@ func _score_gate3() -> void:
 
 # ---------------------------------------------------------------- gate 5: the roster
 
-# The only gate whose answer the player has been carrying since the first minute of
-# the game: the intro room's note opens "You are Subject 47." Nothing in KONTUR ever
-# says the number — the roster plate just leaves the field blank.
+# The gate whose answer is written down two levels earlier and nowhere else: both
+# digits of ROSTER_CODE are on notes in the Backrooms Flood's side runs. Nothing in
+# KONTUR ever says the number — the roster plate just leaves the field blank.
 func _spawn_gate5_roster() -> void:
 	var lock := StaticBody3D.new()
 	lock.name = "RosterLock"
@@ -852,6 +977,7 @@ func _spawn_gate6_hammer() -> void:
 	hammer.position = Vector3(-1.8, 0.9, -1.5)
 	hammer.picked_up.connect(func() -> void:
 		_has_hammer = true
+		GameState.set_carried("hammer")
 		if is_instance_valid(_phone):
 			_phone.smashable = true
 	)
@@ -1161,21 +1287,15 @@ func _spawn_creature() -> void:
 	add_child(c)
 
 
-# A fresh FATAL apparition each cycle (teach=false — the player already learned
-# the rule in the Lab and had it reinforced in the House): hold still and it
-# fades, but sprint or back away and it rushes -> the real screamer + restart.
-# Position-agnostic (appear() spawns ahead of wherever the player is looking),
-# so it works anywhere along the spine without a scripted trigger volume.
-func _tick_debug_apparition(delta: float) -> void:
-	if not DEBUG_APPARITION:
+# Hold still and it fades; sprint or back away and it rushes -> the real screamer +
+# restart. Position-agnostic (appear() sites itself ahead of wherever the player is
+# looking), so it works anywhere along the spine without a scripted trigger volume.
+func _spawn_apparition_director() -> void:
+	if not RANDOM_APPARITIONS:
 		return
-	_dbg_appar_timer -= delta
-	if _dbg_appar_timer > 0.0:
-		return
-	_dbg_appar_timer = DEBUG_APPAR_INTERVAL
-	var a := Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
-	if a:
-		a.appear()
+	var d := ApparitionDirector.new()
+	d.name = "ApparitionDirector"
+	add_child(d)
 
 
 # ---------------------------------------------------------------- signs
@@ -1574,7 +1694,6 @@ func _process(delta: float) -> void:
 	_check_void_fall()
 	_tick_airlock(delta)
 	_update_dark_seams()
-	_tick_debug_apparition(delta)
 	_tick_phone_pressure(delta)
 
 	# Fluorescent unsteadiness in the facility half, a slow sick pulse in the Soviet half.

@@ -39,16 +39,38 @@ func _initialize() -> void:
 			print("FAIL seed=%d: target only %d cells from start (too close)" % [i, target_dist])
 			failures += 1
 
-		# Monster must not spawn exactly on the target, and must be a plausible
-		# early-ish threat, not adjacent to the start.
+		# ⚠️ The comment here used to say "not adjacent to the start" while the check
+		# was `monster_dist < 1` — and _place_monster() deliberately picks dist == 1,
+		# i.e. exactly adjacent. So the assertion could never fire and the comment
+		# described the opposite of the design. Adjacency IS the design (playtest:
+		# "catches you if you get stuck", not "avoid its territory"); what must be
+		# true is that it is ON THE GRID and not standing on the goal.
 		var monster_cell := Vector2i(int(ui._monster_pos.x / MazeChaseUI.CELL_SIZE), int(ui._monster_pos.y / MazeChaseUI.CELL_SIZE))
 		if monster_cell == ui._target_cell:
 			print("FAIL seed=%d: monster spawned on the target cell" % i)
 			failures += 1
 		var monster_dist: int = dist.get(monster_cell, -1)
-		if monster_dist < 1:
-			print("FAIL seed=%d: monster spawned on/adjacent to start (dist=%d)" % [i, monster_dist])
+		if monster_dist != 1:
+			print("FAIL seed=%d: monster is %d cells from start, expected exactly 1" % [i, monster_dist])
 			failures += 1
+
+		# It must not stand on the FIRST STEP of the only route to the target. The maze
+		# is a spanning tree, so blocking that cell is a roadblock the player cannot go
+		# round — harmless while the monster jammed itself on walls, a measured 12-in-40
+		# instant death once it started following corridors (BACKLOG #14).
+		var to_target: Dictionary = ui._bfs_distances(ui._target_cell)
+		var start_to_target: int = int(to_target.get(ui._start_cell, 1 << 30))
+		var monster_to_target: int = int(to_target.get(monster_cell, 1 << 30))
+		if monster_to_target < start_to_target:
+			# Only a real failure if some OTHER adjacent cell was available.
+			var alternatives := 0
+			for n in ui._open_neighbours(ui._start_cell):
+				if int(to_target.get(n, 1 << 30)) >= start_to_target:
+					alternatives += 1
+			if alternatives > 0:
+				print("FAIL seed=%d: monster blocks the only route to the target, and %d "
+					% [i, alternatives] + "off-route cell(s) were free")
+				failures += 1
 
 		# Wall rects must be non-empty (a maze with zero walls would mean
 		# generation silently did nothing) and every wall rect must lie within

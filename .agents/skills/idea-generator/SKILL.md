@@ -1,14 +1,21 @@
 ---
 name: idea-generator
-description: 'Research well-rated horror/indie games, study this game''s current mechanics, and run a discussion session with the user to decide what to add next — new mechanics, scare-delivery tricks, atmosphere/audio, pacing/engagement. Writes REPORT.md with the session''s conclusions and appends to IDEA_HISTORY.md (persistent, cross-session record of accepted/rejected ideas + reasoning) so future sessions do not re-pitch rejected ideas and build on accepted threads. Does NOT implement anything itself — that is a separate, later request. Triggers on: generate ideas, brainstorm, what should we add next, idea session, new mechanics, scare ideas, look at other horror games for inspiration, what are other horror games doing.'
+description: 'Research well-rated horror/indie games, study this game''s current mechanics, and run a discussion session with the user to decide what to add next — new mechanics, scare-delivery tricks, atmosphere/audio, pacing/engagement. Writes its conclusions into GAME_MECHANICS_IDEAS.md (the single live backlog: build status, new accepted items with implementation sketches, and the persistent cross-session accept/reject ledger) so future sessions do not re-pitch rejected ideas and build on accepted threads. Does NOT implement anything itself — that is a separate, later request. Triggers on: generate ideas, brainstorm, what should we add next, idea session, new mechanics, scare ideas, look at other horror games for inspiration, what are other horror games doing.'
 ---
 
 # Idea Generation: Research → Brainstorm → Decide → Report
 
-You are a creative-direction discussion partner, not an implementer. This session ends with a
-written report and an updated history file — never with code changes. If the user asks you to
-*implement* something from a past REPORT.md, that is a different task; say so and hand off rather
-than quietly starting to write GDScript mid-session.
+You are a creative-direction discussion partner, not an implementer. This session ends with an
+updated `GAME_MECHANICS_IDEAS.md` — never with code changes. If the user asks you to *implement*
+something from it, that is a different task; say so and hand off rather than quietly starting to
+write GDScript mid-session.
+
+> ⚠️ **2026-07-27 — the output target changed.** This skill used to write two root-level files,
+> `REPORT.md` (the accepted-not-built menu) and `IDEA_HISTORY.md` (the verdict ledger). Both were
+> consolidated into **`GAME_MECHANICS_IDEAS.md`** — menu into §4, ledger into §5 — and archived to
+> `drafts/`. **Do not recreate either file**: doing so silently undoes the consolidation and
+> recreates the four-overlapping-docs problem it fixed. The structural advice in Steps 5–6 below
+> still applies, section-for-file.
 
 ## The rule that outranks everything else in this skill
 
@@ -31,8 +38,9 @@ already rejected — both waste the user's time.
 
 ## Step 0 — Load memory first
 
-Read `IDEA_HISTORY.md` at the repo root (create it from the template at the bottom of this file if
-it doesn't exist yet). Build a quick mental table: idea → verdict → reason → session date. This is
+Read **`GAME_MECHANICS_IDEAS.md`** at the repo root — §2 (what is already built or partly built) and
+§5 (the accept/reject ledger). Build a quick mental table: idea → verdict → reason → session date,
+plus a second one: idea → build status. This is
 the single most important read in the whole workflow — it's what makes session N+1 smarter than
 session N instead of just repeating it.
 
@@ -59,7 +67,7 @@ Read `CLAUDE.md` in full. Build an explicit inventory before doing anything else
 - **Level-specific gimmicks** already shipped: procedural `RoomBuilder` levels, KONTUR's 8
   cross-level hint gates, Backrooms' 3-zone sensory tells (sound/darkness), the Corridor's
   distance-triggered Manager scare and turn mirrors, the Void's stare-off mechanic.
-- **What's conspicuously absent**: no active enemy AI (per CLAUDE.md header), no dynamic music
+- **What's conspicuously absent**: no dynamic music
   system beyond ambient beds, no branching narrative/multiple endings, no player inventory beyond
   single-purpose keycards/keys, no replayability hooks (seeds are randomised per-run but the content
   itself is fixed).
@@ -117,22 +125,22 @@ pacing / Meta & narrative). Lead with a shortlist of roughly 6-10, each as:
 
 Then go through it with `AskUserQuestion` (or open conversation if the user wants to riff rather
 than tick boxes) — Accept / Reject / Modify / Defer, per idea, and **capture the why** the user
-gives for each verdict. That reasoning is the entire value of `IDEA_HISTORY.md`; a verdict without
+gives for each verdict. That reasoning is the entire value of `GAME_MECHANICS_IDEAS.md` §5; a verdict without
 a reason is nearly useless to a future session. Let the conversation wander — combining two ideas,
 asking about technical feasibility, pushing back on your read of a reference game — and answer from
 the codebase, not just the pitch.
 
-## Step 5 — Write REPORT.md
+## Step 5 — Write into `GAME_MECHANICS_IDEAS.md` §4
 
-`REPORT.md` at the repo root is the **implementation-ready menu of everything accepted and not yet
-built** — not a single-session snapshot. Before writing, check whether a `REPORT.md` already exists:
+`GAME_MECHANICS_IDEAS.md` §4 is the **implementation-ready menu of everything accepted and not yet
+built** — not a single-session snapshot. Before writing, read what is already there:
 if it does, keep any prior session's accepted items that haven't been implemented yet (carry their
 full implementation sketches forward under their own dated section) and add this session's under a
 new section — do not silently discard un-implemented work just because a new session ran. Once an
-item is actually implemented, prune it from `REPORT.md` (it no longer needs a sketch) but leave its
-row in `IDEA_HISTORY.md` intact, noting the implementation date/commit there instead. If this
+item is actually implemented, prune it from `GAME_MECHANICS_IDEAS.md` §4 (it no longer needs a sketch) but leave its
+row in `GAME_MECHANICS_IDEAS.md` §5 intact, noting the implementation date/commit there instead. If this
 session's discussion supersedes or merges an earlier session's still-pending item (as opposed to
-implementing it), say so explicitly in both files — update the old item's `IDEA_HISTORY.md` row to
+implementing it), say so explicitly in both files — update the old item's `GAME_MECHANICS_IDEAS.md` §5 row to
 note what it was folded into, rather than leaving two contradictory entries. Structure each
 session's section:
 
@@ -164,7 +172,7 @@ session's section:
 The "Implementation sketch" lines matter most — they're what lets a *later* Claude Code session
 implement directly from this file without re-deriving design intent from scratch.
 
-## Step 6 — Update IDEA_HISTORY.md
+## Step 6 — Update `GAME_MECHANICS_IDEAS.md` §5 (the ledger)
 
 Append (never overwrite/never delete past entries) one row per idea discussed this session, using
 the template at the bottom of this file. This is the persistent memory re-read at Step 0 of every
@@ -173,12 +181,12 @@ future run — keep entries terse; the reasoning is the only column worth spendi
 ## Step 7 — Handoff
 
 Tell the user both files are written and where. Make explicit that implementation is a separate,
-later step — "call me again and point me at REPORT.md to implement the accepted ideas" — rather
+later step — "call me again and point me at GAME_MECHANICS_IDEAS.md to implement the accepted ideas" — rather
 than starting to edit `.gd` files in the same breath.
 
 ---
 
-## `IDEA_HISTORY.md` template (create with this skeleton if the file doesn't exist)
+## Ledger row template (append to `GAME_MECHANICS_IDEAS.md` §5 — do NOT create a separate file)
 
 ```markdown
 # Idea History

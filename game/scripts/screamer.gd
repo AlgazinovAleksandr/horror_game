@@ -20,7 +20,7 @@ const LEVEL_SCREAMERS := {
 	3: ["res://assets/textures/level_3_corridor/screamer_hotel.png", "screamer_corridor"],
 	4: ["res://assets/textures/level_backrooms/screamer_smiler.png", "all_levels_screamer"],
 	5: ["res://assets/textures/level_5_kontur/screamer_kontur.png", "kontur_scream"],
-	6: ["res://assets/textures/level_6_breach/screamer_breach.png", "screamer_breach"],
+	6: ["res://assets/textures/level_6_breach/level_6_jumpscare.jpg", "level_6_jumpscare"],
 	7: ["res://assets/textures/level_4_void/screamer_void.png", "screamer_void"],
 }
 

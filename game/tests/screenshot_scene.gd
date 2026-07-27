@@ -27,6 +27,11 @@ const SHOTS := {
 		[Vector3(-0.4, 0, -1.0), Vector3(-1.49, 1.5, -1.0), "lab_note2_wall"],
 	],
 	"level_2_1": [
+		# The rebuilt beartrap (BACKLOG #18), in the cellar where one actually sits.
+		# Two angles on purpose: a floor prop looks passable from directly above and
+		# gives itself away at a shallow angle, which is the angle you meet it at.
+		[Vector3(6.5, -1.5, -4.0), Vector3(6.5, -1.35, -5.5), "beartrap_approach"],
+		[Vector3(7.6, -1.5, -4.6), Vector3(6.5, -1.42, -5.5), "beartrap_angle"],
 		[Vector3(-0.8, 0, 5.8), Vector3(-0.8, 1.6, 7.96), "house_window_forest"],
 		[Vector3(0.6, 0, 6.4), Vector3(-0.8, 1.6, 7.96), "house_window_angle"],
 		[Vector3(-0.7, 0, 16.5), Vector3(-0.7, 0.9, 18.9), "house_lock_on_door"],

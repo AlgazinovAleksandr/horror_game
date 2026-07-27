@@ -19,6 +19,15 @@ const MAX_INTERVAL := 35
 var _timer: float = 0.0
 var _next_trigger: float = 0.0
 var _player: CharacterBody3D = null
+var _since_last_scare: float = 999.0   # large, so the first apparition isn't blocked
+
+
+# How long since this autoload last startled the player. ApparitionDirector reads it so
+# the two scare systems stop landing on top of each other: they are independent timers
+# with no knowledge of one another, and a floor_creak + an apparition in the same second
+# reads as one incoherent event rather than two.
+func seconds_since_last_scare() -> float:
+	return _since_last_scare
 
 
 func _ready() -> void:
@@ -31,11 +40,13 @@ func register_player(p: CharacterBody3D) -> void:
 
 
 func _process(delta: float) -> void:
+	_since_last_scare += delta
 	if _player == null:
 		return
 	_timer += delta
 	if _timer >= _next_trigger:
 		_fire_random_event()
+		_since_last_scare = 0.0
 		_schedule_next()
 
 

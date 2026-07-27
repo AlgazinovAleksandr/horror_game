@@ -43,14 +43,26 @@ const PLAYER_MAX_SPEED := 240.0
 const PLAYER_MIN_SPEED := 100.0
 
 # ---------------------------------------------------------------- monster
-# Deliberately well under the player's worst-case (panic-1.0) speed floor of 100,
-# so a player who plays cleanly can always outpace it.
-const MONSTER_SPEED := 78.0
-const STUCK_SAMPLE_INTERVAL := 0.3
-const STUCK_MOVE_THRESHOLD := 6.0
-const STUCK_TRIGGER_TIME := 1.2
-const DODGE_TIME := 0.4
-const DODGE_ANGLE_DEG := 70.0
+# Still under the player's worst-case (panic-1.0) speed floor of 100, so a player who
+# keeps moving can always outpace it — but it no longer wastes that speed walking into
+# walls. See _tick_monster(): it follows the actual corridor route now.
+#
+# ⚠️ BACKLOG #14: "the monster in the maze is too stupid. It can basically kill the
+# player only at the beginning." It was not a speed problem. It steered by a raw
+# Euclidean beeline toward the player, and the maze is a randomized-DFS spanning tree —
+# a PERFECT maze, no loops — where the corridor route between two cells is routinely
+# 5-15x the straight-line distance. So the beeline pointed into a wall most of the
+# time, the per-axis wall-slide sent it sideways down whatever dead end the tangent
+# happened to face, and once the player left the starting neighbourhood it could never
+# close again. The anti-stuck dodge never fired either: sliding along a wall still
+# counts as "moving", so _stuck_timer reset on every sample.
+#
+# The fix is not more speed. _bfs_distances() — exact, and already written — was being
+# used only at generation time to pick the target and the monster's spawn cell. Running
+# it from the PLAYER's cell gives a perfect distance field over the whole maze, and
+# stepping downhill through it is optimal pursuit for a fraction of a millisecond per
+# recompute (80 cells).
+const MONSTER_SPEED := 88.0
 const MONSTER_START_DELAY := 3.0  # frozen this long after open() before it hunts
 
 # ---------------------------------------------------------------- panic
@@ -76,12 +88,12 @@ var _player_pos: Vector2
 var _monster_pos: Vector2
 var _target_pos: Vector2
 
-var _stuck_timer: float = 0.0
-var _stuck_check_timer: float = 0.0
-var _stuck_check_pos: Vector2
-var _dodge_time_left: float = 0.0
 var _monster_start_timer: float = 0.0
-var _dodge_sign: float = 1.0
+
+# Corridor-distance field from the player's current cell, and the cell it was built
+# for. Rebuilt only when the player crosses into a new cell — see _pursuit_direction().
+var _flow: Dictionary = {}
+var _flow_origin: Vector2i = Vector2i(-1, -1)
 
 var _root: Control
 var _playfield: Control
@@ -205,29 +217,71 @@ func _player() -> CharacterBody3D:
 # ---------------------------------------------------------------- monster AI
 
 func _tick_monster(delta: float) -> void:
-	_stuck_check_timer += delta
-	if _stuck_check_timer >= STUCK_SAMPLE_INTERVAL:
-		if _monster_pos.distance_to(_stuck_check_pos) < STUCK_MOVE_THRESHOLD:
-			_stuck_timer += _stuck_check_timer
-		else:
-			_stuck_timer = 0.0
-		_stuck_check_pos = _monster_pos
-		_stuck_check_timer = 0.0
-
-	var dir: Vector2
-	if _dodge_time_left > 0.0:
-		_dodge_time_left -= delta
-		dir = (_player_pos - _monster_pos).normalized().rotated(deg_to_rad(_dodge_sign * DODGE_ANGLE_DEG))
-	else:
-		dir = (_player_pos - _monster_pos).normalized()
-		if _stuck_timer > STUCK_TRIGGER_TIME:
-			_dodge_time_left = DODGE_TIME
-			_dodge_sign = 1.0 if randf() < 0.5 else -1.0
-			_stuck_timer = 0.0
-
+	var dir := _pursuit_direction()
 	if dir.length() > 0.01:
 		var candidate: Vector2 = _monster_pos + dir * MONSTER_SPEED * delta
+		# Kept as a safety net only. With corridor following the monster should never
+		# be driving into a wall, but a diagonal cut across a junction can still clip a
+		# corner, and sliding is nicer there than stopping dead.
 		_monster_pos = _resolve_wall_slide(_monster_pos, candidate, ICON_HALF_EXTENT)
+
+
+# Steer along the maze's actual corridors instead of straight at the player.
+#
+# Recomputes the BFS distance field from the PLAYER's cell whenever the player changes
+# cell (not every frame — 80 cells is cheap, but there is no reason to burn it), then
+# walks downhill: of the neighbours reachable from the monster's own cell, head for the
+# one strictly closer to the player. Aim at that cell's CENTRE, which keeps the icon off
+# the walls through corners without any special-casing.
+#
+# In the player's own cell, fall back to the beeline — that is the one place where
+# straight-line and corridor distance agree, and it is what makes the final approach
+# feel like a lunge rather than a grid step.
+func _pursuit_direction() -> Vector2:
+	var monster_cell := _cell_at(_monster_pos)
+	var player_cell := _cell_at(_player_pos)
+	if monster_cell == player_cell:
+		return (_player_pos - _monster_pos).normalized()
+
+	if player_cell != _flow_origin or _flow.is_empty():
+		_flow_origin = player_cell
+		_flow = _bfs_distances(player_cell)
+
+	if not _flow.has(monster_cell):
+		# Off the grid (shouldn't happen) — beeline rather than freeze.
+		return (_player_pos - _monster_pos).normalized()
+
+	var best_cell := monster_cell
+	var best_dist: int = _flow[monster_cell]
+	for step in _open_neighbours(monster_cell):
+		if _flow.has(step) and int(_flow[step]) < best_dist:
+			best_dist = int(_flow[step])
+			best_cell = step
+	if best_cell == monster_cell:
+		return (_player_pos - _monster_pos).normalized()
+	return (_cell_center(best_cell) - _monster_pos).normalized()
+
+
+func _cell_at(pos: Vector2) -> Vector2i:
+	return Vector2i(
+		clampi(int(pos.x / CELL_SIZE), 0, GRID_COLS - 1),
+		clampi(int(pos.y / CELL_SIZE), 0, GRID_ROWS - 1))
+
+
+# Neighbouring cells this one is NOT walled off from. Mirrors the wall bookkeeping in
+# _bfs_distances(), so the monster can only use openings the player can also use.
+func _open_neighbours(cell: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var c: Dictionary = _cells[_idx(cell)]
+	if not c["n"]:
+		out.append(cell + Vector2i(0, -1))
+	if not c["s"]:
+		out.append(cell + Vector2i(0, 1))
+	if not c["e"]:
+		out.append(cell + Vector2i(1, 0))
+	if not c["w"]:
+		out.append(cell + Vector2i(-1, 0))
+	return out
 
 
 # ---------------------------------------------------------------- collision
@@ -367,10 +421,30 @@ func _bfs_distances(start: Vector2i) -> Dictionary:
 # Prefer a cell exactly 1 step from start; widen the search if the maze's
 # branching happens to leave none (rare but possible in a small maze).
 func _place_monster(dist: Dictionary) -> void:
-	var candidates: Array[Vector2i] = []
+	# ⚠️ Never on the FIRST STEP of the route to the target, if that can be avoided.
+	# The maze is a spanning tree, so there is exactly ONE route from start to target
+	# and exactly one neighbour of the start cell that lies on it. Parking the monster
+	# there turns a 1.6-cell-wide corridor into a roadblock the player cannot go round
+	# — and it went unnoticed for as long as the monster jammed itself on walls and
+	# drifted off harmlessly. With corridor following (BACKLOG #14) it stands its
+	# ground, and a measured 12 of 40 seeds became a walk-straight-into-it death.
+	# Adjacency is the point of this placement; sitting in the doorway is not.
+	var to_target := _bfs_distances(_target_cell)
+	var start_to_target: int = int(to_target.get(_start_cell, 1 << 30))
+
+	var off_path: Array[Vector2i] = []
+	var on_path: Array[Vector2i] = []
 	for cell in dist.keys():
-		if cell != _target_cell and dist[cell] == 1:
-			candidates.append(cell)
+		if cell == _target_cell or dist[cell] != 1:
+			continue
+		if int(to_target.get(cell, 1 << 30)) < start_to_target:
+			on_path.append(cell)
+		else:
+			off_path.append(cell)
+
+	var candidates := off_path
+	if candidates.is_empty():
+		candidates = on_path          # start is a dead end — nowhere else to stand
 	if candidates.is_empty():
 		for cell in dist.keys():
 			if cell != _target_cell and dist[cell] >= 1 and dist[cell] <= 2:
@@ -386,11 +460,9 @@ func _cell_center(cell: Vector2i) -> Vector2:
 func _reset_positions() -> void:
 	_player_pos = _cell_center(_start_cell)
 	_target_pos = _cell_center(_target_cell)
-	_stuck_timer = 0.0
-	_stuck_check_timer = 0.0
-	_stuck_check_pos = _monster_pos
-	_dodge_time_left = 0.0
 	_monster_start_timer = MONSTER_START_DELAY
+	_flow.clear()
+	_flow_origin = Vector2i(-1, -1)
 
 
 # ---------------------------------------------------------------- UI construction

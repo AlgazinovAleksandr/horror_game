@@ -217,9 +217,11 @@ func _apply_movement() -> void:
 	if _input_frozen:
 		return
 	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
-	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var input_dir := ai_move_dir if ai_active \
+		else Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
-	_is_sprinting = Input.is_action_pressed("sprint") and direction != Vector3.ZERO and is_on_floor()
+	_is_sprinting = (ai_sprint if ai_active else Input.is_action_pressed("sprint")) \
+		and direction != Vector3.ZERO and is_on_floor()
 	if _is_sprinting:
 		speed *= SPRINT_MULTIPLIER
 	if direction:
@@ -475,6 +477,57 @@ func freeze_input() -> void:
 
 func unfreeze_input() -> void:
 	_input_frozen = false
+
+
+# Is the player currently unable to move? True during a beartrap escape QTE, the Lab
+# locker push, the intro wake-up, and while hidden. ApparitionDirector uses this to
+# refuse to spawn: the HOLD apparition kills you for fleeing, and a player who cannot
+# move cannot demonstrate that they are NOT fleeing — the same double-jeopardy the
+# KONTUR Blackout and the Backrooms Flood each made once (Issue 18).
+func is_input_frozen() -> bool:
+	return _input_frozen
+
+
+# ------------------------------------------------------- automated-test control
+#
+# The ONLY hook the headless test harness needs, and it is deliberately tiny.
+#
+# ⚠️ Godot's Input.parse_input_event() does not work under --headless
+# (godotengine/godot#73557), so a test cannot press a key. The alternatives were to
+# duplicate movement in the harness — which would then be testing the harness, not the
+# game — or to let the harness supply the same input vector the player already reads.
+# This is the second: _apply_movement() and the sprint check are the only two places
+# that consult Input, and both now take their value from here when `ai_active`.
+#
+# Everything downstream is untouched: gravity, collision, move_and_slide, the interact
+# RAYCAST, can_interact(), the prompt, the panic system. That matters — Issue 30 was a
+# level that was unwinnable for every real player while its test passed, precisely
+# because the test called interact() directly instead of going through the ray.
+# ai_interact() calls _try_interact(), the same function the E key calls.
+var ai_active: bool = false
+var ai_move_dir: Vector2 = Vector2.ZERO   # same convention as Input.get_vector()
+var ai_sprint: bool = false
+
+
+func ai_look_at(target: Vector3) -> void:
+	var to := target - global_position
+	var flat := Vector2(to.x, to.z)
+	if flat.length() > 0.001:
+		rotation.y = atan2(-to.x, -to.z)   # player forward is -Z
+	if camera and flat.length() > 0.001:
+		camera.rotation.x = clampf(atan2(to.y - camera.position.y, flat.length()),
+			deg_to_rad(-89.0), deg_to_rad(89.0))
+
+
+func ai_interact() -> void:
+	_try_interact()
+
+
+# What the "Press E" prompt is currently pointing at, or null. Lets a test assert that
+# a prop is REACHABLE — the question Issue 30 showed nobody was asking.
+func ai_interact_target() -> Node:
+	_update_interact_prompt()
+	return _interact_target
 
 
 # ------------------------------------------------------------------ hiding

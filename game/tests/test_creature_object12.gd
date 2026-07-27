@@ -8,11 +8,12 @@ extends SceneTree
 #   3. CHASE -> SEARCH when the player leaves detection range.
 #   4. SEARCH -> PATROL after SEARCH_TIME with no re-detection.
 #   5. CHASE -> STAGGERED from sustained apply_light_damage(), `staggered` fires.
-#   6. STAGGERED -> SEARCH (not CHASE) after STAGGER_DURATION.
+#   6. STAGGERED -> SEARCH (not CHASE) after a randomised STAGGER_MIN..STAGGER_MAX,
+#      and light applied OUTSIDE a chase neither staggers nor drains the shield.
 #   7. is_hidden() == true suppresses detection entirely — no CHASE transition.
 #   8. Contact within CONTACT_DIST during CHASE fires `contact_fatal`.
 #
-# Engine.time_scale is raised so real waits (SEARCH_TIME=8s, STAGGER_DURATION=25s)
+# Engine.time_scale is raised so real waits (SEARCH_TIME=8s, the 5-7s stagger)
 # don't cost that many real seconds — every timer in the creature is delta-based,
 # so this doesn't change correctness.
 #
@@ -41,6 +42,14 @@ var _last_old_state: int = -1
 var _last_new_state: int = -1
 var _staggered_fired := false
 var _contact_fired := false
+var _stagger_duration := -1.0    # what the `staggered` signal announced
+var _stagger_started_at := -1.0
+var _stagger_measured := -1.0    # what it actually lasted, in game seconds
+# ⚠️ A clock of its own. `_t` is the PHASE timer and _advance() resets it to 0, so
+# timing anything that spans a phase boundary against `_t` silently measures only the
+# tail — the stagger begins in phase 4 and ends in phase 5, and reading `_t` reported
+# 3.44 s for a 6.12 s stagger and flagged correct code as broken.
+var _clock := 0.0
 
 var _results: Dictionary = {}
 var _start_ms: int = 0
@@ -82,7 +91,15 @@ func _setup() -> void:
 		Vector3(3, 0, 0), Vector3(0, 0, 3), Vector3(-3, 0, 0), Vector3(0, 0, -3),
 	]))
 	_creature.state_changed.connect(_on_state_changed)
-	_creature.staggered.connect(func(_d): _staggered_fired = true)
+	_creature.staggered.connect(func(d):
+		_staggered_fired = true
+		_stagger_duration = d
+		_stagger_started_at = _clock
+	)
+	_creature.recovered.connect(func():
+		if _stagger_started_at >= 0.0:
+			_stagger_measured = _clock - _stagger_started_at
+	)
 	_creature.contact_fatal.connect(func(): _contact_fired = true)
 
 	_phase = 0
@@ -106,6 +123,7 @@ func _process(delta: float) -> bool:
 		return _finish()
 
 	_t += delta
+	_clock += delta
 
 	match _phase:
 		0:
@@ -138,9 +156,18 @@ func _process(delta: float) -> bool:
 				_advance(3)
 
 		3:
-			# SEARCH -> PATROL after SEARCH_TIME with nothing re-detected.
+			# SEARCH -> PATROL after SEARCH_TIME with nothing re-detected. While that
+			# runs, hose it with light the whole time: outside CHASE this must have NO
+			# effect at all. Before BACKLOG #26 the shield drained in every state while
+			# the stagger could only fire from CHASE/INVESTIGATE, so a player lighting
+			# up a creature that had not locked on emptied the pool for nothing and
+			# read the result as "the blind lasted no time".
+			_creature.apply_light_damage(delta)
 			if _last_new_state == _CREATURE_SCRIPT.State.PATROL:
 				_results["search_to_patrol"] = true
+				_results["light_outside_chase_does_not_stagger"] = not _staggered_fired
+				_results["light_outside_chase_does_not_drain"] = \
+					_creature.get_shield_ratio() > 0.99
 				_player.global_position = Vector3(0, 0, 2)   # back in view -> re-CHASE
 				_advance(4)
 			elif _t > 10.0:
@@ -174,6 +201,15 @@ func _process(delta: float) -> bool:
 			if _last_new_state == _CREATURE_SCRIPT.State.SEARCH and \
 					_last_old_state == _CREATURE_SCRIPT.State.STAGGERED:
 				_results["staggered_to_search"] = true
+				var lo: float = _CREATURE_SCRIPT.STAGGER_MIN
+				var hi: float = _CREATURE_SCRIPT.STAGGER_MAX
+				_results["stagger_announced_in_range"] = \
+					_stagger_duration >= lo and _stagger_duration <= hi
+				# 0.5 s of slack: the recovery is detected on a frame boundary.
+				_results["stagger_lasted_as_announced"] = \
+					absf(_stagger_measured - _stagger_duration) < 0.5
+				print("   stagger announced %.2f s, measured %.2f s (allowed %.0f-%.0f)"
+					% [_stagger_duration, _stagger_measured, lo, hi])
 				_advance(6)
 			elif _t > 30.0:
 				_results["staggered_to_search"] = false

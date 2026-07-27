@@ -83,6 +83,23 @@ func _build() -> void:
 	add_child(col)
 
 
+# Put it in the already-thrown state without the clunk or the signal. Used when a
+# level restores a saved snapshot (GameState.level_progress) — the player flipped this
+# breaker before walking back a level, so it must come back green, not fresh.
+func set_already_flipped() -> void:
+	if _done:
+		return
+	_done = true
+	_lever.position.y = -0.14
+	_lever_mat.albedo_color = Color(0.1, 0.8, 0.2)
+	if glows:
+		_lever_mat.emission = Color(0.05, 0.7, 0.1)
+
+
+func is_flipped() -> bool:
+	return _done
+
+
 func interact() -> void:
 	if _done:
 		return

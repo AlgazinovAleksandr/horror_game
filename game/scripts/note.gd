@@ -80,5 +80,12 @@ func interact() -> void:
 	if is_twist_note:
 		GameState.twist_read = true
 
+	# Archive it for the journal (TAB). ⚠️ NON-TRAP ONLY: a trap note is read-to-die,
+	# and a safely re-readable copy would let the player open it here, read to the end
+	# and learn the text at no cost — deleting the mechanic. Recorded on OPEN, matching
+	# `read` below: finding a note is what earns the copy, not surviving it.
+	if not is_trap:
+		GameState.record_note(note_text, GameState.current_level)
+
 	read.emit()
 	NoteUI.show_note(note_text, TRAP_PANIC_RATE if is_trap else 0.0)

@@ -186,7 +186,13 @@ func check_blocks_path(from: Vector3, to: Vector3) -> bool:
 	var local_to := to_local(to)
 	local_to.y -= _collider.position.y
 	var aabb := AABB(-half, col_shape.size)
-	return aabb.intersects_segment(local_from, local_to)
+	# ⚠️ AABB.intersects_segment() returns a VARIANT, not a bool — the intersection
+	# POINT (Vector3) on a hit and null on a miss. Returning it straight out of a
+	# `-> bool` function is a hard runtime type error, which drops the game window:
+	# every SlamDoor crashed the level the moment the player slammed one AND Object 12
+	# left PATROL (the two guards above). Found 2026-07-27 in the user's own Godot logs;
+	# the BackDoor/ExitDoor "worked" only because door.gd has no check_blocks_path.
+	return aabb.intersects_segment(local_from, local_to) != null
 
 
 func _process(delta: float) -> void:

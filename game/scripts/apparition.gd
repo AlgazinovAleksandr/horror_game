@@ -24,11 +24,14 @@ enum Rule { HOLD, STARE, LOOKAWAY }
 signal rushed    # emitted when it lunges (flee detected) — for tests / hooks
 signal survived  # emitted when the player held their nerve and it faded
 
-# ⚠️ 7.0 until the 2026-07-26 playtest: "it spawns quite far away from me. Can we make
-# it appear closer so that it would be more scary". At 7 m it read as a distant figure
-# rather than as something that had just walked up on you. Lowered WITH FLEE_MARGIN
-# raised in step — see the note there; the two must move together.
-const APPEAR_DIST := 4.0     # metres ahead of the player it materialises
+# ⚠️ Was a single fixed 7.0, then a single fixed 4.0 after the 2026-07-26 playtest
+# ("can we make it appear closer so that it would be more scary"). BACKLOG #10: a fixed
+# distance is the problem — every appearance framed identically, so the second one is
+# never a surprise. Now drawn per appearance. 2.5 m is "on top of you"; 7.0 m is a
+# figure down the hall. FLEE_MARGIN is proportional to whatever is drawn (see below) so
+# a close spawn stays survivable.
+const APPEAR_DIST_MIN := 2.5
+const APPEAR_DIST_MAX := 7.0
 const HOLD_TIME := 6.0       # seconds of nerve (no flee) before it fades — long enough to read
 const DREAD_RATE := 3.0      # panic/s while it stands there — the climb to endure
 const FADE_IN := 0.6
@@ -118,19 +121,75 @@ func _build_figure() -> void:
 
 const MIN_DIST := 1.6        # never closer than this — spawns a step nearer now
 const WALL_MARGIN := 0.5     # stop short of a wall by this much
-# ⚠️ Tied to APPEAR_DIST, and must be re-checked whenever that moves. Fleeing is
-# measured as "you are further away than where it spawned, by this much", so the
-# SAME margin is far harsher at 4 m than it was at 7 m: an instinctive half-step
-# backwards is a normal reaction to something appearing on top of you, and at 0.4 m
-# that reflex alone was a death. Raised to 0.7 alongside the 2026-07-26 distance cut.
-# Sprinting is still an instant fail regardless of distance, so "Walk. Do not run."
-# is untouched — this only forgives the flinch.
-const FLEE_MARGIN := 0.7     # any meaningful move away from it counts as fleeing
+const FIG_HALF_WIDTH := 0.9  # the billboard is 1.6 m wide; probe its corners, not its centre
+const PROBE_LOW := 0.35      # the quad spans y 0..2.4 — probe near both ends, not just the eye
+const PROBE_HIGH := 2.15
+const FLOOR_DROP := 4.0      # how far down to look for a floor under the chosen spot
+
+# Headings tried, in order, measured from where the player is looking. Forward first
+# (the figure should be where you are already looking); the wider fans exist so a
+# player standing in a doorway or facing a wall still gets an apparition somewhere
+# legible instead of one embedded in the geometry. Same fan idea as
+# level_1.gd:_place_nook_figure(), which solved this for the BreakerNook figure.
+const HEADINGS_DEG: Array[float] = [
+	0.0, 22.0, -22.0, 45.0, -45.0, 90.0, -90.0, 135.0, -135.0, 180.0,
+]
+
+# Sideways slack, tried in order, for each heading. 0 first — dead ahead is always the
+# best frame. At the 2.5 m minimum spawn distance a 1.0 m nudge is ~22° off centre,
+# comfortably inside the camera's view.
+const LATERAL_NUDGES: Array[float] = [0.0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6]
+
+# The volume the figure must have to itself, as a CYLINDER rather than a box: the quad
+# is BILLBOARD_ENABLED, so it swivels to face the player and its 1.6 m width sweeps
+# every horizontal direction as they walk around it. A box would only reserve the space
+# the figure happens to occupy at the instant it spawns. Height is trimmed a sliver at
+# each end because it stands ON the floor and under the ceiling, and a shape of its
+# exact 2.4 m height overlaps the very slab it is correctly standing on.
+# 0.9, not the quad's exact 0.8 half-width: the billboard is a rectangle, so its
+# corners sit sqrt(0.8² + 0.125²) ≈ 0.81 from the centre, and probing to exactly the
+# half-width leaves the corners free to clip a bench or a door frame.
+const FIG_FIT_RADIUS := 0.9
+const FIG_HEAD_ROOM := 2.34   # it is 2.4 m tall; refuse spots with something overhead
+# 16, not 8. At 45° spacing the fan misses a DOORWAY's jambs entirely: standing in an
+# opening the same width as the figure, every 45° ray flies straight through the gap
+# and reports clear, while the billboard's edges are buried in the frame either side.
+# 22.5° spacing catches the jamb. Measured, not guessed — the 8-ray version left five
+# doorway placements failing in tests/check_apparition_clearance.gd.
+const FIT_RAY_COUNT := 16
+
+# Distances tried per heading, as fractions of the clear distance available. One
+# attempt per heading was not enough: the spot furthest from the player is also the one
+# nearest the far wall, so it fails the elbow-room check most often — and refusing the
+# heading outright made the apparition abort in a quarter of ordinary, open-floor
+# placements. Pulling it in a little is far better than not appearing at all.
+const DIST_FRACTIONS: Array[float] = [1.0, 0.8, 0.6]
+
+# ⚠️ PROPORTIONAL, not absolute (BACKLOG #10). Fleeing is measured as "you are further
+# from it than where it spawned, by this much". A flat 0.7 m is a 10% allowance on a
+# 7 m spawn and a 28% allowance on a 2.5 m one — so with the distance now randomised,
+# a fixed margin would make close spawns kill you for an instinctive half-step back
+# while far ones let you stroll away. `_flee_margin()` scales it and keeps the 0.7 m
+# floor. Sprinting is still an unconditional fail at any distance, so "Walk. Do not
+# run." is untouched; this only ever forgives the flinch.
+const FLEE_MARGIN := 0.7          # absolute floor
+const FLEE_MARGIN_FRACTION := 0.2 # …or a fifth of however far away it actually landed
 
 
-# Materialise in front of the player, where they're already looking. The spawn
-# distance is raycast-clamped to land in OPEN view: in the tight 3 m halls a fixed
-# 7 m would drop the figure inside/behind a wall, so it was never actually seen.
+# Materialise in front of the player, where they're already looking.
+#
+# ⚠️ BACKLOG #8 — "sometimes the monster appears in the textures". The old version cast
+# ONE ray from eye height and then did
+#     dist = clampf(hit_distance - WALL_MARGIN, MIN_DIST, APPEAR_DIST)
+# The `MIN_DIST` floor OVERRODE the wall hit: facing a wall 1.0 m away yielded
+# clampf(0.5, 1.6, 4.0) = 1.6, i.e. the figure was placed a metre PAST the wall it had
+# just detected. On top of that, a single zero-width line says nothing about a 1.6 m
+# wide billboard, so door jambs, pillars and shelving sliced it even when the centre
+# line was clear.
+#
+# Now: probe six rays per heading (both edges and the centre, at two heights), fan over
+# headings until one has real clearance, snap to the floor, and ABORT if nothing fits.
+# A skipped apparition is strictly better than one embedded in a wall.
 func appear() -> void:
 	if _engaged or _done:
 		return
@@ -143,16 +202,15 @@ func appear() -> void:
 		fwd = Vector3(0, 0, -1)
 	fwd = fwd.normalized()
 
-	var eye := _player.global_position + Vector3(0, 1.2, 0)
-	var dist := APPEAR_DIST
-	var space := _player.get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(eye, eye + fwd * APPEAR_DIST)
-	q.exclude = [_player.get_rid()]
-	var hit := space.intersect_ray(q)
-	if not hit.is_empty():
-		dist = clampf(eye.distance_to(hit.position) - WALL_MARGIN, MIN_DIST, APPEAR_DIST)
+	var desired := randf_range(APPEAR_DIST_MIN, APPEAR_DIST_MAX)
+	var spot: Variant = _find_spot(fwd, desired)
+	if spot == null:
+		# Nowhere legible to stand — a corner, a stairwell, a closed doorway. Say
+		# nothing and get out of the way; the director will try again later.
+		queue_free()
+		return
 
-	global_position = _player.global_position + fwd * dist
+	global_position = spot
 	_spawn_dist = _horiz_dist_to_player()
 	# Reset for re-arm (debug repeat) so a recycled instance fades in cleanly.
 	_hold = 0.0
@@ -163,6 +221,134 @@ func appear() -> void:
 	_play_drone()
 	var t := create_tween()
 	t.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
+
+
+# Walk the heading fan and, for each heading that has room, try a few lateral offsets
+# until the figure's actual VOLUME fits. Returns a world position, or null.
+#
+# ⚠️ Both halves are load-bearing and neither is sufficient alone:
+#   * The rays find how far it can stand without walking through a wall — but a ray
+#     that STARTS inside a collider reports nothing (Godot's hit_from_inside defaults
+#     to false), so a player hugging a wall makes the ±0.9 m edge probes lie.
+#   * The shape query catches exactly that, and also catches the case the rays can
+#     never see: a 1.6 m wide billboard placed 0.5 m from a wall clips it no matter
+#     how much clear distance lies AHEAD. Hence the lateral nudges — without them a
+#     player standing near any wall would abort every single time.
+func _find_spot(fwd: Vector3, desired: float) -> Variant:
+	var base := _player.global_position
+	for deg in HEADINGS_DEG:
+		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+		var usable := _clearance_along(dir, desired + WALL_MARGIN) - WALL_MARGIN
+		if usable < MIN_DIST:
+			continue
+		var reach: float = minf(desired, usable)
+		var right := Vector3.UP.cross(dir).normalized()
+		for frac in DIST_FRACTIONS:
+			var dist: float = maxf(reach * frac, MIN_DIST)
+			for lateral in LATERAL_NUDGES:
+				var cand := _snap_to_floor(base + dir * dist + right * lateral)
+				if _fits(cand):
+					return cand
+	return null
+
+
+# Is there room for the figure at `pos`, and can the player actually see it?
+#
+# ⚠️ Deliberately RAYS, not intersect_shape(). Measured on the built level: a shape
+# query against the CSG walls reports the overlap when the shape straddles a face, but
+# reports NOTHING when it sits inside the slab — CSG collision is a concave trimesh and
+# a query fully inside one intersects no triangles. So a shape test silently approves
+# exactly the case this function exists to reject. (tests/probe_shape_vs_csg.gd, kept
+# as the evidence.) Rays are what the rest of this project asserts with, for the same
+# reason.
+#
+# Layer 1 only: notes, bottles and door interact-markers live on layer 2 and are
+# walk-through, so treating them as obstructions would reject perfectly good spots.
+func _fits(pos: Vector3) -> bool:
+	var space := _player.get_world_3d().direct_space_state
+
+	# 1. Line of sight. This is also what catches "pos is INSIDE a wall": rays cast
+	#    outward FROM inside a solid report nothing, but the segment from the player's
+	#    eye must still cross that wall's near face to get there.
+	var q := PhysicsRayQueryParameters3D.create(
+		_player.global_position + Vector3(0, 1.2, 0), pos + Vector3(0, 1.2, 0))
+	q.exclude = [_player.get_rid()]
+	q.collision_mask = 1
+	if not space.intersect_ray(q).is_empty():
+		return false
+
+	# 2. Head room. Without this the figure can stand under a low fitting — or, worse,
+	#    on top of a bench that _snap_to_floor found, with its head through the ceiling.
+	var up := PhysicsRayQueryParameters3D.create(
+		pos + Vector3(0, 0.1, 0), pos + Vector3(0, FIG_HEAD_ROOM, 0))
+	up.exclude = [_player.get_rid()]
+	up.collision_mask = 1
+	if not space.intersect_ray(up).is_empty():
+		return false
+
+	# 3. Its own column, top-down. The outward fan below cannot see a low prop the
+	#    figure is standing INSIDE — an exam bench, a cart, a crate — because those rays
+	#    start within the prop and a ray originating inside a concave collider reports
+	#    nothing. Looking down from above head height finds it, because that ray starts
+	#    in open air. (Three Exam1 placements failed on exactly this.)
+	var down := PhysicsRayQueryParameters3D.create(
+		pos + Vector3(0, FIG_HEAD_ROOM, 0), pos + Vector3(0, 0.05, 0))
+	down.exclude = [_player.get_rid()]
+	down.collision_mask = 1
+	if not space.intersect_ray(down).is_empty():
+		return false
+
+	# 4. Elbow room, all round, at both ends of the figure — it is a billboard, so its
+	#    1.6 m width sweeps every horizontal direction as the player walks around it.
+	for i in FIT_RAY_COUNT:
+		var a := TAU * float(i) / float(FIT_RAY_COUNT)
+		var out := Vector3(sin(a), 0.0, cos(a))
+		for h in [PROBE_LOW, PROBE_HIGH]:
+			var from: Vector3 = pos + Vector3(0, h, 0)
+			var qq := PhysicsRayQueryParameters3D.create(from, from + out * FIG_FIT_RADIUS)
+			qq.exclude = [_player.get_rid()]
+			qq.collision_mask = 1
+			if not space.intersect_ray(qq).is_empty():
+				return false
+	return true
+
+
+# Shortest unobstructed distance along `dir` for a body as wide and as tall as the
+# figure — six parallel rays (left edge / centre / right edge, at two heights), take
+# the minimum. `max_dist` bounds the work; an unobstructed probe returns it unchanged.
+func _clearance_along(dir: Vector3, max_dist: float) -> float:
+	var space := _player.get_world_3d().direct_space_state
+	var right := Vector3.UP.cross(dir).normalized()
+	var base := _player.global_position
+	var nearest := max_dist
+	for lateral in [-FIG_HALF_WIDTH, 0.0, FIG_HALF_WIDTH]:
+		for height in [PROBE_LOW, PROBE_HIGH]:
+			var from: Vector3 = base + right * lateral + Vector3(0, height, 0)
+			var q := PhysicsRayQueryParameters3D.create(from, from + dir * max_dist)
+			q.exclude = [_player.get_rid()]
+			var hit := space.intersect_ray(q)
+			if not hit.is_empty():
+				nearest = minf(nearest, from.distance_to(hit.position))
+	return nearest
+
+
+# Put its feet on whatever floor is actually there. Without this the figure inherits
+# the PLAYER's y, so on the House cellar ramp or in the flooded Backrooms it sinks into
+# the floor or hovers above it.
+#
+# ⚠️ The downcast starts only 0.35 m up, deliberately BELOW bench/desk height. Starting
+# higher makes it find the top of the nearest exam bed and stand the figure on the
+# furniture — which the head-room check in _fits() then rejects, so the apparition just
+# silently gave up in every room with a table in it.
+func _snap_to_floor(pos: Vector3) -> Vector3:
+	var space := _player.get_world_3d().direct_space_state
+	var from := pos + Vector3(0, 0.35, 0)
+	var q := PhysicsRayQueryParameters3D.create(from, from + Vector3(0, -FLOOR_DROP, 0))
+	q.exclude = [_player.get_rid()]
+	var hit := space.intersect_ray(q)
+	if hit.is_empty():
+		return pos
+	return Vector3(pos.x, hit.position.y, pos.z)
 
 
 func _process(delta: float) -> void:
@@ -186,7 +372,11 @@ func _process(delta: float) -> void:
 func _is_fleeing() -> bool:
 	if _player.is_sprinting():
 		return true
-	return _horiz_dist_to_player() > _spawn_dist + FLEE_MARGIN
+	return _horiz_dist_to_player() > _spawn_dist + _flee_margin()
+
+
+func _flee_margin() -> float:
+	return maxf(FLEE_MARGIN, _spawn_dist * FLEE_MARGIN_FRACTION)
 
 
 func _horiz_dist_to_player() -> float:

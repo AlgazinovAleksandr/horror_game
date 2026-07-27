@@ -46,6 +46,7 @@ var _env: Environment = null
 var _path_glow_lights: Array[OmniLight3D] = []
 var _path_glow_audio: AudioStreamPlayer3D = null
 var _ceiling_lights: Array[OmniLight3D] = []
+var _switch_flipped: bool = false     # half of the exit lock; the note is the other half
 
 
 func _ready() -> void:
@@ -83,8 +84,18 @@ func _ready() -> void:
 
 func _clear_old_scene() -> void:
 	for child in get_children():
-		if not PRESERVE.has(child.name):
-			child.queue_free()
+		if PRESERVE.has(child.name):
+			continue
+		# ⚠️ remove_child BEFORE queue_free. queue_free() is deferred to the end of the
+		# frame, so a node freed this way is STILL A CHILD — and still holding its name
+		# — while _ready() builds the replacement level. Godot then renames the new
+		# node on the collision (Issue 17), and every later get_node("ExitDoor") in
+		# these levels silently missed: probed on the Lab, both doors came back as
+		# @StaticBody3D@332 / @334. remove_child() detaches immediately, so the name is
+		# free by the time the new door is added. (Found 2026-07-27 by the autoplay
+		# harness, which is the first thing that ever looked a door up by name.)
+		remove_child(child)
+		child.queue_free()
 
 
 func _start_ambience() -> void:
@@ -420,6 +431,36 @@ func _build_table_note_candle() -> void:
 	note_col.shape = nbs
 	note.add_child(note_col)
 
+	# note.gd emits `read` on OPEN (not on close — reading to the end is a mechanic
+	# reserved for trap notes), which is the same hook level_1.gd uses to unlock the
+	# Records locker. Not connected during the twist ending: that note's job is to end
+	# the game, and _corrupt_room() has already deleted the exit door by then.
+	if not GameState.is_ending:
+		note.read.connect(_on_intro_note_read)
+
+
+func _on_intro_note_read() -> void:
+	GameState.intro_note_read = true
+	_refresh_exit_lock()
+
+
+# The exit opens only once the room is lit AND the briefing has been read. Kept in one
+# place so neither half can silently stop mattering, the way KONTUR's exit did before
+# Issue 16 gave it a ledger.
+func _refresh_exit_lock() -> void:
+	var exit_door := get_node_or_null("ExitDoor")
+	if not exit_door:
+		return
+	if not _switch_flipped:
+		exit_door.locked_message = "Find the light switch first."
+		exit_door.extra_lock = true
+		return
+	if not GameState.intro_note_read:
+		exit_door.locked_message = "Read the note on the table first."
+		exit_door.extra_lock = true
+		return
+	exit_door.extra_lock = false
+
 
 func _build_exit_door() -> void:
 	var body := StaticBody3D.new()
@@ -430,7 +471,15 @@ func _build_exit_door() -> void:
 	# The door glows blood-red (findable in the dark, per project convention) and
 	# would otherwise be walkable the instant the player wakes up, skipping the
 	# whole dark-fumble/switch/reveal beat entirely — extra_lock seals it until
-	# _on_switch_flipped() clears it, same mechanism KONTUR uses for its exit.
+	# BOTH the switch is thrown and the note is read, same mechanism KONTUR uses
+	# for its exit.
+	#
+	# ⚠️ The note half is BACKLOG #12: "you can access level 1 without reading the
+	# intro note. It cannot be that way." That note is not flavour — it is where the
+	# player is told they are Subject 47, told the rules the whole game then enforces
+	# ("Stay calm", "do not touch what you are not meant to touch"), and warned in
+	# advance not to answer the Backrooms phone. Walking past it makes several later
+	# levels read as arbitrary cruelty.
 	body.extra_lock = not GameState.is_ending
 	body.locked_message = "Find the light switch first."
 	body.position = EXIT_DOOR_POS
@@ -563,6 +612,7 @@ func _spawn_path_glow() -> void:
 
 func _spawn_light_switch() -> void:
 	var sw := LightSwitch.new()
+	sw.name = "LightSwitch"   # findable by name for tests/check_intro_gate.gd
 	sw.position = SWITCH_POS
 	# The switch's own local +Z is its face normal; WallLeft is at x=-6.0 so "into
 	# the room" is +X. Without this the plate stood parallel to the wall instead
@@ -584,9 +634,8 @@ func _on_switch_flipped() -> void:
 
 	player.unlock_flashlight()
 
-	var exit_door := get_node_or_null("ExitDoor")
-	if exit_door:
-		exit_door.extra_lock = false
+	_switch_flipped = true
+	_refresh_exit_lock()
 
 	for light in _path_glow_lights:
 		var t := create_tween()

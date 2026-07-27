@@ -22,7 +22,13 @@ const KONTUR_TEX := "res://assets/textures/level_5_kontur/"
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
-const FAMILIARIZATION_TIME := 10.0   # ⚠️ TEMPORARY — lowered from 50.0 for debugging (2026-07-24). Revert before ship.
+# The familiarization window exists so the player can learn the layout before the threat
+# appears — which is only worth paying for ONCE. On a retry they already know the rooms,
+# so the wait is dead time; the window shortens instead of disappearing, because the
+# first seconds after a restart are also when the player is re-orienting at the entrance.
+# Attempt count comes from GameState.level_attempts (survives the death, cleared per run).
+const FAMILIARIZATION_FIRST := 30.0   # first attempt at this level in this run
+const FAMILIARIZATION_RETRY := 10.0   # every attempt after a death here
 const PATROL_LOOP := ["Junction1", "Atrium", "Junction2", "WardB", "Corridor1"]
 const LIGHT_WEAPON_RANGE := 12.0
 const LIGHT_WEAPON_DOT := 0.9      # tight cone matching the flashlight's own spot_angle
@@ -84,11 +90,14 @@ var _exit_door: StaticBody3D
 var _creature_defeated: bool = false
 var _creature_awake: bool = false
 var _familiarization_t: float = 0.0
+var _familiarization_time: float = FAMILIARIZATION_FIRST
 
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	GameState.current_level = 6
+
+	_familiarization_time = FAMILIARIZATION_FIRST if GameState.get_level_attempts(6) == 0 else FAMILIARIZATION_RETRY
 
 	_clear_old_scene()
 	_build_geometry()
@@ -106,6 +115,7 @@ func _ready() -> void:
 	_boost_ambient(0.28)
 
 	GameState.set_objective("OBJECT 12 HAS NOT NOTICED YOU YET — MOVE.")
+	_restore_progress()
 
 
 func _player() -> CharacterBody3D:
@@ -114,8 +124,18 @@ func _player() -> CharacterBody3D:
 
 func _clear_old_scene() -> void:
 	for child in get_children():
-		if not PRESERVE.has(child.name):
-			child.queue_free()
+		if PRESERVE.has(child.name):
+			continue
+		# ⚠️ remove_child BEFORE queue_free. queue_free() is deferred to the end of the
+		# frame, so a node freed this way is STILL A CHILD — and still holding its name
+		# — while _ready() builds the replacement level. Godot then renames the new
+		# node on the collision (Issue 17), and every later get_node("ExitDoor") in
+		# these levels silently missed: probed on the Lab, both doors came back as
+		# @StaticBody3D@332 / @334. remove_child() detaches immediately, so the name is
+		# free by the time the new door is added. (Found 2026-07-27 by the autoplay
+		# harness, which is the first thing that ever looked a door up by name.)
+		remove_child(child)
+		child.queue_free()
 
 
 # ---------------------------------------------------------------- geometry
@@ -165,12 +185,40 @@ func _rooms_with_skins() -> Array:
 	return out
 
 
+const ENTRY_SPAWN := Vector3(0, 0.1, -2.0)
+const EXIT_SPAWN := Vector3(0, 0.1, 59.5)     # Incinerator, just inside the exit
+
 func _place_player() -> void:
 	var p := _player()
 	if not p:
 		return
-	p.global_position = Vector3(0, 0.1, -2.0)
-	p.rotation = Vector3(0, PI, 0)   # face +z, down the spine
+	if GameState.entered_from_ahead:
+		p.global_position = EXIT_SPAWN
+		p.rotation = Vector3(0, 0, 0)
+	else:
+		p.global_position = ENTRY_SPAWN
+		p.rotation = Vector3(0, PI, 0)   # face +z, down the spine
+
+
+# ---------------------------------------------------------------- progress snapshot
+#
+# One boolean, as the exit lock is one boolean. If Object 12 has already been purged,
+# walking back to KONTUR and returning must not resurrect it — re-running a chase you
+# have already won is the purest form of the BACKLOG #30 complaint.
+
+func save_progress() -> Dictionary:
+	return {"creature_defeated": _creature_defeated}
+
+
+func _restore_progress() -> void:
+	var data := GameState.get_level_progress(6)
+	if not bool(data.get("creature_defeated", false)):
+		return
+	_creature_defeated = true
+	if is_instance_valid(_creature) and _creature.has_method("lure_into_trap"):
+		_creature.lure_into_trap()
+	_refresh_exit()
+	GameState.set_objective("IT IS SEALED. LEAVE.")
 
 
 # ---------------------------------------------------------------- lighting
@@ -221,21 +269,34 @@ func _spawn_creature() -> void:
 		wps.append(_builder.room_center(room))
 	_creature.set_waypoints(wps)
 	_creature.staggered.connect(_on_creature_staggered)
+	_creature.recovered.connect(_on_creature_recovered)
 
 
-func _on_creature_staggered(_duration: float) -> void:
-	ScreenText.toast(get_tree(), "IT RECOILS", Color(1.0, 0.6, 0.5))
+func _on_creature_staggered(duration: float) -> void:
+	# Name the number. The stagger is now a randomised 5-7 s (BACKLOG #26) instead of a
+	# flat 25 s, and a repel you cannot time is a repel you cannot plan around — the
+	# whole point of the light weapon is buying a known amount of distance.
+	ScreenText.toast(get_tree(), "IT RECOILS — %.0f SECONDS" % duration, Color(1.0, 0.6, 0.5))
 	var p := _player()
 	if p and p.has_method("jolt_camera"):
 		p.jolt_camera(0.08, 0.4)
 	_play_at("shield_stagger", _creature.get_creature_position(), 4.0)
 
 
+# `recovered` was emitted by the creature from the day it was written and connected to
+# NOTHING, so the end of a stagger was completely silent: it simply started moving
+# again. With a 25 s window that was survivable ignorance; at 5-7 s the player needs to
+# know the instant their head start is over.
+func _on_creature_recovered() -> void:
+	ScreenText.toast(get_tree(), "IT IS UP AGAIN", Color(1.0, 0.35, 0.3))
+	_play_at("creature_growl_near", _creature.get_creature_position(), 2.0)
+
+
 func _tick_familiarization(delta: float) -> void:
 	if _creature_awake:
 		return
 	_familiarization_t += delta
-	if _familiarization_t >= FAMILIARIZATION_TIME:
+	if _familiarization_t >= _familiarization_time:
 		_creature_awake = true
 		_creature.activate()
 		GameState.set_objective("IT IS AWAKE.")
@@ -323,14 +384,18 @@ func _add_hiding_spot(room: String, side: Vector2, kind: String) -> void:
 # ---------------------------------------------------------------- slam doors
 
 func _spawn_slam_doors() -> void:
-	_add_slam_door(Vector3(0, 0, 11), 0)      # Corridor1 <-> Junction1
-	_add_slam_door(Vector3(4, 0, 21), 90)     # Atrium <-> WardA
-	_add_slam_door(Vector3(-4, 0, 37), 90)    # ArchiveB <-> WardB (closes the loop)
-	_add_slam_door(Vector3(0, 0, 41), 0)      # WardB <-> WardC
+	_add_slam_door("Slam_Corridor1_Junction1", Vector3(0, 0, 11), 0)
+	_add_slam_door("Slam_Atrium_WardA", Vector3(4, 0, 21), 90)
+	_add_slam_door("Slam_ArchiveB_WardB", Vector3(-4, 0, 37), 90)   # closes the loop
+	_add_slam_door("Slam_WardB_WardC", Vector3(0, 0, 41), 0)
 
 
-func _add_slam_door(pos: Vector3, yaw_deg: float) -> void:
+# Named, not anonymous: Godot renames colliding generated siblings using the CLASS
+# name (Issue 17), so four unnamed SlamDoors report as @StaticBody3D@138/148/... and a
+# failing assertion can't tell you WHICH door broke. Every name here is unique.
+func _add_slam_door(door_name: String, pos: Vector3, yaw_deg: float) -> void:
 	var door := SlamDoor.new()
+	door.name = door_name
 	door.position = pos
 	door.rotation_degrees.y = yaw_deg
 	add_child(door)

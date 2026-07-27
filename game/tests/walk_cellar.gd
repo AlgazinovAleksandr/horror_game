@@ -22,11 +22,16 @@ func _process(_delta: float) -> bool:
 	if _frame == 6:
 		_scene = current_scene
 		_player = _scene.get_node_or_null("Player") as CharacterBody3D
-		# Force the gate open.
-		var gate := _scene.get_node_or_null("CellarGate") as CSGBox3D
-		if gate:
-			gate.position.y = 5.0
-			gate.use_collision = false
+		# Force the gate open. ⚠️ It is a CellarGate (StaticBody3D) since BACKLOG #16,
+		# not the old scriptless CSGBox3D — an `as CSGBox3D` cast here silently yielded
+		# null and left the ramp sealed, so this walk was testing a blocked doorway.
+		var gate := _scene.get_node_or_null("CellarGate") as Node3D
+		if gate and gate.has_method("open"):
+			gate.call("open")
+			gate.position.y += 3.1        # skip the 0.9 s slide tween
+			for c in gate.get_children():
+				if c is CollisionShape3D:
+					(c as CollisionShape3D).disabled = true
 		_headroom_scan()
 		# Start DOWN in the cellar and climb the ramp back UP toward the kitchen.
 		if _player:
@@ -47,7 +52,15 @@ func _process(_delta: float) -> bool:
 		var reached: bool = _player.global_position.z > 2.0 and _player.global_position.y > -0.3
 		print("CLIMBED OUT: ", reached)
 		print("min headroom %.2f at z=%.1f" % [_min_clear, _min_clear_z])
-		quit(0)
+		# ⚠️ This used to `quit(0)` unconditionally — it printed a verdict and then
+		# reported success either way, so a sealed ramp would have shown "CLIMBED OUT:
+		# false" in a green run. (Nearly hit for real: BACKLOG #16 turned CellarGate
+		# from a CSGBox3D into a StaticBody3D, and the `as CSGBox3D` cast above went
+		# null, leaving the gate shut for the whole walk.) The headroom scan stays
+		# informational — its downcasts read the ramp's underside as "floor", so its
+		# numbers are a diagnostic aid, not a pass condition.
+		print("RESULT: ", "PASS" if reached else "FAIL (never reached the kitchen)")
+		quit(0 if reached else 1)
 		return true
 	return false
 
