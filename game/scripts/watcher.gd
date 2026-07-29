@@ -69,6 +69,9 @@ var persistent: bool = false
 # cannot produce a point inside geometry.
 var require_los: bool = true
 
+# Height in metres; the width follows the texture's aspect. See spawn().
+var figure_height: float = SIZE.y
+
 var _player: CharacterBody3D = null
 var _camera: Camera3D = null
 var _quad: MeshInstance3D = null
@@ -104,8 +107,13 @@ var _going: bool = false
 # (2.7 m) from a pillar centre, and the outermost pillars sit 5 m from the perimeter, so no
 # candidate can land in a wall — and the top-down column ray below still catches pillars.
 # Do not pass false from a caller without that argument.
+# `height` is the figure's height in metres. It exists because the same script stands in for
+# an adult at 30 m and a child in a hallway, and a 2.4 m child is not a child. The WIDTH is
+# never passed — it is derived from the texture's own aspect (see _build_figure), per
+# SCARY.md §7.1(4): a portrait cutout on a fixed 1.6x2.4 quad renders visibly stretched.
 static func spawn(parent: Node, pos: Vector3, tex_path: String,
-		vanish_within: float = 10.0, require_los: bool = true) -> Watcher:
+		vanish_within: float = 10.0, require_los: bool = true,
+		height: float = SIZE.y) -> Watcher:
 	var player := parent.get_tree().get_first_node_in_group("player") as CharacterBody3D
 	if not player:
 		return null
@@ -113,6 +121,7 @@ static func spawn(parent: Node, pos: Vector3, tex_path: String,
 	var w := Watcher.new()
 	w.despawn_dist = vanish_within
 	w.require_los = require_los
+	w.figure_height = height
 	w.name = "Watcher"
 	parent.add_child(w)
 
@@ -135,7 +144,7 @@ func _ready() -> void:
 func _build_figure(tex_path: String) -> void:
 	_quad = MeshInstance3D.new()
 	var mesh := QuadMesh.new()
-	mesh.size = SIZE
+	mesh.size = Vector2(SIZE.x * (figure_height / SIZE.y), figure_height)
 	_quad.mesh = mesh
 
 	_mat = StandardMaterial3D.new()
@@ -144,14 +153,25 @@ func _build_figure(tex_path: String) -> void:
 	_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	# ⚠️ No emission_enabled anywhere in this function. See the header.
 	if tex_path != "" and ResourceLoader.exists(tex_path):
-		_mat.albedo_texture = load(tex_path)
+		var tex: Texture2D = load(tex_path)
+		_mat.albedo_texture = tex
 		_mat.albedo_color = Color(1, 1, 1, 1)
+		# ⚠️ Size the quad from the SOURCE ASPECT, keeping the requested height. The
+		# generator returns whatever crop it likes (the child came back 586x1489, the adult
+		# 757x1474), and a portrait cutout stretched across a fixed 1.6-wide quad reads as a
+		# fat, wrong figure — SCARY.md §7.1(4), the same lesson as KONTUR's roster plate.
+		if tex and tex.get_height() > 0:
+			var aspect := float(tex.get_width()) / float(tex.get_height())
+			mesh.size = Vector2(figure_height * aspect, figure_height)
 	else:
 		# Procedural fallback: a flat dark shape. Still legible, because unshaded albedo
 		# is the final colour and the walls behind it are lit.
 		_mat.albedo_color = Color(0.06, 0.06, 0.08, 1)
 	_quad.set_surface_override_material(0, _mat)
-	_quad.position.y = QUAD_Y
+	# ⚠️ Half the ACTUAL height, not the constant. QUAD_Y is 1.2 because the default figure is
+	# 2.4 m; with `figure_height` variable, a fixed 1.2 would leave a 1.25 m child hovering
+	# half a metre off the floor.
+	_quad.position.y = _centre_y()
 	add_child(_quad)
 
 
@@ -212,10 +232,14 @@ func distance_to_player() -> float:
 	return _player.global_position.distance_to(global_position)
 
 
+func _centre_y() -> float:
+	return figure_height / 2.0
+
+
 func _is_seen() -> bool:
 	if not _camera:
 		return false
-	var to_me := global_position + Vector3(0, QUAD_Y, 0) - _camera.global_position
+	var to_me := global_position + Vector3(0, _centre_y(), 0) - _camera.global_position
 	if to_me.length() < 0.01:
 		return true
 	# Horizontal-only facing test. Dotting a horizontal facing against the FULL 3D
@@ -234,7 +258,7 @@ func _is_seen() -> bool:
 	# In the cone, but is there a wall in the way?
 	var space := get_world_3d().direct_space_state
 	var q := PhysicsRayQueryParameters3D.create(
-		_camera.global_position, global_position + Vector3(0, QUAD_Y, 0))
+		_camera.global_position, global_position + Vector3(0, _centre_y(), 0))
 	q.exclude = [_player.get_rid()]
 	q.collision_mask = 1
 	return space.intersect_ray(q).is_empty()

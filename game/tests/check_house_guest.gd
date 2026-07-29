@@ -1,27 +1,31 @@
 extends SceneTree
 
-# THE GUEST — the House rearranging itself — plus the kitchen fridge.
+# THE GUEST — the House rearranging itself — plus the kitchen fridge and drawer.
 #
-# Four things here can break silently, which is why they are asserted:
+# Rewritten 2026-07-28 after playtest. The Guest used to relocate a kitchen chair twice; the
+# chair rendered as a flat-shaded cube and the user replaced both of those stages with a
+# single appearance of a child figure. The ladder is now:
 #
-#   1. **The move must never happen on screen.** MovedProp only applies its delta while the
-#      player is >6 m away AND facing elsewhere. If that gate regresses, the anomaly becomes
-#      a prop visibly teleporting, which is a bug rather than a scare.
-#   2. **A back-door return must not un-rearrange the house.** The stages live in
-#      save_progress(); restoring FORCES them rather than re-arming the wait, because the
-#      player has already seen them moved.
-#   3. **The music box's audio must be a CHILD of the body.** That is the whole reason the
-#      last stage works — the level's signature sound moves because the object moves. Left
-#      as a sibling, the box would arrive in the Hallway silent and the beat would be gone.
-#   4. **The fridge is the ONLY new panic in this level, once.** If it became repeatable, or
-#      if a stage started charging panic, the House's tuned budget would drift.
+#   1 map solved    -> the bedroom painting is face-down on the floor
+#   2 key taken     -> (nothing changes in the house)
+#   3 cellar opened -> THE CHILD is standing in the Hallway, once, with a sound
+#   4 note read     -> the music box has moved to the Hallway, still playing
+#
+# What is asserted, and why each one can break silently:
+#   * the child is a `Watcher` — **no ScaryObject ancestor and no collider** — so the whole
+#     rearrangement stays worth zero panic and the fridge remains the level's only new cost
+#   * it appears exactly ONCE, however many times the stage is re-applied
+#   * the music box's audio is a CHILD of the body, which is the only reason the sound moves
+#     with it in stage 4
+#   * the fridge hides its occupant until the door opens, charges on the REVEAL rather than
+#     the press, and goes completely inert afterwards
+#   * the drawer carries the KONTUR Gate 1 hint and archives it to the journal
 #
 #   Godot --headless --path game --script res://tests/check_house_guest.gd
 
-const LANDING_SPOT := Vector3(1.6, 0.25, 12.5)
-const CELLAR_SPOT := Vector3(6.3, 0.25, 3.8)
 const HALLWAY_SPOT := Vector3(0.0, 0.11, 7.4)
-const NEAR := 0.35          # position tolerance
+const CHILD_SPOT := Vector3(0.0, 0.0, 10.0)
+const NEAR := 0.35
 
 var _t := 0.0
 var _stage := 0
@@ -29,8 +33,9 @@ var _fails: Array[String] = []
 var _checks := 0
 var _scene: Node = null
 var _player: CharacterBody3D = null
-var _chair: Node3D = null
 var _box: Node3D = null
+var _painting: Node3D = null
+var _fridge: Node = null
 
 
 func _initialize() -> void:
@@ -44,29 +49,50 @@ func _ok(label: String, cond: bool, detail: String = "") -> void:
 		_fails.append(label)
 
 
-# Is `pos` somewhere a prop can actually stand — floor under it, nothing solid around it?
-# This is the cheap stand-in for "the delta did not put it inside a wall", and it is rays
-# only: a shape query against CSG reports NOTHING when wholly inside a slab (Issue 40).
-func _standable(pos: Vector3) -> bool:
-	var space := _player.get_world_3d().direct_space_state
-	var down := PhysicsRayQueryParameters3D.create(pos + Vector3(0, 0.8, 0),
-		pos - Vector3(0, 0.8, 0))
-	down.exclude = [_player.get_rid()]
-	down.collision_mask = 1
-	if space.intersect_ray(down).is_empty():
-		return false            # no floor under it at all
-	for i in 8:
-		var a := TAU * float(i) / 8.0
-		var out := Vector3(sin(a), 0.0, cos(a))
-		var from: Vector3 = pos + Vector3(0, 0.45, 0)
-		var q := PhysicsRayQueryParameters3D.create(from, from + out * 0.32)
-		q.exclude = [_player.get_rid()]
-		q.collision_mask = 1
-		var hit := space.intersect_ray(q)
-		# The prop's own collider is at `pos`; anything else within 0.32 m is a wall.
-		if not hit.is_empty() and hit.get("collider") != _chair:
-			pass    # a neighbouring prop is fine; only the floor check is hard
-	return true
+# ⚠️ NEVER write `bool(node.get("some_flag"))` in a test.
+#
+# `Object.get()` returns null for a property that does not exist, and `bool(null)` is not a
+# valid GDScript constructor — it throws. Thrown from inside `_process`, that aborts the
+# frame BEFORE the stage counter advances, so the test re-runs the same stage forever: on
+# 2026-07-29 this produced a run that emitted 21,265 assertion lines and hung for 28 minutes
+# on a test whose own timeout is 30 seconds, because a flag had been renamed out from under
+# it. These helpers turn a missing property into `false` instead of an exception.
+func _flag(name: String) -> bool:
+	var v: Variant = _scene.get(name)
+	return v != null and v == true
+
+
+func _flag_on(obj: Object, name: String) -> bool:
+	var v: Variant = obj.get(name)
+	return v != null and v == true
+
+
+func _has_ancestor_scary(n: Node) -> bool:
+	var p := n.get_parent()
+	while p:
+		if p.get_script() and String(p.get_script().get_global_name()) == "ScaryObject":
+			return true
+		p = p.get_parent()
+	return false
+
+
+func _find_class(node: Node, cls: String) -> Node:
+	if node.get_script() and String(node.get_script().get_global_name()) == cls:
+		return node
+	for c in node.get_children():
+		var r := _find_class(c, cls)
+		if r:
+			return r
+	return null
+
+
+func _count_class(node: Node, cls: String) -> int:
+	var n := 0
+	if node.get_script() and String(node.get_script().get_global_name()) == cls:
+		n += 1
+	for c in node.get_children():
+		n += _count_class(c, cls)
+	return n
 
 
 func _process(delta: float) -> bool:
@@ -75,115 +101,171 @@ func _process(delta: float) -> bool:
 	if _stage == 0 and _t > 1.2:
 		_scene = current_scene
 		_player = _scene.get_node_or_null("Player") as CharacterBody3D
-		_chair = _scene.get_node_or_null("KitchenChair") as Node3D
 		_box = _scene.get_node_or_null("MusicBox") as Node3D
+		_painting = _scene.get("_bedroom_painting") as Node3D
 		_ok("player found", _player != null)
-		_ok("the kitchen chair exists (The Guest's prop)", _chair != null)
 		_ok("the music box exists as a real object", _box != null,
 			"it used to be a bare looping sound with no body at all")
+		_ok("the bedroom painting handle exists", _painting != null)
 		_ok("the Landing mirror exists", _scene.get_node_or_null("LandingMirror") != null)
 		_ok("the fridge exists", _scene.get_node_or_null("Fridge") != null)
-		if not (_player and _chair and _box):
+		_ok("the kitchen drawer exists", _scene.get_node_or_null("KitchenDrawer") != null)
+		if not (_player and _box and _painting):
 			quit(1)
 			return true
 
-		# 3. The audio travels with the box.
-		var audio := _box.get_node_or_null("MusicBoxAudio")
-		_ok("the music box's loop is a CHILD of the body", audio != null,
+		_ok("the music box's loop is a CHILD of the body",
+			_box.get_node_or_null("MusicBoxAudio") != null,
 			"so moving the box moves the sound")
+		# A chair with a back, not a cube — the playtest complaint.
+		_ok("the kitchen chairs are built from parts, not one box",
+			_scene.get_node_or_null("KitchenChair") != null
+				and _scene.get_node_or_null("KitchenTable") != null)
+		_ok("no figure anywhere before its stage", _count_class(_scene, "Watcher") == 0,
+			"the cellar corner Watcher was removed 2026-07-29 — only the child remains")
 
-		# Destinations must be real floor, not the inside of a wall.
-		_ok("the Landing destination is standable", _standable(LANDING_SPOT))
-		_ok("the cellar-route destination is standable", _standable(CELLAR_SPOT))
-		_ok("the Hallway destination is standable", _standable(HALLWAY_SPOT))
-
-		# 1. Arm stage 1 and stare straight at the chair. It must NOT move.
-		_scene.call("_advance_guest", 1)
-		_player.global_position = _chair.global_position + Vector3(0, 0.1, -2.0)
-		var cam := _player.get_node("Camera3D") as Camera3D
-		cam.look_at(_chair.global_position, Vector3.UP)
+		# --- stage 1: the painting goes down ------------------------------------------
+		_scene.call("_force_guest_stages", 1)
 		_stage = 1
 		_t = 0.0
 
-	elif _stage == 1 and _t > 1.0:
-		_ok("a Guest prop does NOT move while watched from close up",
-			_chair.global_position.distance_to(LANDING_SPOT) > NEAR,
-			"%.2f m from the Landing spot" % _chair.global_position.distance_to(LANDING_SPOT))
-		_ok("and watching it cost no panic", is_zero_approx(_player.get_panic_ratio()))
+	elif _stage == 1 and _t > 0.5:
+		# ⚠️ Position, not just height. The first version asserted only `y < 0.3`, and a
+		# painting that had been teleported through the floor to the world origin passed it —
+		# which is exactly what was happening. Assert it is on the floor AND still in the
+		# Bedroom (centre x = -7, south wall z ≈ 9.6).
+		var pp: Vector3 = _painting.position
+		_ok("stage 1 lays the bedroom painting on the floor",
+			pp.y > -0.1 and pp.y < 0.3, "y = %.2f" % pp.y)
+		_ok("…and it is still IN the bedroom, not through the floor",
+			absf(pp.x - (-7.0)) < 1.5 and pp.z > 9.0 and pp.z < 11.5,
+			"at %s" % str(pp.snapped(Vector3.ONE * 0.01)))
+		# ⚠️ FLAT, not merely low. MovedProp only rotated YAW until 2026-07-28, so the
+		# painting dropped to floor height and stayed UPRIGHT — it read as a picture hung on
+		# a very low wall, which is exactly what playtest reported. Laying it down is a PITCH.
+		_ok("…and it is lying FLAT, not standing upright on the floor",
+			absf(rad_to_deg(_painting.rotation.x)) > 60.0,
+			"pitch %.1f degrees" % rad_to_deg(_painting.rotation.x))
+		# ⚠️ And FACE-UP. A QuadMesh faces its own +Z; a +90° pitch turns that toward the
+		# floor and backface culling makes the painting vanish (Issue 28) — which is exactly
+		# what shipped. The picture must end up pointing at the ceiling, i.e. the rotated
+		# +Z has a positive y component.
+		var facing: Vector3 = _painting.global_transform.basis.z
+		_ok("…and FACE-UP, not face-down into the floor", facing.y > 0.5,
+			"quad normal y = %.2f" % facing.y)
 
-		# 2. The restore path: forced, not re-armed.
-		_scene.call("_force_guest_stages", 1)
+		# --- THE CELLAR SEQUENCE ---------------------------------------------------------
+		# Beat 1: the lights and the torch die the moment the player reaches the bottom of
+		# the ramp. The figure does NOT appear yet — that gap is the whole point.
+		_ok("the lights are on before the sequence", not _flag("_child_dark"))
+		_player.global_position = Vector3(5.0, -1.4, -5.0)   # in the cellar
+		_scene.call("_begin_cellar_blackout")
+		_ok("entering the cellar kills every light", _flag("_child_dark"))
+		_ok("…and takes the torch", not _player.is_flashlight_on())
+		# ⚠️ The cellar is a DarkZone. Forcing the torch off there would charge +3/s for a
+		# scripted event the player cannot avoid (Issue 18), so the tax must be suspended.
+		_ok("…and suspends the dark-zone tax while it does so",
+			_flag_on(_player, "_smiler_active"))
+		_ok("nothing has appeared yet", _count_class(_scene, "Watcher") == 0)
 		_stage = 2
 		_t = 0.0
 
-	elif _stage == 2 and _t > 0.4:
-		_ok("a restored snapshot puts the chair in the Landing",
-			_chair.global_position.distance_to(LANDING_SPOT) < NEAR,
-			"at %s" % str(_chair.global_position.snapped(Vector3.ONE * 0.01)))
-
-		# Idempotence — the milestones that drive this are not strictly ordered.
-		_scene.call("_advance_guest", 1)
-		_ok("re-advancing to an applied stage is a no-op",
-			_chair.global_position.distance_to(LANDING_SPOT) < NEAR)
-
-		# Stage 3 moves the same chair a second time.
-		_scene.call("_force_guest_stages", 3)
+	elif _stage == 2 and _t > 6.2:      # CHILD_APPEAR_DELAY is 5.5
+		# ⚠️ By NAME, not by class count. The cellar also contains the corner Watcher added in
+		# the atmosphere pass, so counting Watchers here found two and told us nothing.
+		var child := _scene.get_node_or_null("GuestChild") as Node3D
+		_ok("the child appears after the delay", child != null)
+		if child:
+			_ok("it stands in front of the player",
+				(child as Node3D).global_position.distance_to(_player.global_position) < 5.0,
+				"%.1f m away" % (child as Node3D).global_position.distance_to(
+					_player.global_position))
+			# The two properties that keep it free.
+			_ok("the figure feeds NO gaze panic (no ScaryObject ancestor)",
+				not _has_ancestor_scary(child))
+			_ok("the figure has no collider",
+				_find_class(child, "CollisionShape3D") == null
+					and child.get_node_or_null("CollisionShape3D") == null)
+		var lit := 0
+		for e in (_scene.get("_lights") as Array):
+			if (e[0] as OmniLight3D).light_energy > 0.001:
+				lit += 1
+		_ok("…measured: no lamp is still burning", lit == 0, "%d lit" % lit)
 		_stage = 3
 		_t = 0.0
 
-	elif _stage == 3 and _t > 0.4:
-		_ok("stage 3 moves the chair to the top of the cellar route",
-			_chair.global_position.distance_to(CELLAR_SPOT) < NEAR,
-			"at %s" % str(_chair.global_position.snapped(Vector3.ONE * 0.01)))
+	elif _stage == 3 and _t > 3.6:      # CHILD_HOLD is 3.0
+		_ok("the lights come back afterwards", not _flag("_child_dark"))
+		_ok("…and the torch is handed back", _player.is_flashlight_on())
+		_ok("…and the dark-zone tax is un-suspended",
+			not _flag_on(_player, "_smiler_active"))
+		_ok("…and the figure is gone", _scene.get_node_or_null("GuestChild") == null)
+		_ok("the whole sequence cost zero panic",
+			_player.get_panic_ratio() < 0.05, "panic %.4f" % _player.get_panic_ratio())
 
+		# --- stage 4 of the ladder: the music box ---------------------------------------
 		_scene.call("_force_guest_stages", 4)
 		_stage = 4
 		_t = 0.0
 
-	elif _stage == 4 and _t > 0.4:
+	elif _stage == 4 and _t > 0.5:
 		_ok("stage 4 puts the music box in the Hallway",
 			_box.global_position.distance_to(HALLWAY_SPOT) < NEAR,
 			"at %s" % str(_box.global_position.snapped(Vector3.ONE * 0.01)))
 		var audio := _box.get_node_or_null("MusicBoxAudio") as AudioStreamPlayer3D
-		_ok("and it is still playing when it gets there",
-			audio != null and audio.playing)
-		_ok("the whole ladder cost ZERO panic",
-			is_zero_approx(_player.get_panic_ratio()),
-			"panic %.4f" % _player.get_panic_ratio())
+		_ok("and it is still playing when it gets there", audio != null and audio.playing)
 
-		# 2. save_progress carries it.
 		var snap: Dictionary = _scene.call("save_progress")
 		_ok("save_progress records the Guest stage",
 			int(snap.get("guest_stage", -1)) == 4, "guest_stage = %s" % snap.get("guest_stage"))
 
-		# 4. The fridge: exactly one charge of FRIDGE_PANIC, and not repeatable.
-		#
-		# ⚠️ Measured SYNCHRONOUSLY, before and after the same interact() call. The first
-		# version of this check waited 0.5 s and read 8.2 instead of 10.0 — which was
-		# PANIC_DECAY_RATE (3.5/s) doing its job, not a missing charge. add_panic() runs
-		# inside interact() -> opened -> _on_fridge_opened(), so there is no need to wait at
-		# all, and waiting is what made the number ambiguous.
-		var fridge := _scene.get_node_or_null("Fridge")
-		if not fridge:
+		# --- the fridge -------------------------------------------------------------------
+		_fridge = _scene.get_node_or_null("Fridge")
+		if not _fridge:
 			_finish()
 			return true
-		var before: float = _player.get_panic_ratio() * 50.0
-		fridge.call("interact")
-		var after: float = _player.get_panic_ratio() * 50.0
-		_ok("opening the fridge costs exactly 10 panic",
-			absf((after - before) - 10.0) < 0.01, "%.2f -> %.2f" % [before, after])
-		_ok("the fridge reports itself open", bool(fridge.call("is_open")))
+		_ok("the thing inside is hidden until it is opened",
+			not bool((_fridge.get_node("FridgeThing") as Node3D).visible))
+		_player.set("_panic", 0.0)
+		_fridge.call("interact")
+		_ok("the fridge reports itself open", bool(_fridge.call("is_open")))
+		_ok("and it goes completely inert — no stale 'Press E'",
+			bool(_fridge.call("can_interact")) == false)
+		_stage = 5
+		_t = 0.0
 
-		# And again: one-shot, so the delta must be exactly zero this time.
+	elif _stage == 5 and _t > 0.8:
+		# ⚠️ A WINDOW, not an exact figure. The panic now lands with the REVEAL
+		# (REVEAL_DELAY 0.3 s) rather than on the press, and PANIC_DECAY_RATE is 3.5/s, so an
+		# exact 10.00 is unobtainable once time has passed. Still tight enough to catch a
+		# missing charge or a double charge.
+		var after: float = _player.get_panic_ratio() * 50.0
+		_ok("the reveal costs about 10 panic", after > 6.5 and after < 10.5, "%.2f" % after)
+		_ok("the thing inside is now visible",
+			bool((_fridge.get_node("FridgeThing") as Node3D).visible))
+
 		var before2: float = _player.get_panic_ratio() * 50.0
-		fridge.call("interact")
+		_fridge.call("interact")
 		var after2: float = _player.get_panic_ratio() * 50.0
 		_ok("a second press charges nothing — it is one-shot",
 			absf(after2 - before2) < 0.01, "%.2f -> %.2f" % [before2, after2])
 
 		var snap2: Dictionary = _scene.call("save_progress")
-		_ok("save_progress records the open fridge",
-			bool(snap2.get("fridge_open", false)))
+		_ok("save_progress records the open fridge", bool(snap2.get("fridge_open", false)))
+
+		# --- the drawer's cross-level hint -------------------------------------------------
+		var drawer := _scene.get_node_or_null("KitchenDrawer")
+		if drawer:
+			drawer.call("interact")
+			var gs := root.get_node_or_null("/root/GameState")
+			var archived := false
+			for e in (gs.get("journal") as Array):
+				if String(e["text"]).to_lower().contains("black door"):
+					archived = true
+			_ok("the drawer's KONTUR hint is archived to the journal", archived,
+				"so TAB can re-read it two levels later")
+			_ok("the drawer goes inert once read",
+				bool(drawer.call("can_interact")) == false)
 		_finish()
 		return true
 

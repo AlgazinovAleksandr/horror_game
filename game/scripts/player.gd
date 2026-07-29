@@ -58,6 +58,7 @@ var _smiler_active: bool = false        # suspends standstill + dark ticks (Smil
 var _no_decay: bool = false             # THE NIGHTMARE's silence: panic holds, never climbs
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
+var _flash_was_on: bool = false         # remembered across force_flashlight_off()
 var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
 var _qte_active: bool = false           # clamped but not frozen (the beartrap escape) — see begin_qte()
 var _hidden: bool = false               # inside a HidingSpot — movement blocked, look restricted
@@ -565,6 +566,26 @@ func lock_flashlight() -> void:
 
 func unlock_flashlight() -> void:
 	_flashlight_locked = false
+
+
+# Force the torch off and REMEMBER whether it was on, so it can be handed back exactly as it
+# was. `lock_flashlight()` alone is not enough for a temporary blackout: it hides the light
+# but `unlock_flashlight()` only clears the lock, leaving the player standing in the dark
+# wondering why F did nothing until they pressed it twice.
+#
+# Used by the House for the moment the child is present — a scripted, seconds-long darkness,
+# not a punishment. Deliberately NOT `kill_flashlight()`, which is permanent.
+func force_flashlight_off() -> void:
+	_flash_was_on = flashlight.visible
+	_flashlight_locked = true
+	flashlight.visible = false
+
+
+func restore_flashlight() -> void:
+	_flashlight_locked = false
+	if _flash_was_on and _battery > 0.0 and not _flashlight_dead:
+		flashlight.visible = true
+	_flash_was_on = false
 
 
 func freeze_input() -> void:

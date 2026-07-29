@@ -1330,6 +1330,146 @@ A `.png` that is really a JPEG has no alpha and `ResourceLoader.exists()` still
 returns true for it (Issue 25) — so neither the extension nor the guard tells you
 anything.
 
+### ✅ RESOLVED 2026-07-29 — `tools/cutout_alpha.py`
+
+The diagnosis above is exactly right and the conclusion ("must be hand-authored") is
+now too pessimistic: generated cutouts ARE usable, they just have to be **keyed**
+after the fact, the way a green-screen plate is. Five images were put through this
+for the House and all five verified `alpha_extrema == (0, 255)`.
+
+Ask the generator for a **saturated chroma background the subject cannot contain**
+(`#00FF00` in a JSON `environment.background`), then:
+
+```bash
+sips -s format png <f> --out <f>                       # container first (Issue 1/25)
+nano-banana-pro/.venv/bin/python3 tools/cutout_alpha.py <f> --chroma auto
+```
+
+Three things that tool does which a naive key does not, each learned the hard way:
+
+- **`--chroma auto` samples the border rather than trusting the prompt.** A spec
+  demanding "perfectly flat uniform solid `#00FF00`" came back as `(30, 143, 74)` —
+  green, but 137 units away in RGB, which sailed past a fixed tolerance and left the
+  whole image opaque (`alpha_extrema == (127, 255)`).
+- **It de-spills.** Alpha 0 hides the background, but the RGB underneath is still
+  green and every soft edge blends it back in — visible as a green rim under
+  `TRANSPARENCY_ALPHA`. Every pixel is capped at `g <= max(r, b) + 12`.
+- **It crops to the alpha bbox**, which also fixes the generator returning 16:9
+  however loudly the prompt asks for portrait (§7.1(4): the texture aspect must match
+  the mesh, or the figure renders stretched).
+
+⚠️ A **luminance** key (the default, no `--chroma`) only works for a dark subject on
+a pale ground. For anything bright or multi-coloured it deletes the subject.
+
+⚠️ Some prompts are **refused outright** rather than returned badly: an "emaciated
+screaming child" came back as `TypeError: 'NoneType' object is not iterable`, which is
+the safety filter, not a bug. Reframe (that one shipped as an antique porcelain doll)
+rather than retrying the same words.
+
+---
+
+## Issue 44 — A script that fails to PARSE exits 0, so the test runner reported PASS
+
+**Symptom.** `check_house_guest.gd` was rewritten, had two undeclared identifiers, and
+`tools/run_tests.sh` printed **PASS** for it. The level it tests was meanwhile
+completely broken.
+
+**Root cause.** Godot prints `SCRIPT ERROR: Parse Error: ...` / `Failed to load script`
+and then **quits cleanly with status 0**. The runner branches on the exit code, so a
+test that never ran at all is indistinguishable from a test that passed.
+
+This is the same family as the header warning in `run_tests.sh` about `--import` and
+`class_name` — that one makes level scripts fail to parse and tests find nothing. This
+is its mirror image: the TEST fails to parse and the runner finds nothing wrong.
+
+**Fix.** `run_tests.sh` now greps the captured output and forces a failure:
+
+```bash
+if echo "$out" | grep -qE "Parse Error|Failed to load script|SCRIPT ERROR: .*Compile"; then
+  code=1
+fi
+```
+
+It earned its keep within the hour: a stray `var t := 0.05` colliding with a
+`var t: Texture2D` in `house_fridge.gd` took `level_2.gd` down with it and surfaced as
+**9 failing tests** instead of a green run on a broken House.
+
+⚠️ `--import` does NOT report these. It re-imports assets; it does not compile scripts.
+
+---
+
+## Issue 45 — `bool(node.get("missing_property"))` hangs a test forever
+
+**Symptom.** A suite run sat on one test for **28 minutes**. That test's own timeout is
+30 seconds. Its log held **21,265 assertion lines** — the same four, repeating.
+
+**Root cause.** `Object.get()` returns `null` for a property that does not exist, and
+`bool(null)` is not a valid GDScript constructor — it **throws**. The throw happened
+inside `_process()`, which aborted the frame *before* the line that advances the stage
+counter and *before* the timeout check at the bottom of the function. So the test
+re-ran the same stage every frame, forever, printing as it went.
+
+The property had simply been renamed in the level under test (`_child_armed` was
+deleted when the beat moved rooms). Nothing about the failure pointed at that.
+
+**Fix.** Never call `bool()` on a `.get()` result in a test. Use a null-safe helper:
+
+```gdscript
+func _flag(name: String) -> bool:
+    var v: Variant = _scene.get(name)
+    return v != null and v == true
+```
+
+⚠️ Note what makes this dangerous rather than merely annoying: an exception thrown
+from `_process` in a `SceneTree` script does not stop the run, and **any** work below
+the throwing line — including the test's own watchdog — silently stops happening.
+Put the timeout check FIRST if a test does anything reflective.
+
+---
+
+## Issue 46 — A solid `BoxMesh` has no interior; anything inside it is invisible
+
+**Symptom.** The House fridge was built as one `BoxMesh` of the full carcass size, with
+a "recess" drawn as a second solid box inside it and a horror prop on a shelf inside
+that. Opening the door revealed a blank panel. Playtest: *"when the fridge opens —
+there is no head inside of it."*
+
+**Root cause.** A box is a closed surface. The prop was not failing to spawn; the
+carcass's own front face was drawing over it. No amount of moving the prop backwards
+helps — every position inside the box is behind a face.
+
+**Fix.** Build anything the player is meant to see INTO as an open-fronted shell of
+five slabs (back, two sides, top, base) plus a separate interior back panel. Keep the
+collider as a single box — colliders never render, so the cheap shape is still correct.
+
+⚠️ Same class as Issue 28 (a single-sided art quad on the face the player never sees):
+in both cases the geometry was right and the *facing* was wrong. When something is
+invisible but provably present, suspect an occluding or back-facing surface before
+suspecting the spawn.
+
+---
+
+## Issue 47 — A stale `GEMINI_API_KEY` in the shell shadows the one in `.env`
+
+**Symptom.** Image generation failed with `400 INVALID_ARGUMENT ... API key not valid`,
+while `.env` held a perfectly good key that had worked the day before.
+
+**Root cause.** `generate_image.py` reads the **environment variable**, and
+`load_dotenv()` does **not** override a variable that is already set. The shell profile
+exported an old 39-character key; `.env` held the current 53-character one. The old one
+won every time.
+
+**Fix.** Export from `.env` explicitly for the command:
+
+```bash
+export GEMINI_API_KEY=$(grep -E '^GEMINI_API_KEY=' .env | head -1 | cut -d= -f2- | tr -d '"'"'" \r')
+```
+
+⚠️ Compare lengths, never print keys, when diagnosing this. And distinguish the error:
+`400 INVALID_ARGUMENT` is auth (this issue); `503 UNAVAILABLE` is real server load and
+deserves a retry with backoff; a `TypeError: 'NoneType' object is not iterable` is the
+safety filter refusing the prompt.
+
 ---
 
 ## Issue 43 — Doorway floor-bridges z-fight with EACH OTHER on a fine room lattice

@@ -32,8 +32,9 @@ var _checks := 0
 var _scene: Node = null
 var _player: CharacterBody3D = null
 var _switch: Node = null
-var _jolt_count := 0
 var _peak_panic := 0.0
+var _wc: Node3D = null
+var _wc_yaw := 0.0
 
 
 func _initialize() -> void:
@@ -111,18 +112,16 @@ func _process(delta: float) -> bool:
 				all_dark = false
 		_ok("every tube is dark before the switch", all_dark)
 
-		# --- the mid-fumble jolt (INTRO.md's specced-but-never-built beat) ------------
-		var jolt := _scene.get_node_or_null("FumbleJolt") as Area3D
-		_ok("the fumble jolt volume exists", jolt != null)
-		if jolt:
-			jolt.fired.connect(func() -> void: _jolt_count += 1)
-			# Teleport into it rather than walking — Area3D detects on the physics step.
-			_player.global_position = jolt.global_position + Vector3(0, -0.6, 0)
+		# --- NO jumpscare in this room ------------------------------------------------
+		# The user cut the mid-fumble nightmare flash on the first playtest (2026-07-28).
+		# Asserted as an absence so it cannot quietly come back: the cold open already
+		# spends that image, and this is the one room with no fail state.
+		_ok("there is NO jumpscare volume in the intro",
+			_scene.get_node_or_null("FumbleJolt") == null)
 		_advance(1)
 
 	elif _stage == 1 and _t - _stage_at > 0.8:
-		_ok("the jolt fired exactly once", _jolt_count == 1, "fired %d" % _jolt_count)
-		_ok("and it cost NO panic", is_zero_approx(_peak_panic),
+		_ok("nothing has cost panic so far", is_zero_approx(_peak_panic),
 			"peak %.3f" % _peak_panic)
 
 		# --- the switch sticks --------------------------------------------------------
@@ -170,20 +169,40 @@ func _process(delta: float) -> bool:
 		_ok("the breathing is gone once the lights are on",
 			_scene.get_node_or_null("FarBreath") == null)
 
-		# The whole point of the room.
-		_ok("panic NEVER rose — the intro is still unloseable",
-			is_zero_approx(_peak_panic), "peak %.4f of PANIC_MAX" % _peak_panic)
+		# --- the wheelchair turns WHILE WATCHED (playtest 2026-07-28) -----------------
+		# The inverse of MovedProp's rule, deliberately: the player must be close AND
+		# looking, so the turn cannot be missed. Arm it, then stand in front of it.
+		var wc := _scene.get_node_or_null("Wheelchair") as Node3D
+		_ok("the wheelchair exists", wc != null)
+		if wc:
+			_wc = wc
+			_wc_yaw = wc.rotation.y
+			_scene.call("_arm_wheelchair")
+			# Stand well back and look away: it must NOT turn yet.
+			_player.global_position = wc.global_position + Vector3(0, 0.1, 8.0)
+			var cam2 := _player.get_node("Camera3D") as Camera3D
+			cam2.rotation.y = 0.0
+			_advance(5)
+			return false
 
-		print("")
-		print("%d checks, %d failed" % [_checks, _fails.size()])
-		if _fails.is_empty():
-			print("RESULT: PASS")
-			quit(0)
-		else:
-			for f in _fails:
-				print("  FAIL: " + f)
-			print("RESULT: FAIL")
-			quit(1)
+		_finish()
+		return true
+
+	elif _stage == 5 and _t - _stage_at > 0.8:
+		_ok("the wheelchair does not turn from across the room",
+			is_equal_approx(_wc.rotation.y, _wc_yaw),
+			"yaw %.3f" % _wc.rotation.y)
+		# Now walk up to it and look straight at it.
+		_player.global_position = _wc.global_position + Vector3(0, 0.1, 2.2)
+		var cam3 := _player.get_node("Camera3D") as Camera3D
+		cam3.look_at(_wc.global_position + Vector3(0, 0.5, 0), Vector3.UP)
+		_advance(6)
+
+	elif _stage == 6 and _t - _stage_at > 1.8:
+		_ok("it DOES turn when you are close and looking at it",
+			absf(_wc.rotation.y - _wc_yaw) > deg_to_rad(25.0),
+			"turned %.1f degrees" % rad_to_deg(_wc.rotation.y - _wc_yaw))
+		_finish()
 		return true
 
 	if _t > 25.0:
@@ -191,3 +210,20 @@ func _process(delta: float) -> bool:
 		quit(1)
 		return true
 	return false
+
+
+func _finish() -> void:
+	# The whole point of the room.
+	_ok("panic NEVER rose — the intro is still unloseable",
+		is_zero_approx(_peak_panic), "peak %.4f of PANIC_MAX" % _peak_panic)
+
+	print("")
+	print("%d checks, %d failed" % [_checks, _fails.size()])
+	if _fails.is_empty():
+		print("RESULT: PASS")
+		quit(0)
+	else:
+		for f in _fails:
+			print("  FAIL: " + f)
+		print("RESULT: FAIL")
+		quit(1)

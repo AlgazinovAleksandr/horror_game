@@ -62,7 +62,20 @@ const PLAYER_MIN_SPEED := 100.0
 # it from the PLAYER's cell gives a perfect distance field over the whole maze, and
 # stepping downhill through it is optimal pursuit for a fraction of a millisecond per
 # recompute (80 cells).
-const MONSTER_SPEED := 88.0
+# ⚠️ 88 -> 132 -> 172, both raises on the user's call across two playtests. For scale, the
+# dragged icon runs at PLAYER_MAX_SPEED 240 with full nerve and degrades to PLAYER_MIN_SPEED
+# 100 at high panic — so at 172 the monster is comfortably faster than a panicking player,
+# which is the point: hesitating is what kills you.
+#
+# Measured each time with tests/check_maze_chase.gd (40 seeds), and the numbers are the reason
+# it was safe to go this far:
+#     88  — stationary player caught 40/40; moving player wins 37/40
+#     132 — caught in 3.6 s; hunted down 9.4 s after stopping; still 37/40
+#     172 — caught in 3.5 s; hunted down 5.2 s after stopping; still 37/40
+# The escape rate has not moved at all; what changed is how quickly a mistake is punished.
+# ⚠️ Do not raise it again without re-running that test. This minigame once killed 12 players
+# in 40 for an unrelated reason, and 37/40 is the line that says it is still a game.
+const MONSTER_SPEED := 172.0
 const MONSTER_START_DELAY := 3.0  # frozen this long after open() before it hunts
 
 # ---------------------------------------------------------------- panic

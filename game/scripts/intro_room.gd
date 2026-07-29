@@ -35,11 +35,20 @@ const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
 const SWITCH_PRESSES := 2           # the first press does not work — see _on_switch_stuck
 const GLIMPSE_ENERGY := 0.55        # weak, dying; the working reveal settles at 0.9
 const GLIMPSE_TIME := 0.4           # how long the ward is visible before it goes again
-const FUMBLE_JOLT_PROGRESS := 0.55  # INTRO.md's specced-but-never-built mid-walk jolt
-const NIGHTMARE_IMAGE := "res://assets/textures/intro/nightmare_face.png"
 const AMBIENT_MIN := 20.0           # level-local scare metronome, ZERO panic (not
 const AMBIENT_MAX := 40.0           # RandomAmbient, which carries 5/8/12)
 const BREATH_VOLUME_DB := -22.0     # the thing at the far wall you walked away from
+
+# The wheelchair turns WHILE YOU WATCH, close up, with a sound (playtest 2026-07-28).
+# ⚠️ This deliberately INVERTS SCARY.md P6's MovedProp rule, which only ever applies a delta
+# while the player is >6 m away and facing elsewhere. The user's call, and the reasoning is
+# that an anomaly nobody notices is worth less than an event they certainly see: P6's
+# asymmetry ("if the player never notices, nothing happens") is a virtue in a level with
+# something else going on, and a wasted beat in a 90-second tutorial room.
+const WHEELCHAIR_TURN_DIST := 3.2   # must be close
+const WHEELCHAIR_TURN_DOT := 0.55   # …and actually looking at it
+const WHEELCHAIR_TURN_DEG := 34.0
+const WHEELCHAIR_TURN_TIME := 1.1   # slow enough to read as turning, not as snapping
 
 # Nodes that must survive a clear-and-rebuild pass. This scene is never reloaded
 # mid-playthrough in the normal flow, but the twist ending reuses this same
@@ -64,7 +73,8 @@ var _ceiling_lights: Array[OmniLight3D] = []
 var _switch_flipped: bool = false     # half of the exit lock; the note is the other half
 var _far_breath: AudioStreamPlayer3D = null   # cut when the lights come on
 var _ambient_timer: Timer = null              # level-local, zero-panic scare metronome
-var _wheelchair_moved: MovedProp = null       # armed when the note is read
+var _wheelchair_armed: bool = false           # armed when the note is read
+var _wheelchair_turned: bool = false          # one-shot
 
 
 func _ready() -> void:
@@ -515,29 +525,64 @@ func _on_intro_note_read() -> void:
 	_arm_wheelchair()
 
 
-# The wheelchair turns to face the table.
+# The wheelchair turns to face the table — and you WATCH it happen.
 #
-# It has stood at WHEELCHAIR_POS since this room was rebuilt, fully modelled, doing
-# nothing. It sits in the open floor between the table and the door, so the walk from
-# reading the note to leaving passes it — which is the one moment in this room with a
-# guaranteed before-and-after.
+# It has stood at WHEELCHAIR_POS since this room was rebuilt, fully modelled, doing nothing.
+# It sits in the open floor between the table and the door, so the walk from reading the note
+# to leaving passes it.
 #
-# ⚠️ Armed on the note, not at _ready(): MovedProp applies its delta the first time the
-# player is far enough away and facing elsewhere, and a prop that was never observed in
-# position A cannot read as having moved from it. Reading the note is the earliest point
-# the player has certainly seen it under the lights.
+# Armed on the note being read, then fired by proximity: the player has to be within
+# WHEELCHAIR_TURN_DIST **and looking at it**, so unlike the MovedProp version this cannot be
+# missed. It turns over WHEELCHAIR_TURN_TIME with a metal creak.
 #
-# ⚠️ Rotation only, no translation. Wheeling it across the floor would need clearance
-# checks against the table and the door; a 34° turn cannot collide with anything and is
-# the more unsettling read anyway — nothing moved, something is facing you.
+# ⚠️ Rotation only, no translation. Wheeling it across the floor would need clearance checks
+# against the table and the door; a 34° turn cannot collide with anything and is the more
+# unsettling read anyway — nothing moved, something is facing you.
 func _arm_wheelchair() -> void:
-	if _wheelchair_moved:
+	_wheelchair_armed = true
+
+
+func _tick_wheelchair() -> void:
+	if not _wheelchair_armed or _wheelchair_turned:
 		return
 	var wc := get_node_or_null("Wheelchair") as Node3D
-	if not wc:
+	if not wc or not player:
 		return
-	_wheelchair_moved = MovedProp.attach(wc, "wheelchair", Vector3.ZERO, deg_to_rad(34.0))
-	_wheelchair_moved.arm()
+	var cam := player.get_node_or_null("Camera3D") as Camera3D
+	if not cam:
+		return
+	var to_it := wc.global_position - cam.global_position
+	if to_it.length() > WHEELCHAIR_TURN_DIST:
+		return
+	# Horizontal-only facing test — mixing in the vertical component gives false negatives at
+	# close range, where the height gap is a large fraction of the distance.
+	var fwd := -cam.global_basis.z
+	fwd.y = 0.0
+	to_it.y = 0.0
+	if fwd.length() < 0.01 or to_it.length() < 0.01:
+		return
+	if fwd.normalized().dot(to_it.normalized()) < WHEELCHAIR_TURN_DOT:
+		return
+
+	_wheelchair_turned = true
+	# Prefers a purpose-made `wheelchair_turn` (see TODO_sounds.md); falls back to the intro's
+	# own metal-on-metal `gurney_creak`, the closest existing thing to a caster under load.
+	var s := GameState.load_audio("wheelchair_turn")
+	if not s:
+		s = GameState.load_audio("gurney_creak")
+	if s:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = s
+		p.volume_db = 2.0
+		p.unit_size = 4.0
+		p.position = wc.position
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	tw.tween_property(wc, "rotation:y", wc.rotation.y + deg_to_rad(WHEELCHAIR_TURN_DEG),
+		WHEELCHAIR_TURN_TIME)
 
 
 # The exit opens only once the room is lit AND the briefing has been read. Kept in one
@@ -678,40 +723,24 @@ func _on_wakeup_finished() -> void:
 	ScreenText.scrawl(get_tree(), NIGHTMARE_TEXT, 4.0)
 	_spawn_path_glow()
 	_spawn_light_switch()
-	_spawn_fumble_jolt()
 	_spawn_far_breath()
 	_start_local_ambient()
 
-
-# INTRO.md §2 specced this and it was never built: "~50-60% of the way: ONE scripted jolt —
-# nightmare image flashes again for ~0.35s + camera jolt. Survivable, no panic added."
-# The constant, the asset (`nightmare_face.png`, used only by main_menu's cold open) and the
-# spec all existed; only the code was missing.
+# ⚠️ NO MID-FUMBLE JUMPSCARE HERE, and do not re-add one.
 #
-# ⚠️ Deliberately NO add_panic(), per INTRO.md: "the intro has never had a fail state and
-# this pass shouldn't add one; the beat is pure atmosphere."
-func _spawn_fumble_jolt() -> void:
-	var g0 := Vector2(GURNEY_POS.x, GURNEY_POS.z)
-	var g1 := Vector2(SWITCH_POS.x, SWITCH_POS.z)
-	var xz := g0.lerp(g1, FUMBLE_JOLT_PROGRESS)
-
-	# CorridorEvent is generic despite the name — a one-shot Area3D that emits `fired` on
-	# player entry. Reused here exactly as INTRO.md suggested.
-	var ev := CorridorEvent.new()
-	ev.name = "FumbleJolt"
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(2.6, 2.4, 2.6)
-	col.shape = shape
-	ev.add_child(col)
-	ev.position = Vector3(xz.x, 1.2, xz.y)
-	ev.fired.connect(_on_fumble_jolt)
-	add_child(ev)
-
-
-func _on_fumble_jolt() -> void:
-	Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.35)
-	player.jolt_camera(0.08, 0.4)
+# `INTRO.md` §2 specced one ("~50-60% of the way: ONE scripted jolt — nightmare image
+# flashes again for ~0.35 s + camera jolt"), it was never built, this pass built it, and the
+# user cut it on the first playtest (2026-07-28): *"the screamer at the intro level is not
+# needed."*
+#
+# The reasoning is sound and worth keeping: the cold-open jumpscare on START already spends
+# that exact image, and firing it a second time four minutes into the game — in the one room
+# that has no fail state — teaches the player that the image is free. Everything else in this
+# room is dread that costs nothing and threatens nothing, and a startle in the middle of it
+# is the only beat that was working at a different register from the rest.
+#
+# The dark walk is now carried entirely by the breathing at the far wall, the ambient
+# metronome, and the stuck switch at the end of it.
 
 
 # Something breathing at the far wall — the end of the ward the player is walking AWAY
@@ -829,7 +858,22 @@ func _spawn_light_switch() -> void:
 # rather than to a small value, so a stuck press cannot leave the room permanently dimly
 # lit and rob the reveal of its contrast.
 func _on_switch_stuck(_press_index: int) -> void:
-	_play_at_switch("switch_clunk")
+	# ⚠️ LOUD, and told in words (playtest 2026-07-28: *"the switch starting from the second
+	# time is fine, but you need to accompany it with the sound and something like press E
+	# again"*). The clunk was already here at default volume and did not register, and a
+	# stuck switch that gives no feedback is indistinguishable from a broken game — which was
+	# the one risk this beat carried. Two channels now: a heavier clunk plus a dead spark,
+	# and an explicit prompt.
+	# Prefers a purpose-made `switch_stuck` if one exists (see TODO_sounds.md) and otherwise
+	# layers the working clunk with a dead spark. The guard means dropping the real file in
+	# needs no code change.
+	if GameState.load_audio("switch_stuck"):
+		_play_at_switch("switch_stuck", 3.0)
+	else:
+		_play_at_switch("switch_clunk", 4.0)
+		_play_at_switch("breaker_spark", -6.0)
+	ScreenText.toast(get_tree(), "The switch is stiff. Press E again.",
+		Color(0.92, 0.88, 0.78), 3.0, 26)
 
 	var far := _far_ceiling_light()
 	if far:
@@ -861,12 +905,14 @@ func _far_ceiling_light() -> OmniLight3D:
 	return best
 
 
-func _play_at_switch(base_name: String) -> void:
+func _play_at_switch(base_name: String, volume_db: float = 0.0) -> void:
 	var s := GameState.load_audio(base_name)
 	if not s:
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = s
+	p.volume_db = volume_db
+	p.unit_size = 6.0
 	p.position = SWITCH_POS
 	add_child(p)
 	p.finished.connect(p.queue_free)
@@ -1114,6 +1160,7 @@ func _process(delta: float) -> void:
 			+ maxf(0.0, sin(_flicker_time * 1.7)) * 0.35 \
 			+ sin(_flicker_time * 0.6) * 0.1
 		return
+	_tick_wheelchair()
 	if not candle_light or not _candle_lit:
 		return
 	candle_light.light_energy = BASE_ENERGY \

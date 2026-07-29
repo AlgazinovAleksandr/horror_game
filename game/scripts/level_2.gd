@@ -42,9 +42,25 @@ const FOREST_SCARE_PANIC := 25.0
 # whole mechanic is the asymmetry that **if the player never notices, nothing happens**.
 #
 # ⚠️ ZERO PANIC, all four stages. The fridge below is the only new panic in this level.
-const GUEST_LANDING_SPOT := Vector3(1.6, 0.25, 12.5)    # mid-Landing, facing the bathroom
-const GUEST_CELLAR_SPOT := Vector3(6.3, 0.25, 3.8)      # top of the cellar route
 const GUEST_HALLWAY_SPOT := Vector3(0.0, 0.11, 7.4)     # Hallway, between you and the exit
+# The child stands at the Landing end of the Hallway — framed by a 3 m corridor, on the
+# route back from the cellar, so it is seen head-on rather than found in a corner.
+const GUEST_CHILD_SPOT := Vector3(0.0, 0.0, 10.0)
+const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-07-29)
+# The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
+const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
+const CHILD_HOLD := 3.0              # …and the lights come back this long after
+const CHILD_DIST := 3.2              # how far in front of the player it materialises
+# ⚠️ 1.25 -> 1.95 m ("the child should be way bigger"). Taller than a real child on purpose:
+# this is a jumpscare at three metres in a pitch-black cellar, not a figure seen across a
+# room, and at child height it read as small and far away rather than as on top of you.
+const CHILD_HEIGHT := 1.95
+
+# The bedroom painting comes off the wall in front of you, loudly.
+const PAINTING_TRIGGER_DIST := 4.5
+const PAINTING_TRIGGER_DOT := 0.45
+const PAINTING_FALL_TIME := 0.45
+const PAINTING_FALL_DB := 8.0
 
 # The fridge — the single new panic term in the atmosphere pass. Voluntary, optional,
 # off the quest path, one-shot. See house_fridge.gd's header.
@@ -53,6 +69,10 @@ const FRIDGE_PANIC := 10.0
 # The footsteps overhead, after the scripted one-shot. Zero panic, on a long gap.
 const OVERHEAD_MIN := 40.0
 const OVERHEAD_MAX := 70.0
+
+# The cellar's cross-level hint for THE NIGHTMARE (level 7), on the wall AND on screen.
+const CELLAR_HINT := "TIMING IS EVERYTHING\nIN THE NIGHTMARE."
+const CELLAR_CAPTION_TIME := 4.0
 
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy, fixture_material]
@@ -67,8 +87,12 @@ var _window_pos: Vector3
 var _forest_fired: bool = false
 # THE GUEST. `_guest_stage` is the number of stages already applied, and it is what
 # save_progress carries — a back-door return must not un-rearrange the house.
-var _guest_chair: CSGBox3D = null
 var _music_box: CSGBox3D = null
+var _guest_child_done: bool = false
+var _child_dark: bool = false        # every lamp in the house is out while the child is here
+var _child_node: Watcher = null      # the figure during the cellar sequence
+var _painting_armed: bool = false    # milestone reached; falls when you look at it
+var _painting_fallen: bool = false
 var _bedroom_painting: StaticBody3D = null
 var _guest_stage: int = 0
 var _guest_props: Array[MovedProp] = []
@@ -784,31 +808,34 @@ func _spawn_cellar_props() -> void:
 	var cz: float = CELLAR_CENTER.y
 	var floor_y: float = CELLAR_Y
 
-	# ⚠️ Everything is clear of the ramp corridor (x 4.2..5.8) and of the split-N-wall
-	# doorway at (5, z=-2.5). walk_cellar.gd walks that route and check_wall_overlap.gd
-	# asserts the 2 cm rule against the shell.
-	# Shelving against the west wall (inner face x=1.6).
-	_make_prop(Vector3(2.1, floor_y + 0.75, cz - 1.0), Vector3(0.5, 1.5, 2.5),
-		Color(0.24, 0.19, 0.15))
-	# A dead boiler in the south-east corner (south inner face z=-9.4).
-	_make_prop(Vector3(7.4, floor_y + 0.65, cz - 2.6), Vector3(0.7, 1.3, 0.7),
-		Color(0.20, 0.18, 0.17))
-	# Two crates, stacked, near the foot of the ramp but clear of the apparition's trigger
-	# box (x 3.75..6.25, z -2.75..-1.25).
-	_make_prop(Vector3(6.9, floor_y + 0.30, cz + 2.4), Vector3(0.66, 0.6, 0.66),
-		Color(0.30, 0.23, 0.16))
-	_make_prop(Vector3(6.85, floor_y + 0.80, cz + 2.5), Vector3(0.58, 0.4, 0.58),
-		Color(0.28, 0.21, 0.15))
-
-	# A Watcher in the deepest corner, appearing once the player is already inside and
-	# heading for the third note. Zero panic, no kill radius, no rule — it is a photograph.
+	# ⚠️ NO FURNITURE BOXES DOWN HERE, and do not add any back without art for them.
 	#
-	# ⚠️ vanish_within is 3.0, not the 10.0 default: the whole cellar is 7x7 m, so a
-	# 10 m despawn radius would delete it before it was ever visible.
-	_spawn_event(Vector3(cx, floor_y + 1.2, cz + 1.0), Vector3(3.0, 2.4, 1.6),
+	# This pass originally put shelving, a dead boiler and two stacked crates in the cellar,
+	# reasoning that 49 m² holding four objects needed "things to search". They were untextured
+	# flat-shaded CSG boxes in a room lit by one 0.5-energy lamp, so in practice they were
+	# invisible smudges — confirmed by tests/screenshot_level.gd, shot `05_cellar`. Playtest
+	# 2026-07-29 called the level's boxes out generally and asked for most of them to go.
+	#
+	# The cellar's atmosphere was never carried by props: it is a DreadZone plus a DarkZone
+	# plus a beartrap plus a HOLD apparition plus the third note, and adding silhouettes that
+	# cannot be seen only made the room look unfinished under a torch.
+
+	# The NIGHTMARE hint, spoken to the screen the moment the player reaches the bottom of the
+	# ramp. A scrawl rather than a caption: this is the experiment's voice, the same register
+	# as the intro's "IT WAS ONLY A DREAM." and the KONTUR banishment line, and it matches the
+	# blood-red text on the shelf so the two read as one thing.
+	_spawn_event(Vector3(cx, floor_y + 0.9, cz + 2.9), Vector3(3.0, 2.4, 1.6),
 		func() -> void:
-			Watcher.spawn(self, Vector3(cx + 0.6, floor_y, cz - 2.4),
-				"res://assets/textures/shared/watcher_figure.png", 3.0))
+			ScreenText.scrawl(get_tree(), CELLAR_HINT, CELLAR_CAPTION_TIME)
+			_begin_cellar_blackout())
+
+	# ⚠️ NO corner Watcher down here any more, and do not add one back.
+	#
+	# The atmosphere pass put one in the deepest corner. Playtest 2026-07-29, on the run where
+	# the cellar sequence finally worked: *"there is both the shadow and the child jumpscare.
+	# Let's leave only the child jumpscare."* Two figures in one 7x7 m room split the moment
+	# in half — the corner one is a mood piece and the child is an event, and the mood piece
+	# was arriving first and spending the surprise.
 
 
 func _spawn_bathroom_mirror() -> void:
@@ -832,21 +859,29 @@ func _spawn_bathroom_mirror() -> void:
 #   * Hallway <-> Kitchen at (x=1.5, z=6), width 1.4, i.e. z 5.3..6.7.
 # Everything below is placed clear of both, and check_doorways.gd re-asserts it.
 func _furnish_kitchen(kc: Vector3) -> void:
-	# A sink unit continuing the north-wall run, east of the counter (counter spans
-	# x 3..7; the east wall's inner face is at 8.4).
-	_make_prop(Vector3(kc.x + 2.6, 0.45, kc.z + 2.4), Vector3(1.1, 0.9, 0.7),
-		Color(0.62, 0.63, 0.62))
+	# ⚠️ No sink unit. There was a 1.1 x 0.9 x 0.7 pale box here standing in for one, and it
+	# read as exactly that — a featureless slab, made worse by sitting next to a fridge that
+	# now has a door, a handle and an interior. Cut 2026-07-29 with the cellar boxes.
 
-	# A table and two chairs, mid-room. One of these chairs is The Guest's prop — see
-	# _arm_guest(). It has to start somewhere the player will certainly see it, and the
-	# middle of the kitchen is on the mandatory route to the cellar.
-	_make_prop(Vector3(kc.x - 0.4, 0.38, kc.z + 0.4), Vector3(1.4, 0.75, 0.9),
-		Color(0.33, 0.24, 0.18))
-	_make_prop(Vector3(kc.x - 1.3, 0.25, kc.z + 0.4), Vector3(0.44, 0.5, 0.44),
-		Color(0.30, 0.22, 0.17))
-	_guest_chair = _make_prop(Vector3(kc.x + 0.5, 0.25, kc.z + 0.4),
-		Vector3(0.44, 0.5, 0.44), Color(0.30, 0.22, 0.17))
-	_guest_chair.name = "KitchenChair"
+	# The drawer, set into the counter's south face — the side you approach from. It carries
+	# the KONTUR Gate 1 hint; see kitchen_drawer.gd for why this level gets a second one.
+	var drawer := KitchenDrawer.new()
+	drawer.name = "KitchenDrawer"
+	# Counter front face is at kc.z + 2.4 - 0.35; sit the panel just proud of it.
+	drawer.position = Vector3(kc.x - 1.0, 0.58, kc.z + 2.4 - 0.36)
+	add_child(drawer)
+
+	# ⚠️ A table and two chairs built from REAL PARTS, not single boxes.
+	#
+	# The first version used `_make_prop` for all three, which is the project's flat-tinted
+	# BACKGROUND DRESSING helper — one CSGBox, one colour. Playtest 2026-07-28 photographed
+	# the result and called it what it was: *"these boxes … are completely useless."* A
+	# 0.44 m cube is not a chair. Issue 35 already says the silhouette carries a prop here and
+	# art does not; `intro_room.gd:_build_wheelchair()` and `kontur_mailbox.gd` are the
+	# precedent — a dozen cheap primitives that add up to a recognisable object.
+	_build_table(Vector3(kc.x - 0.4, 0.0, kc.z + 0.4))
+	_build_chair(Vector3(kc.x - 1.5, 0.0, kc.z + 0.4), PI / 2.0)
+	_build_chair(Vector3(kc.x + 0.7, 0.0, kc.z + 0.4), -PI / 2.0)
 
 	# The fridge, against the east wall. x=7.9 leaves its face at 8.28, clear of the wall's
 	# inner face at 8.4 — the >= 2 cm rule check_wall_overlap.gd asserts.
@@ -856,6 +891,69 @@ func _furnish_kitchen(kc: Vector3) -> void:
 	fridge.rotation.y = -PI / 2.0     # its door faces -x, into the room
 	fridge.opened.connect(_on_fridge_opened)
 	add_child(fridge)
+
+
+# A table: top plus four legs. `house_wood_stairs.png` is the House's own timber texture and
+# is already in the level, so the top reads as wood without a new asset.
+func _build_table(base: Vector3) -> void:
+	var top := _make_prop(base + Vector3(0, 0.74, 0), Vector3(1.5, 0.07, 0.95),
+		Color(0.42, 0.31, 0.21), 0.0, TEX + "house_wood_stairs.png")
+	top.name = "KitchenTable"
+	var leg := Color(0.24, 0.17, 0.12)
+	for dx in [-0.65, 0.65]:
+		for dz in [-0.40, 0.40]:
+			_make_prop(base + Vector3(dx, 0.37, dz), Vector3(0.07, 0.74, 0.07), leg)
+
+
+# A bed: frame, four legs, mattress, pillow, and a headboard.
+#
+# ⚠️ Both beds used to be a SINGLE flat box — 2.2 x 0.5 x 1.5, one flat colour. Playtest
+# 2026-07-29 photographed the child's one and asked "still do not understand what this box is
+# for?", which is the correct reaction to a slab on a floor. My earlier reasoning that a
+# bed-shaped box in a bedroom reads as a bed was simply wrong: what makes a bed legible is the
+# headboard and the mattress sitting proud of a frame, not the footprint. Same lesson as the
+# kitchen chairs, and the same fix — a handful of cheap primitives (Issue 35).
+func _build_bed(base: Vector3, size: Vector2, y_rot: float = 0.0) -> void:
+	var frame_col := Color(0.26, 0.19, 0.14)
+	var sheet_col := Color(0.52, 0.49, 0.44)
+	var w: float = size.y
+	var l: float = size.x
+	# Every part is placed in bed-space and then rotated as a group, so `y_rot` turns the
+	# whole thing — headboard, pillow and all — rather than just spinning the slabs in place.
+	var at := func(off: Vector3) -> Vector3:
+		return base + off.rotated(Vector3.UP, y_rot)
+
+	var frame := _make_prop(at.call(Vector3(0, 0.22, 0)), Vector3(l, 0.16, w),
+		frame_col, y_rot)
+	frame.name = "BedFrame"
+	for dx in [-l / 2.0 + 0.09, l / 2.0 - 0.09]:
+		for dz in [-w / 2.0 + 0.09, w / 2.0 - 0.09]:
+			_make_prop(at.call(Vector3(dx, 0.07, dz)), Vector3(0.09, 0.14, 0.09),
+				frame_col, y_rot)
+	# The mattress sits PROUD of the frame — that overhang is most of the read.
+	_make_prop(at.call(Vector3(0, 0.36, 0)), Vector3(l - 0.06, 0.14, w - 0.04),
+		sheet_col, y_rot)
+	# Pillow at the head end.
+	_make_prop(at.call(Vector3(-l / 2.0 + 0.26, 0.46, 0)),
+		Vector3(0.42, 0.09, w * 0.62), Color(0.60, 0.58, 0.53), y_rot)
+	# Headboard — the single most identifying part of the silhouette.
+	_make_prop(at.call(Vector3(-l / 2.0 - 0.03, 0.44, 0)), Vector3(0.07, 0.72, w),
+		frame_col, y_rot)
+
+
+# A chair: seat, four legs, and a back — the back is what makes the silhouette read as a
+# chair rather than as a crate, so it is the one part that must never be dropped.
+func _build_chair(base: Vector3, y_rot: float) -> void:
+	var wood := Color(0.30, 0.22, 0.16)
+	var seat := _make_prop(base + Vector3(0, 0.45, 0), Vector3(0.44, 0.06, 0.44), wood, y_rot)
+	seat.name = "KitchenChair"
+	var back_offset := Vector3(sin(y_rot), 0.0, cos(y_rot)) * -0.19
+	_make_prop(base + Vector3(0, 0.74, 0) + back_offset,
+		Vector3(0.44, 0.52, 0.05), wood, y_rot)
+	for dx in [-0.17, 0.17]:
+		for dz in [-0.17, 0.17]:
+			var off := Vector3(dx, 0.0, dz).rotated(Vector3.UP, y_rot)
+			_make_prop(base + Vector3(0, 0.22, 0) + off, Vector3(0.05, 0.45, 0.05), wood)
 
 
 # The level owns the consequence, not the prop. A voluntary, optional, one-shot 10 —
@@ -886,32 +984,83 @@ func _spawn_music_box() -> void:
 		0.0, TEX + "house_music_box.png")
 	_music_box.name = "MusicBox"
 
-	# A brass-ish lid, flat-tinted rather than textured: per Issue 35 the SILHOUETTE
-	# carries a prop here and art does not, and this one has to read at floor level in a
-	# dim room.
+	# ⚠️ It has to READ as a music box, not as a cube. Playtest 2026-07-29 pointed at it and
+	# asked what the box was for — which matters more here than anywhere else in the level,
+	# because this object IS The Guest's payoff: finding it in the Hallway only lands if the
+	# player recognises it as the thing that was playing in the child's room.
+	# So: a lid standing half-open, brass feet, and a crank on the side.
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.62, 0.50, 0.22)
+	brass.metallic = 0.7
+	brass.roughness = 0.35
+
 	var lid := CSGBox3D.new()
 	lid.name = "MusicBoxLid"
 	lid.size = Vector3(0.32, 0.03, 0.26)
-	lid.position = Vector3(0, 0.13, 0)
-	var lm := StandardMaterial3D.new()
-	lm.albedo_color = Color(0.55, 0.45, 0.20)
-	lm.metallic = 0.6
-	lm.roughness = 0.4
-	lid.material = lm
+	# Hinged at the back and tipped open, so the silhouette has a wedge in it.
+	lid.position = Vector3(0, 0.19, -0.09)
+	lid.rotation.x = deg_to_rad(-52.0)
+	lid.material = brass
 	_music_box.add_child(lid)
 
+	# Four small feet — they lift it off the floor, which is what stops it reading as a crate.
+	for dx in [-0.12, 0.12]:
+		for dz in [-0.09, 0.09]:
+			var foot := CSGBox3D.new()
+			foot.size = Vector3(0.03, 0.04, 0.03)
+			foot.position = Vector3(dx, -0.13, dz)
+			foot.material = brass
+			_music_box.add_child(foot)
+
+	# The crank, on a pivot so winding it actually turns. The stub lies along X (the cylinder
+	# is rotated a quarter-turn about Z), so the handle sweeps the YZ plane when the pivot
+	# spins about X — which is what `MusicBoxProp.interact()` tweens.
+	var crank_pivot := Node3D.new()
+	crank_pivot.name = "CrankPivot"
+	crank_pivot.position = Vector3(0.18, 0.02, 0)
+	_music_box.add_child(crank_pivot)
+	var stub := CSGCylinder3D.new()
+	stub.radius = 0.012
+	stub.height = 0.07
+	stub.rotation.z = PI / 2.0
+	stub.material = brass
+	crank_pivot.add_child(stub)
+	var handle := CSGBox3D.new()
+	handle.size = Vector3(0.012, 0.07, 0.012)
+	handle.position = Vector3(0.035, 0.035, 0)
+	handle.material = brass
+	crank_pivot.add_child(handle)
+
+	var audio: AudioStreamPlayer3D = null
 	var s := GameState.load_audio("music_box")
 	if s:
-		var a := AudioStreamPlayer3D.new()
-		a.name = "MusicBoxAudio"
-		a.stream = s
-		a.volume_db = -12.0
-		a.unit_size = 6.0
-		a.bus = AudioBuses.AMBIENCE
-		a.position = Vector3(0, 0.2, 0)
-		_music_box.add_child(a)      # a child, so it travels with the box
-		a.finished.connect(a.play)
-		a.play()
+		audio = AudioStreamPlayer3D.new()
+		audio.name = "MusicBoxAudio"
+		audio.stream = s
+		audio.volume_db = -13.0
+		audio.unit_size = 6.0
+		audio.max_db = 6.0
+		audio.bus = AudioBuses.AMBIENCE
+		audio.position = Vector3(0, 0.2, 0)
+		_music_box.add_child(audio)      # a child, so it travels with the box
+		audio.finished.connect(audio.play)
+		audio.play()
+
+	# You can wind it (playtest 2026-07-29: "it would be cool if you can play the music using
+	# this box"). The interactable body is a separate child rather than the CSG box itself,
+	# because `_make_prop` returns a plain CSGBox3D with no script and the interact raycast
+	# needs something that answers `interact()`.
+	var box := MusicBoxProp.new()
+	box.name = "MusicBoxCrank"
+	box.position = Vector3.ZERO
+	_music_box.add_child(box)
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.42, 0.34, 0.34)
+	col.shape = shape
+	col.position = Vector3(0, 0.05, 0)
+	box.add_child(col)
+	box.attach_parts(audio, crank_pivot)
 
 
 # Solid furniture so each room reads as a place. No panic — these are just props.
@@ -947,10 +1096,11 @@ func _spawn_room_props() -> void:
 	_spawn_bathroom_map(bc)
 	# Bedroom: a bed (the cursed painting is already here).
 	var bd: Vector3 = _builder.room_center("Bedroom")
-	_make_prop(Vector3(bd.x - 1.6, 0.3, bd.z), Vector3(2.2, 0.5, 1.5), Color(0.3, 0.22, 0.2))
+	_build_bed(Vector3(bd.x - 1.6, 0.0, bd.z), Vector2(2.0, 1.4))
 	# Child's room: a small bed + an unsettling crayon drawing on the wall.
 	var cc: Vector3 = _builder.room_center("ChildRoom")
-	_make_prop(Vector3(cc.x + 1.5, 0.25, cc.z), Vector3(1.6, 0.4, 1.0), Color(0.32, 0.24, 0.26))
+	# Turned 180° on request (playtest 2026-07-29) — the headboard now faces the other way.
+	_build_bed(Vector3(cc.x + 1.5, 0.0, cc.z), Vector2(1.7, 0.95), PI)
 	var drawing := TEX + "child_drawing.png"
 	if ResourceLoader.exists(drawing):
 		# East wall (the north wall holds the exit lock/door; the west holds a note).
@@ -1056,20 +1206,26 @@ func _spawn_nightmare_hint(c: Vector2) -> void:
 	stub.position = shelf.position + Vector3(0.0, 0.08, 0.0)
 	add_child(stub)
 
-	var scrawl := Label3D.new()
-	scrawl.name = "CellarScrawl"
-	scrawl.text = "SIXTY SECONDS.\nCOUNT THEM."
-	scrawl.font_size = 48
-	scrawl.pixel_size = 0.0026
-	scrawl.modulate = Color(0.70, 0.06, 0.06)
-	scrawl.outline_size = 0
-	scrawl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	# ⚠️ Not billboarded. A billboarded label mounted this close to a wall rotates
-	# INTO the wall at most viewing angles — the same reason kontur.gd's signs and
-	# level_6_breach.gd's never billboard.
-	scrawl.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	scrawl.position = shelf.position + Vector3(0.0, 0.55, 0.02)
-	add_child(scrawl)
+	# ⚠️ REWRITTEN 2026-07-28 on playtest feedback: *"Why would I count these sixty seconds?
+	# Does not make sense to me."* The old text ("SIXTY SECONDS. COUNT THEM.") is the
+	# cross-level hint for THE NIGHTMARE, where a candle burns for sixty seconds — but it
+	# gave the player nothing to act on in the House and nothing to attach it to, so it read
+	# as noise rather than as foreshadowing. It now NAMES the level it is about, which is what
+	# makes it a hint instead of a riddle, and it is also delivered as an on-screen line when
+	# the player enters the cellar (see _spawn_cellar_caption) rather than depending on them
+	# happening to point a torch at this shelf.
+	# ⚠️ NO WALL SCRAWL HERE, and do not put one back.
+	#
+	# There used to be a `Label3D` over this shelf reading "SIXTY SECONDS. COUNT THEM.".
+	# Playtest 2026-07-28 first found it meaningless ("why would I count these sixty
+	# seconds?") and then, once the text was rewritten and also thrown to the screen on
+	# entering the cellar, asked for the wall copy to go: *"we do not need this text here —
+	# appearing it on the screen is enough."*
+	#
+	# The candle stub above stays. It is the diegetic half — an object you find with the
+	# torch — and the sentence is now delivered once, on screen, by _spawn_cellar_caption().
+	# Saying it twice in one room made the shelf read as a label rather than as a thing
+	# somebody left behind.
 
 
 # The key's own visual — an alpha-cutout quad lying flat, same trick as the
@@ -1166,36 +1322,230 @@ func _advance_guest(stage: int) -> void:
 func _apply_guest_stage(stage: int) -> void:
 	match stage:
 		1:
-			# The kitchen chair is standing in the middle of the Landing, facing the
-			# bathroom door — the room the player just came out of.
-			_move_guest_prop(_guest_chair, "chair_landing", GUEST_LANDING_SPOT,
-				deg_to_rad(-90.0))
+			# ⚠️ ARMED, not dropped — it falls WHILE THE PLAYER IS LOOKING, with a bang
+			# (playtest 2026-07-29). See _tick_painting().
+			#
+			# This is the third beat the user has moved off SCARY.md P6's happens-off-screen
+			# rule, after the Intro wheelchair and the child, so it is now the house style for
+			# this level: in rooms this dark an anomaly nobody witnesses is an anomaly nobody
+			# gets. P6 still stands where it belongs — the music box's move at stage 4 is
+			# discovered, not watched.
+			_painting_armed = true
 		2:
-			# The bedroom painting is face-down on the floor. (The bedroom lamp dying is
-			# already _ev_bedroom_dark's beat — not doubled up here.)
-			if _bedroom_painting:
-				var p: Vector3 = _bedroom_painting.position
-				_move_guest_prop(_bedroom_painting, "painting_down",
-					Vector3(p.x, 0.06, p.z + 0.55) - p, deg_to_rad(96.0))
+			pass    # the key itself is the beat; nothing changes in the house here
 		3:
-			# The chair is back — at the top of the cellar route, facing the way you came.
-			_move_guest_prop(_guest_chair, "chair_cellar", GUEST_CELLAR_SPOT,
-				deg_to_rad(180.0))
+			# ⚠️ THE GUEST SHOWS ITSELF — once, and only once, in the whole level.
+			#
+			# This stage used to relocate a kitchen chair. Playtest 2026-07-28 saw it and
+			# reported *"the objects that are appearing on the floor look just like brown
+			# boxes… it should look like a creepy boy or something like that, accompanied by
+			# the weird noise"* — and the screenshot proved the point: `_make_prop` builds a
+			# single flat-shaded CSGBox, so the "chair" was a 0.44 m cube.
+			#
+			# Rather than model a better chair, the user's call was to make the thing that
+			# appears a FIGURE. So the house's rearrangement is now bracketed by one
+			# sighting: the painting goes down, then the child is standing in the Hallway,
+			# then the music box has moved. It is a `Watcher` — no panic, no collider, no
+			# kill radius, no rule — so it costs the level's tuned budget nothing.
+			pass    # the child is owned by the cellar sequence, not by this ladder
 		4:
 			# The payoff. The music box — the level's signature sound, which until this
 			# pass had no object at all — is sitting in the Hallway, playing, between the
 			# player and the exit. The loop is a child of the body, so the sound moved too.
-			_move_guest_prop(_music_box, "music_box_hallway", GUEST_HALLWAY_SPOT, 0.0)
+			_move_guest_prop(_music_box, "music_box_hallway", GUEST_HALLWAY_SPOT)
+
+
+# The child, standing in the Hallway, facing you. Once per run.
+#
+# Placed at the Landing end of the 3 m-wide, 8 m-long Hallway, which is the corridor every
+# route back from the cellar has to pass through — so it is framed by the walls and cannot be
+# missed the way a prop in the corner of a room can.
+#
+# ⚠️ A `Watcher`, deliberately: zero panic, no `ScaryObject` ancestor, no collider, no kill
+# radius, nothing to learn and no way to fail. It is an image. The whole House rearrangement
+# is worth 0 panic and this keeps it that way — the fridge remains the level's only new cost.
+#
+# ⚠️ `vanish_within` 4.0 so it is gone if the player walks up to it, and `Watcher`'s own
+# look-away-then-look-back roll may take it sooner. That is the intent: it is not a thing you
+# get to inspect.
+# THE CHILD — a scripted three-beat sequence in the cellar, specified by the user on the
+# 2026-07-29 playtest after two earlier placements failed to land:
+#
+#   1. the moment you reach the bottom of the ramp, every light dies AND the torch goes out
+#   2. ~5.5 s of nothing but the dark
+#   3. the child, screaming, three metres in front of you
+#   4. ~3 s later the lights come back and it is gone
+#
+# Both earlier versions put it in the Hallway and both missed: the first spawned it two rooms
+# from the player (the LOS check failed and silently ate the whole beat), the second waited
+# for the player to walk back into the Hallway, which happened long after they had left the
+# cellar — "the light off actually happened, but after I got away from the cellar".
+#
+# ⚠️ The dark-zone and standstill taxes are SUSPENDED for the whole sequence
+# (`set_smiler_active`, which exists to do exactly this). The cellar is a DarkZone, so forcing
+# the torch off would otherwise charge +3/s for a scripted event the player cannot avoid or
+# react to — Issue 18, and the player died here at 99 % panic on the run that prompted this.
+# The bedroom painting comes off the wall in front of you.
+#
+# ⚠️ It requires BOTH proximity and a facing check, so it cannot happen behind your back —
+# the opposite of the MovedProp rule this level started with, and the explicit request.
+func _tick_painting() -> void:
+	if not _painting_armed or _painting_fallen:
+		return
+	if not _bedroom_painting or not is_instance_valid(_bedroom_painting):
+		return
+	var pl := _player()
+	if not pl:
+		return
+	var cam := pl.get_node_or_null("Camera3D") as Camera3D
+	if not cam:
+		return
+	var to_it := _bedroom_painting.position - cam.global_position
+	if to_it.length() > PAINTING_TRIGGER_DIST:
+		return
+	var fwd := -cam.global_basis.z
+	fwd.y = 0.0
+	to_it.y = 0.0
+	if fwd.length() < 0.01 or to_it.length() < 0.01:
+		return
+	if fwd.normalized().dot(to_it.normalized()) < PAINTING_TRIGGER_DOT:
+		return
+	_drop_painting(true)
+
+
+# `animate` false is the restore path — a player returning through a back door should find it
+# already down, not watch it fall a second time.
+func _drop_painting(animate: bool) -> void:
+	if _painting_fallen or not _bedroom_painting:
+		return
+	_painting_fallen = true
+	var p: Vector3 = _bedroom_painting.position
+	# -90° pitch lays it flat with the picture facing UP; +90° would point the quad's own +Z
+	# at the floor and backface culling would erase it (Issue 28, and it shipped that way
+	# once). The small yaw stops it landing squarely.
+	var end_pos := Vector3(p.x, 0.06, p.z + 0.55)
+	var end_rot := _bedroom_painting.rotation \
+		+ Vector3(deg_to_rad(-90.0), deg_to_rad(14.0), 0.0)
+	if not animate:
+		_bedroom_painting.position = end_pos
+		_bedroom_painting.rotation = end_rot
+		return
+
+	# `painting_fall` is a shared asset RandomAmbient already uses; loud and local here.
+	var s := GameState.load_audio("painting_fall")
+	if s:
+		var a := AudioStreamPlayer3D.new()
+		a.stream = s
+		a.volume_db = PAINTING_FALL_DB
+		a.max_db = 20.0
+		a.unit_size = 10.0
+		a.position = p
+		add_child(a)
+		a.finished.connect(a.queue_free)
+		a.play()
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(_bedroom_painting, "position", end_pos, PAINTING_FALL_TIME)
+	tw.tween_property(_bedroom_painting, "rotation", end_rot, PAINTING_FALL_TIME)
+	var pl := _player()
+	if pl:
+		pl.jolt_camera(0.05, 0.3)
+
+
+func _begin_cellar_blackout() -> void:
+	if _guest_child_done:
+		return
+	_guest_child_done = true
+	_child_dark = true
+	var pl := _player()
+	if pl:
+		pl.force_flashlight_off()
+		pl.set_smiler_active(true)
+	get_tree().create_timer(CHILD_APPEAR_DELAY).timeout.connect(_cellar_child_appear)
+
+
+func _cellar_child_appear() -> void:
+	var pl := _player()
+	if not pl:
+		_end_cellar_blackout()
+		return
+	var cam := pl.get_node_or_null("Camera3D") as Camera3D
+	var fwd := -cam.global_basis.z if cam else Vector3.FORWARD
+	fwd.y = 0.0
+	if fwd.length() < 0.01:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+
+	# Straight ahead if it fits, otherwise closer, otherwise the middle of the room. It must
+	# NOT be allowed to fail silently the way the Hallway version did.
+	var here := pl.global_position
+	for d in [CHILD_DIST, 2.4, 1.8]:
+		var cand := Vector3(here.x + fwd.x * d, CELLAR_Y, here.z + fwd.z * d)
+		_child_node = Watcher.spawn(self, cand, TEX + "house_child.png", 0.0, false, CHILD_HEIGHT)
+		if _child_node:
+			break
+	if not _child_node:
+		_child_node = Watcher.spawn(self,
+			Vector3(CELLAR_CENTER.x, CELLAR_Y, CELLAR_CENTER.y),
+			TEX + "house_child.png", 0.0, false, CHILD_HEIGHT)
+	if _child_node:
+		# Only this sequence decides when it goes — no lifetime, no look-away roll.
+		_child_node.persistent = true
+		# Named so it is distinguishable from the cellar's OTHER Watcher (the one in the far
+		# corner). Two anonymous "Watcher" nodes in one room made the test's count ambiguous.
+		_child_node.name = "GuestChild"
+	_spawn_guest_child()
+	get_tree().create_timer(CHILD_HOLD).timeout.connect(_end_cellar_blackout)
+
+
+func _end_cellar_blackout() -> void:
+	_child_dark = false
+	var pl := _player()
+	if pl:
+		pl.restore_flashlight()
+		pl.set_smiler_active(false)
+	if is_instance_valid(_child_node):
+		_child_node.queue_free()
+		_child_node = null
+
+
+# Just the scream — the figure and the darkness are owned by the cellar sequence above.
+#
+# VERY loud, by request. The figure itself has no rules, no collider and costs no panic, so
+# sound and darkness are the only two channels this thing has.
+func _spawn_guest_child() -> void:
+	var s := GameState.load_audio("childe_scream")
+	if not s:
+		s = GameState.load_audio("guest_child")
+	if not s:
+		s = GameState.load_audio("music_box")
+	if not s:
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.name = "GuestChildAudio"
+	p.stream = s
+	p.volume_db = CHILD_VOLUME_DB
+	p.max_db = 24.0            # default is 3; the gain above is clamped without this
+	p.unit_size = 18.0
+	p.bus = AudioBuses.AMBIENCE
+	# At the figure if there is one, otherwise at the player — the scream must never be
+	# stranded at a fixed world point the sequence no longer uses.
+	p.position = (_child_node.global_position + Vector3(0, 1.0, 0)) \
+		if is_instance_valid(_child_node) else _player().global_position
+	add_child(p)
+	p.finished.connect(p.queue_free)
+	p.play()
 
 
 # `target_or_delta` is an ABSOLUTE position for props being relocated across the house, and
 # MovedProp wants a delta — so convert here, once, rather than at four call sites.
-func _move_guest_prop(prop: Node3D, key: String, target: Vector3, yaw: float,
-		absolute: bool = true) -> void:
+func _move_guest_prop(prop: Node3D, key: String, target: Vector3,
+		rot: Vector3 = Vector3.ZERO, absolute: bool = true) -> void:
 	if not prop or not is_instance_valid(prop):
 		return
 	var delta: Vector3 = (target - prop.position) if absolute else target
-	var mp := MovedProp.attach(prop, key, delta, yaw)
+	var mp := MovedProp.attach(prop, key, delta, rot)
 	mp.arm()
 	_guest_props.append(mp)
 
@@ -1212,6 +1562,8 @@ func _move_guest_prop(prop: Node3D, key: String, target: Vector3, yaw: float,
 # because it is the only thing that tracks what has already been attached.
 func _force_guest_stages(stage: int) -> void:
 	_advance_guest(stage)
+	if _painting_armed and not _painting_fallen:
+		_drop_painting(false)
 	for mp in _guest_props:
 		mp.apply_now()
 
@@ -1373,6 +1725,7 @@ func _process(delta: float) -> void:
 	_drive_lights()
 	_tick_tv_card(delta)
 	_tick_overhead(delta)
+	_tick_painting()
 
 
 const TV_CARD_HOLD := 8.0  # BUG_FIX.md 2.2: was 4.5 — playtest read it as gone too fast
@@ -1447,7 +1800,11 @@ func _drive_lights() -> void:
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
 		var base: float = entry[1]
-		if _blackout_timer > 0.0:
+		if _child_dark:
+			# THE GUEST is present: total darkness, no flicker, no exceptions. Checked before
+			# the blackout branch so the two cannot fight over the same lamp.
+			lamp.light_energy = 0.0
+		elif _blackout_timer > 0.0:
 			lamp.light_energy = base * (0.05 + maxf(0.0, sin(t * 33.0) * sin(t * 9.0)) * 0.15)
 		else:
 			lamp.light_energy = base * (1.0 + sin(t * 7.0 + lamp.position.x) * 0.04)

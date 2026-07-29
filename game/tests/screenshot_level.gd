@@ -44,6 +44,12 @@ const HOUSE_SHOTS := [
 	# Just outside FOREST_SCARE_DIST (1.5 m) so the window can be photographed
 	# without the proximity scare firing over it.
 	[-5.0, 6.9, 0.0, 1.0, "13_window_frame"],
+	# The two beds and the music box. Added 2026-07-29 because playtest photographed all
+	# three as unidentifiable boxes and NONE of the shots above pointed at any of them —
+	# a level's screenshot set is only as good as what it happens to aim at.
+	[-6.6, 12.5, -1.0, 0.0, "14_bedroom_bed"],
+	[1.4, 15.2, 0.0, 1.0, "15_childroom_bed"],
+	[-1.6, 13.9, 0.0, 1.0, "16_music_box"],
 ]
 
 var SHOTS := LAB_SHOTS

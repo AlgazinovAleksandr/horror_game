@@ -113,6 +113,13 @@ for t in "${TESTS[@]}"; do
   out=$("$GODOT" --headless --path game --script "res://tests/$t.gd" 2>&1)
   code=$?
   elapsed=$(( $(date +%s) - start ))
+  # ⚠️ A script that fails to PARSE exits 0. Godot prints "Parse Error" / "Failed to load
+  # script" and then quits cleanly, so exit status alone reports a broken test as a PASS —
+  # which is exactly the vacuous green this file's header warns about, and it hid a
+  # completely non-functional check_house_guest.gd on 2026-07-28. Treat it as a failure.
+  if echo "$out" | grep -qE "Parse Error|Failed to load script|SCRIPT ERROR: .*Compile"; then
+    code=1
+  fi
   if [ $code -eq 0 ]; then
     printf "%-28s %-8s %ss\n" "$t" "PASS" "$elapsed"
     pass=$((pass+1))

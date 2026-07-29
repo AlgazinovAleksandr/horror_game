@@ -42,7 +42,7 @@ var key: String = ""            # stable name for save_progress()
 
 var _target: Node3D = null
 var _delta_pos: Vector3 = Vector3.ZERO
-var _delta_yaw: float = 0.0
+var _delta_rot: Vector3 = Vector3.ZERO
 var _min_dist: float = DEFAULT_MIN_DIST
 var _applied: bool = false
 var _armed: bool = false
@@ -51,14 +51,21 @@ var _player: CharacterBody3D = null
 var _camera: Camera3D = null
 
 
+# `delta_rot` is a FULL euler delta in radians, not just a yaw.
+#
+# ⚠️ It used to be a single `delta_yaw: float`, which silently made "lay the painting
+# face-down on the floor" impossible: yaw spins a picture about its vertical axis, so the
+# painting dropped to floor height and stayed UPRIGHT — playtest 2026-07-28 photographed it
+# standing on the floorboards and asked "why is the painting now on the wall?". Laying
+# something flat is a PITCH (x), and there was no way to express one.
 static func attach(target: Node3D, prop_key: String, delta_pos: Vector3,
-		delta_yaw: float = 0.0, min_dist: float = DEFAULT_MIN_DIST) -> MovedProp:
+		delta_rot: Vector3 = Vector3.ZERO, min_dist: float = DEFAULT_MIN_DIST) -> MovedProp:
 	var m := MovedProp.new()
 	m.name = "MovedProp"
 	m.key = prop_key
 	m._target = target
 	m._delta_pos = delta_pos
-	m._delta_yaw = delta_yaw
+	m._delta_rot = delta_rot
 	m._min_dist = min_dist
 	target.add_child(m)
 	return m
@@ -122,7 +129,7 @@ func _process(delta: float) -> void:
 func _apply() -> void:
 	_applied = true
 	_target.global_position += _delta_pos
-	if not is_zero_approx(_delta_yaw):
-		_target.rotation.y += _delta_yaw
+	if _delta_rot != Vector3.ZERO:
+		_target.rotation += _delta_rot
 	moved.emit()
 	set_process(false)

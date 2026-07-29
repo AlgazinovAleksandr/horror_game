@@ -69,9 +69,29 @@ be optimised against and one without cannot.
 
 ### Levels
 
-**Intro Room**
-Small dark room. Candle on a table with the opening note. Single glowing exit door.
+**Intro Room** — a 12×18 m asylum ward, built at runtime by `intro_room.gd` (see `INTRO.md`)
 Note text: *"You are Subject 47. This is a psychological experiment... Stay calm. Do not touch what you are not meant to touch. If something calls out to you — a voice, a ringing, anything that asks for an answer — do not answer it. You are not meant to speak to anyone but us. The door ahead is your first test. We are watching."* (the "do not answer" paragraph is **BUG_FIX.md 2.1** — plants a hint against the Backrooms rotary phone before the player ever meets it)
+- ⚠️ **UNLOSEABLE, and it must stay that way.** Nothing here calls `add_panic()`; `RandomAmbient`
+  is deliberately NOT registered (it carries 5/8/12 panic per event) and a level-local, zero-panic
+  timer plays `floor_creak`/`pipe_groan`/`gurney_creak` instead. `tests/check_intro_beats.gd`
+  samples peak panic through every beat and fails if it moves at all
+- **"The ward is occupied" (2026-07-28).** The room previously had *no scares whatsoever* — 60–120 s
+  of nothing. Now: the **light switch sticks on the first press** (`LightSwitch.presses_needed = 2`)
+  — it clunks, the plate blips, and one fluorescent at the FAR end stutters alight for 0.4 s,
+  showing the ward you have been crossing blind, then dies. The two spare gurneys carry **sheeted
+  forms**. The tube over the table stays dead after the reveal, so the note is lit by candle alone.
+  Breathing (`nook_breath`) at the bare `WallFront`, cut the instant the lights come on
+  - ⚠️ **NO jumpscare in this room.** `INTRO.md` §2 specced a mid-fumble nightmare flash; it was
+    built and then cut on the first playtest (*"the screamer at the intro level is not needed"*).
+    The cold open on START already spends that image, and firing it again in the one room with no
+    fail state teaches the player the image is free. `check_intro_beats.gd` asserts its ABSENCE
+  - **The wheelchair turns to face the table** once the note is read — on **proximity + looking**
+    (within 3.2 m, dot > 0.55), with a metal creak, over 1.1 s. ⚠️ This deliberately INVERTS
+    `MovedProp`'s happens-off-screen rule: an anomaly nobody witnesses is worth less than an event
+    they certainly see, in a 90-second tutorial room. See the same call in the House
+- ⚠️ `_corrupt_room()`'s planks/red light are now derived from `EXIT_DOOR_POS` + `DOOR_SIZE`. They
+  were literals from the OLD 5.6 m room and floated in open space 6 m from the door — the game's
+  final beat, visibly broken, for the life of the bigger ward
 
 **Level 1 — The Lab (institutional wing)** — rebuilt procedurally (Session 10)
 - Built at runtime in `level_1.gd` via `RoomBuilder` from a 10-room graph (`ROOMS`/`DOORS`): reception → main corridor with 2 exam rooms → a cross-junction onto the records room and a **sealed morgue** → observation room → exit vestibule. The `.tscn` keeps only `Player`/`Environment`/audio/`HUDCanvas`; `_clear_old_scene()` frees the old hand-built nodes via a `PRESERVE` whitelist
@@ -101,13 +121,63 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   only opens when they walk down and press **E** on it. ⚠️ `picked_up` used to be wired straight to
   `_open_cellar_gate()`, so winning the Bathroom minigame flung the cellar open from the other end of
   the house and the key was a formality (BACKLOG #16). ⚠️ The ramp/shaft/ceiling use `rotation.x = -angle` (a +angle inverts the slope and drops the ceiling to knee height); the key sits clear of its (collision-less) stand so the interaction ray reaches it. **Session 11 fix (two parts):** (1) the ramp's TOP SURFACE is now continuous with the floors at both ends — it starts at z=1.7 where `RoomBuilder`'s doorway floor-bridge ends (both at y=0) and the bottom is extended 0.6 m under the cellar floor — so there's no end-lip to climb (`move_and_slide` can't step up; a tilted box poking ~0.14 m above the floor was the real "can't enter the cellar" block, *not* headroom). (2) The sloped ceiling is offset a constant 2.6 m along the ramp normal (~2.45 m vertical clearance) and a flat `CellarShaftCap` at y=3 seals the top; the ramp wears `house_wood_stairs.png`. Verified walkable BOTH ways by `tests/walk_cellar.gd`. **BUG_FIX.md 4.3** first moved the key into a 2-drawer search in the Landing; a later session **replaced that entirely** with a bigger quest, so Landing is empty again (a deliberate trade). **Current feature**: a folded paper map (`HouseMap`, `house_map_prop.gd`) on a stand in the **Bathroom** (`_spawn_bathroom_map()` — it moved Landing → Kitchen counter → Bathroom; the objective string at `level_2.gd:88` has now been wrong twice, so re-check it whenever the quest moves) opens a full-screen, paused 2D maze-chase minigame (`MazeChaseUI`, `maze_chase_ui.gd`) — a fresh 10×8 randomized-DFS maze every attempt (never memorizable), dragged toward a BFS-longest-path target with the mouse while a monster icon hunts along the ACTUAL CORRIDORS (BFS distance field from the player's cell,
-recomputed when they change cell; `MONSTER_SPEED` 88). ⚠️ It used to steer by a raw Euclidean
+recomputed when they change cell; `MONSTER_SPEED` **172**, raised from 88 → 132 → 172 across two
+playtests on the user's call — measured each time with `tests/check_maze_chase.gd` (40 seeds), and
+the escape rate never moved: 37/40 at all three speeds. What changed is how fast a mistake is
+punished — hunted down 9.4 s after stopping at 132, **5.2 s at 172**. ⚠️ Do not raise it again
+without re-running that test; 37/40 is the line that says it is still a game). ⚠️ It used to steer by a raw Euclidean
 beeline, which in a randomized-DFS *perfect* maze points into a wall most of the time — the corridor
 route is routinely 5-15x the straight line — so it jammed and could never close once the player left
 the start (BACKLOG #14: "it can basically kill the player only at the beginning"). ⚠️
 `_place_monster()` now also avoids the FIRST STEP of the only route to the target: in a spanning tree
 that cell is a roadblock the player cannot walk around — harmless while the monster drifted into
 walls, a measured 12-in-40 instant death once it followed corridors. The drag eases toward the cursor on an exponential spring rather than snapping, and both the ease rate and the speed cap degrade as panic rises (`SPRING_K_BASE=9.0→SPRING_K_PANIC=3.0`, `PLAYER_MAX_SPEED=240→PLAYER_MIN_SPEED=100`) — releasing the mouse freezes the icon instantly, no glide, so letting go never costs an unwanted catch. Panic climbs the whole time it's open: a flat `MAZE_DRIP_RATE=0.9`/s plus a squared proximity term up to `PROXIMITY_MAX_RATE=5.0`/s, via the same "a paused UI's own `_process` still calls `player.add_panic()`" idiom `note_ui.gd` uses for trap notes — which means the UI **must** self-clear if a screamer fires and unpauses the tree out from under it (Issue 9 guard, copied verbatim from `combination_lock.gd`/`note_ui.gd`). Winning calls the unchanged `_build_cellar_key()` at the counter's other end for a real 3D pickup; getting caught (`CATCH_RADIUS=20px`) ejects back to 3D with a jolt + `CATCH_PANIC=18` (bracketed between beartrap.gd's own 15/40 spring-vs-fail values) and the map is retryable. `house_drawer.gd` (the superseded Landing search) was deleted as dead code. ⚠️ **Legibility (playtest 2026-07-25, capture #3)**: the caption was added as a second child of the `CenterContainer`, which overwrites every child's anchors/offsets — so it landed stacked dead-centre ON the parchment in a cream that matched it. It now hangs off `_root` with a black outline (`ScreenText._outline()` convention). The three icons are 1024x1024 PNGs whose ink fills only ~30-40% of the canvas, in the same sepia as both the parchment and the wall rects, so each renders as ~28 px of near-invisible scribble; `modulate` cannot fix that (it multiplies — no multiplier turns brown into saturated blue), so `_make_icon()` now stacks a dark halo disc + a bright identity disc sized to `ICON_HALF_EXTENT` + the ink on top. See ISSUES_SOLUTIONS Issue 32. Verified by `tests/screenshot_maze_ui.gd`, which drives the real `interact()` path — `screenshot_scene.gd` structurally cannot reach a UI behind a prop. Maze generation is stress-tested independently of any scene by `tests/check_maze_gen.gd` (200 random seeds: full connectivity, non-trivial target distance, valid monster placement) — the minigame is only ever opened via player interaction, so a normal scene smoke test never exercises `_generate_maze()` at all
+- **THE GUEST (2026-07-28/29) — the house rearranges itself, one step per quest milestone.** The
+  House is the only level with genuine backtracking pressure (Bathroom map → key → Kitchen → cellar
+  → ChildRoom lock crosses the ground floor repeatedly), and this is what that traffic is for:
+  | milestone | what changes |
+  |---|---|
+  | map solved | the bedroom **painting falls off the wall** — while you watch, within 4.5 m and facing it, with `painting_fall` at +8 dB and a camera jolt |
+  | key taken | (nothing) |
+  | cellar gate opened | arms **the cellar sequence** (below) |
+  | third note read | the **music box** has moved to the Hallway, still playing, between you and the exit |
+  - ⚠️ **The music box move is the ONE beat still on `MovedProp`'s off-screen rule.** The painting,
+    the cellar child and the Intro wheelchair were all moved to happens-in-front-of-you on playtest
+    feedback across two sessions. In rooms this dark an anomaly nobody witnesses is one nobody gets;
+    the music box survives because it is meant to be *discovered* on the way out, not watched
+  - The music box is a **real object** (`music_box.gd`) with the loop as its CHILD — that is the only
+    reason the sound travels with it. It used to be a bare `_loop_audio` with no body at all. **E
+    winds it**: the crank turns and the tune comes up out of the room tone for ~22 s, re-windable
+- **THE CELLAR SEQUENCE** — three scripted beats on reaching the bottom of the ramp, timed to the
+  user's spec: every lamp AND the torch die instantly → **5.5 s of nothing** → the child, screaming,
+  ~3.2 m in front of wherever the player is facing → **3.0 s later** the lights return and it is gone
+  - ⚠️ **The dark-zone and standstill taxes are SUSPENDED for the whole sequence**
+    (`player.set_smiler_active(true)`). The cellar is a `DarkZone`, so forcing the torch off would
+    otherwise charge +3/s for a scripted event with no counter-play — Issue 18, and the player died
+    there at 99 % panic on the run that prompted this
+  - The figure is a `Watcher` (zero panic, no collider, no rules) at **1.95 m** — deliberately taller
+    than a child, because at child height it read as small and far away rather than on top of you.
+    `childe_scream` at +18 dB with `max_db` raised to 24, or the gain is clamped away
+  - ⚠️ Two earlier placements FAILED SILENTLY and both are worth remembering: spawning it on the
+    milestone put it two rooms from the player, `Watcher.spawn()`'s line-of-sight check failed
+    through the walls, it returned null and the one-shot flag was already set — no figure, no
+    scream, no darkness, ever. Spawn a scripted beat where the player IS
+  - ⚠️ **Only ONE figure down here.** The atmosphere pass also put a `Watcher` in the far corner;
+    it was cut, because the mood piece arrived first and spent the surprise the event needed
+- **The Kitchen** (42 m², previously ONE prop): sink, table and chairs built from real parts, plus
+  a **fridge** (`house_fridge.gd`) — it hums, and on E the scream fires FIRST, the door swings 0.28 s
+  later, and a head is revealed on the shelf as it clears. **10 panic, the only new panic term in the
+  whole atmosphere pass**; voluntary, optional, off the quest path, one-shot, and inert afterwards
+  - ⚠️ The carcass is an **open-fronted shell of five slabs**, not a solid box — see Issue 46
+- **The kitchen drawer** (`kitchen_drawer.gd`) carries a second, independent hint for **KONTUR Gate 1**
+  ("the black door is the way out, the red one is not a door" — the rule, never a position, since the
+  colours swap per run). Gate 1's only other hint is in the Lab morgue behind a beartrap and two
+  instant-fail objects, and getting it wrong BANISHES rather than costs a strike
+- ⚠️ **Furniture is built from PARTS, never one flat box.** Two rounds of playtest photographed the
+  beds, chairs, table and music box and called them "boxes that do not make any sense". What makes a
+  bed legible is the headboard and a mattress proud of the frame; what makes a chair legible is the
+  back. Issue 35 in furniture form. The cellar's shelving/boiler/crates and the kitchen sink slab
+  were **deleted** rather than rebuilt — they sat in near-total darkness and read as nothing
 - 3 safe notes (one digit each — **the third is in the cellar**, forcing the descent), 2 trap notes (`is_trap`, read-to-die)
 - Win: read the 3 safe notes, enter code **472** on the combination lock by the child's-room exit (`CODE_ENTERED`)
 - Fail: read a trap note **fully**; the apparition rush; or panic bar fills. Read-to-die: trap notes feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); text bleeds red; close early to survive
@@ -713,6 +783,9 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `moved_prop.gd` | `class_name MovedProp` (SCARY.md P6) — wraps any `Node3D` and applies a stored delta once, while the player is >6 m away and facing elsewhere. No sound, no event, no panic, no acknowledgement. `arm()` / `apply_now()` (the restore path) / `is_applied()`. ⚠️ Register applied moves in `save_progress()` or a back-door return un-moves them. ⚠️ Only `_advance_guest()`-style tracked callers may attach: attaching twice for one stage DOUBLE-APPLIES the delta (it put the House chair outside the building) |
 | `congregation.gd` | `class_name Congregation` (2026-07-28) — Backrooms Zone 2's occupants: 6–8 persistent `Watcher`s among the 36 pillars, growing by one per wrong wall (capped at 12). **Zero panic, no rules.** A figure relocates only when it is BOTH out of view and ≥15 m away, so it never moves on screen and never pops at arm's length. ⚠️ Legal under §8.3 because there is no fail condition for gaze to depend on — looking at one does literally nothing |
 | `unseen_wader.gd` | `class_name UnseenWader` (SCARY.md P10) — the Flood's threat that is **never instantiated**: no mesh, no collider, no `ScaryObject`, no kill radius. A `wade_distant` loop on a `Tween`, always ≥12 m away, patrolling the room graph's centres. ⚠️ **When the player stops wading it stops too — after two more, decelerating strides.** The zone drives `set_player_wading()`; it never samples the player itself, so the two cannot disagree about when the player halted |
+| `house_fridge.gd` | `class_name HouseFridge` (2026-07-28) — the House kitchen's fridge and the **only new panic term** in the atmosphere pass (10, voluntary, one-shot). Hums to earn the approach; on `interact()` the scream fires first, the door swings `DOOR_DELAY` later, the head is revealed as it clears. `can_interact()` returns false once used, so it never advertises a prompt that does nothing. ⚠️ Carcass is an open-fronted **shell of five slabs** — a solid `BoxMesh` hides everything inside it (Issue 46). ⚠️ No `flash_scare`: a fullscreen image fired over the reveal it was announcing |
+| `kitchen_drawer.gd` | `class_name KitchenDrawer` (2026-07-28) — a searchable counter drawer holding a **second, independent hint for KONTUR Gate 1**. Slides open on E, then shows its note and archives it via `GameState.record_note()` so TAB can re-read it two levels later. ⚠️ States the RULE (black is the way out), never a position — `choice_door.gd` randomises the colours per run |
+| `music_box.gd` | `class_name MusicBoxProp` (2026-07-29) — the child's music box, windable with E: the crank turns and the tune swells out of the room tone for ~22 s, then settles back rather than stopping dead. Re-windable, no resource, no fail state. ⚠️ The `AudioStreamPlayer3D` is a CHILD of the box body — that is the only reason THE GUEST's last stage works, because the sound travels with the object |
 | `ajar_door.gd` | `class_name AjarDoor` (2026-07-28) — the Corridor's six former decal doors as real hinged bodies. `swing_ajar(deg, time)` opens **silently** (a creak would make it an event instead of a discrepancy); `slam()` is the one that is heard. No `interact()` — the player cannot open these, which is what makes an ajar one evidence. Built on `choice_door.gd`'s skeleton (hinge at origin, art on `QuadMesh` per Issue 24) rather than `door.gd` |
 | `choice_door.gd` | `class_name ChoiceDoor` — KONTUR Gate 1. Self-building hinged door panel; `@export is_correct/texture_path`, `signal chosen(correct)`, swings open on `interact()`. The level owns the consequence. **ISSUES_SOLUTIONS Issue 31**: art lives on `QuadMesh` faces front/back of the hinge box, not on the box itself — the box direct-texture version rendered a magnified crop (Issue 24 recurrence) |
 | `kontur_mailbox.gd` | `class_name KonturMailbox` — KONTUR Landing's mailbox. **Rebuilt 2026-07-25** (capture #4) from one box + a photo decal into a real 12-slot bank: the old art had the wallpaper baked into its background, so the prop's own texture depicted the wall behind it and could never read as 3D (Issue 35). `kontur.gd:_spawn_mailbox()` now builds carcass/plinth/top-overhang, a divider+shelf grid and twelve numbered slot doors with handles and card holders, all flat-tinted and untextured — the `intro_room.gd:_build_wheelchair()` precedent. **Only slot 12 opens**: the level hands the script a `door_hinge`, and the first `interact()` swings it before `NoteUI.show_note(hint_text)`, so the note reads as having come out of the box |
@@ -921,6 +994,22 @@ green "0 apparitions in 400 s".
 reported "0 in 400 s" as a tidy pass on a build with the monster switched off), and
 `check_apparition_clearance.gd` asserts its own sample size (it reported "0 spawns checked …
 PASS" when the script under test failed to compile).
+
+⚠️ **Three more vacuous passes were found on 2026-07-28/29, all of them green.** Read them as a
+set, because the shape repeats: *the assertion ran, and measured nothing.*
+- A bus-restore check sampled at "frame 130" — headless runs uncapped, so a frame count is not a
+  clock; it landed mid-tween and reported a false failure. **Time-based now.**
+- A door-clearance check called `swing_ajar()` and measured in the SAME frame. A `Tween` does not
+  run until the next one, so it measured un-swung doors and reported a comfortable 2.81 m for a
+  panel that had not moved. The real figure is 2.02 m.
+- A painting-position check asserted only `y < 0.3`. A painting teleported THROUGH the floor to the
+  world origin satisfies that. It now asserts the room and the facing as well.
+
+⚠️ **A test that fails to PARSE exits 0 and the runner counted it as PASS** — Issue 44. `run_tests.sh`
+now greps for `Parse Error` / `Failed to load script` and forces a failure. ⚠️ And never write
+`bool(node.get("flag"))` in a test: a missing property throws, the throw aborts `_process` before
+the stage counter AND before the timeout check, and the test loops forever (Issue 45 — one run hung
+28 minutes on a 30-second timeout).
 
 Test naming: `check_*` assert, `walk_*` drive a physics body along a route, `autoplay_*` drive the
 **real** player through `player.gd`'s `ai_*` surface (see `tests/autoplay/autoplayer.gd` for why
