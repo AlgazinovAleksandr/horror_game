@@ -1,4 +1,4 @@
-# Let's vibe code a f*cking video game
+# Let's vibe code a video game
 
 A 3D first-person atmospheric horror game built in Godot 4. You are **Subject 47**. This is a psychological experiment. Stay calm.
 
