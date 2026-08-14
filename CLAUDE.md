@@ -14,6 +14,46 @@ search memory, and `DUNGEON_NIGHTMARES.md` §B4.2 specs a second (the Matron). T
 is `SCARY.md` §8.4's: **one chase level in twelve.** Outlast's chase-or-nothing binary is the failure
 state of chase-led design. Do not add a third pursuer.
 
+## Commands
+
+Godot lives at `/Applications/Godot.app/Contents/MacOS/Godot`; every test/tool honours a `GODOT`
+env override. The Godot project root is `game/` — all commands take `--path game`. There is no
+build, lint or package step: the game runs from source, and `--import` is the only "build".
+
+```bash
+# Run the game (starts at main_menu.tscn, per project.godot)
+/Applications/Godot.app/Contents/MacOS/Godot --path game
+
+# Run ONE level directly (skip the run-up) — see the Level scenes table for the list
+/Applications/Godot.app/Contents/MacOS/Godot --path game res://scenes/kontur.tscn
+/Applications/Godot.app/Contents/MacOS/Godot --path game res://scenes/dungeon.tscn -- --dungeon-seed 404
+
+# Re-import after ANY new class_name, .wav/.ogg or texture (see the ⚠️ in Testing)
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import
+
+# Tests
+tools/run_tests.sh                 # whole headless suite, one summary table; exit code = #failures
+tools/run_tests.sh -q              # summary + failing output only
+tools/run_tests.sh maze            # only tests whose NAME matches a substring
+
+# One test, directly (this is all run_tests.sh does per row)
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path game \
+  --script res://tests/check_kontur.gd
+
+# Args go after a bare `--` (OS.get_cmdline_user_args)
+/Applications/Godot.app/Contents/MacOS/Godot --headless --path game \
+  --script res://tests/check_wall_overlap.gd -- res://scenes/dungeon.tscn --dungeon-seed 404
+
+# screenshot_* tests need a render target — run them WITHOUT --headless
+/Applications/Godot.app/Contents/MacOS/Godot --path game --script res://tests/screenshot_kontur.gd
+
+# Procedural SFX (stdlib-only Python; re-run to regenerate, then --import)
+python3 tools/make_sfx_dungeon.py
+```
+
+Playtest logs from `DebugLog` land at
+`~/Library/Application Support/Godot/app_userdata/horror_game/playtest_log.txt`.
+
 ## Game Design
 
 ### Premise
@@ -742,11 +782,12 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `player.gd` | `CharacterBody3D` movement, raycast interaction, gaze timer (3s stare → fail), **panic system** (`_panic` float, `PANIC_MAX=50`, `PANIC_BASE_RATE=20/s`, `PANIC_DECAY_RATE=3.5/s`, `GAZE_RANGE=3.0m` separate from `INTERACT_RANGE=2.5m`), flashlight toggle (`toggle_flashlight` action, F), heartbeat audio tied to panic ratio. **Sprint** (`sprint` action, Shift): ×1.6 speed, +6 panic/s while sprinting (suppresses decay), faster footsteps. **Flashlight battery**: 240 s per scene (`BATTERY_MAX`), dying-bulb stutter below 48 s, dead = can't re-enable. Zone API: `add_panic(amount)` (instant spike, screamer at max), `apply_slow(duration)` (speed ×0.45), `cancel_slow()` (clears limp instantly — used by beartrap escape), `jolt_camera(strength, duration)`, `enter/exit_calm_zone()` (decay ×2.5), `enter/exit_dark_zone()` (+3 panic/s with flashlight off), `enter/exit_dread_zone()` (decay 2/s + constant 2/s pressure), `get_panic_ratio()`. **Backrooms-only opt-ins** (off by default everywhere else): `enable_standstill_panic()` (+3/s after 4 s still), `enable_footstep_echo()` (phantom step 0.4 s behind), `kill_flashlight()` (force off; F only clicks), `set_smiler_active(bool)` (suspends standstill + dark ticks for the Smiler), `is_flashlight_on()` / `is_sprinting()`. **Input actions** (`project.godot`): `interact` E · `move_*` WASD · `toggle_flashlight` F · `sprint` Shift · `debug_capture` J · `push_effort` **Space** (the Lab locker's mash) · `journal` **TAB** (the notes journal). ⚠️ `player.gd` also exposes a small **test-only** control surface — `ai_active` / `ai_move_dir` / `ai_sprint` / `ai_look_at()` / `ai_interact()` / `ai_interact_target()` — because Godot's `Input.parse_input_event()` does not work headless, so an automated test cannot press a key. `_apply_movement()` and the sprint check are the only two places that read `Input`, and both take their value from here when `ai_active`; everything downstream (gravity, collision, the interact RAYCAST, `can_interact()`, panic) is the shipping path. ⚠️ `_update_interact_prompt()` consults an optional **`can_interact()`** on the raycast hit before showing "Press E" or setting `_interact_target`, so a prop can be completely inert rather than merely refusing (see `LabLocker`). ⚠️ `freeze_input()` blocks movement **and** look — `_apply_movement` and `_unhandled_input` both early-return on `_input_frozen` — so anything polling `Input` directly during a freeze must do so from its own `_process` |
 | `door.gd` | Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors. Static `door_material(tex_path)` owns the blood-red convention for all levels — ⚠️ with a texture the red emission must stay **very** low (0.18); these levels are lit at ~0.45 energy, so emission outweighs albedo and a higher value renders the door salmon pink (Issue 21) |
 | `note.gd` | Note interact, `is_trap` / `is_twist_note` flags. Trap notes open via `NoteUI.show_note(text, TRAP_PANIC_RATE)` — read-to-die, no instant fail |
-| `combination_lock.gd` | Spinner-dial UI, digit count sized from its answer (`_digit_count()`). Level 2 exit: 3 dials, code **472**, via `GameState.level2_code`. KONTUR's roster gate: 2 dials, code **47**, via its own `code`/`title_text`/`unlocked`/`wrong_code` exports — no `GameState` coupling. Wrong code = buzz + 10 panic (`WRONG_CODE_PANIC`); UI auto-drops if a screamer fires while open |
+| `combination_lock.gd` | Spinner-dial UI, digit count sized from its answer (`_digit_count()`). Level 2 exit: 3 dials, code **472**, via `GameState.level2_code`. KONTUR's roster gate: 2 dials, code **63** (`kontur.gd:79`, `ROSTER_CODE` — 47 was the pre-BACKLOG-#24 value), via its own `code`/`title_text`/`unlocked`/`wrong_code` exports — no `GameState` coupling. Wrong code = buzz + 10 panic (`WRONG_CODE_PANIC`); UI auto-drops if a screamer fires while open |
 | `creature_stalker.gd` | `class_name CreatureStalker` — the Void's creatures. Weeping-Angel stalk (move when unobserved, freeze when watched), LOS-gated, `START_GRACE` opening, lunge → `Screamer.trigger()` on contact. Builds its own visible red-eyed figure + gaze collider in `_ready()`. **Moves the inner `StaticBody3D` (not `self`)** — see the ScaryObject transform-chain gotcha below |
 | `creature_static.gd` | Older static-creature variant; `rush_camera()` on trigger. The Void now uses `creature_stalker.gd` instead |
 | `vignette.gd` | `class_name Vignette` — `Vignette.spawn(parent, color, strength)` adds per-level overlay |
 | `keycard.gd` | Pickup → sets `GameState.has_keycard`; auto-hides on reload if already collected |
+| `light_switch.gd` | `class_name LightSwitch` — the Intro ward's wall switch. `@export presses_needed` (2 in the Intro) makes the first press *stick*: it clunks, the plate blips, one far fluorescent stutters and dies. ⚠️ Zero panic — the Intro is UNLOSEABLE and `tests/check_intro_beats.gd` fails if any beat here moves the bar |
 | `main_menu.gd` | Main menu: background image (`main_menu_bg.png`), "SUBJECT 47" title, blood-red START/QUIT buttons; START loads `intro_room.tscn`; QUIT calls `get_tree().quit()` |
 | `scary_object.gd` | `class_name ScaryObject` — attach to any prop that should build panic. `@export var scare_intensity: float = 1.0`. `player.gd:_find_scary_object()` walks the parent chain UP from the ray-hit collider to find it. **Gotcha:** `ScaryObject extends Node` (no transform) and breaks the Node3D spatial chain — see below. |
 | `trigger_object.gd` | `StaticBody3D` trap prop — instant screamer on `interact()` OR on `on_gaze_trigger()` (3s gaze). Attach `ScaryObject` as a child to additionally feed the panic bar. |
@@ -825,7 +866,7 @@ Registered in `game/project.godot`. Access directly by name from any script.
 | `kontur.tscn` | `extra_lock` — all eight gates | Level 5 — KONTUR. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−3) facing +z — the 8-room spine, gates, signs, creature and doors all built by `kontur.gd` in `_ready()`. Sets `current_level = 5`; BackDoor returns to the Backrooms |
 | `level_6_breach.tscn` | `extra_lock` — creature defeated | Level 6 — THE BREACH. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−2) facing +z — the 13-room spine + bypass loops, Object 12, hiding spots, slam doors and the purge chamber all built by `level_6_breach.gd` in `_ready()`. Sets `current_level = 6`; BackDoor returns to KONTUR |
 | `dungeon.tscn` | `extra_lock` — seven sconces lit and the bed slept in | Level 7 — THE NIGHTMARE. Minimal scene: root + Environment + AmbientPlayer + Player at (0,0.1,−48) in the Antechamber — everything else built by `dungeon.gd` in `_ready()` from `dungeon_gen.gd`'s output. Sets `current_level = 7`; BackDoor returns to The Breach. ⚠️ The dungeon is DIFFERENT EVERY LOAD; pin it with `-- --dungeon-seed N` |
-| `level_3.tscn` | TWIST_READ | The Void (level 8). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 7` |
+| `level_3.tscn` | TWIST_READ | The Void (level 8). Player spawn z=−2.0; vignette strength 2.0; BackDoor at z=−3.05; `_spawn_note_tables()` called in `_ready()` (all 8 notes). Sets `current_level = 8` (`level_3.gd:16`) |
 | `ending.tscn` | — | Reloads intro_room, credits fade |
 
 ## ⚠️ Building a level without coincident-surface bugs (READ THIS FIRST)
@@ -891,7 +932,7 @@ Visual feedback is provided by `hud_canvas.tscn` (at `game/assets/elements/hud_c
 
 To make a prop raise panic: the `ScaryObject` must be an **ancestor** of the `StaticBody3D` whose collider the gaze ray hits — `player.gd:_find_scary_object()` walks UP from the hit body. Build it as `ScaryObject (Node) → StaticBody3D → CollisionShape3D (+ mesh)`. Because `ScaryObject extends Node` (no transform) it **breaks the Node3D spatial chain**, so put the world transform on the `StaticBody3D` itself — its non-Node3D parent makes the body's local transform == its global transform. For a *moving* gaze prop (the void creatures), move that inner body, not the outer node. Set `scare_intensity` (default 1.0). ⚠️ Nesting `ScaryObject` *under* the body (the old pattern) silently registers **zero** panic — this was the bug behind the dead corridor/house cursed props and the non-reactive void creatures (fixed 2026-06).
 
-Panic source priority per frame (`_update_panic`): gaze at ScaryObject > sprinting (+6/s) > dark-zone creep (+3/s, flashlight off) > decay. Dread-zone pressure (+1.5/s) is added **on top** regardless of branch.
+Panic source priority per frame (`_update_panic`): gaze at ScaryObject > sprinting (+6/s) > dark-zone creep (+3/s, flashlight off) > decay. Dread-zone pressure (`DREAD_PANIC_RATE` **2.0**/s) is added **on top** regardless of branch, and inside a dread zone decay drops to `DREAD_DECAY_RATE` 2.0/s — the two cancel exactly, which is what makes KONTUR a no-decay level.
 
 ### Zone & movement modifiers
 - `add_panic(amount)` — instant spike from scripted events/traps; fires the screamer at max like gaze panic
