@@ -2,6 +2,11 @@ extends Node
 
 const NIGHTMARE_IMAGE := "res://assets/textures/intro/nightmare_face.png"
 
+# The cold open. START plays this, THEN the jumpscare lands in the black frame it ends on —
+# the clip's last frame is near-pure black (RGB ~2) by design, so the flash has somewhere to
+# hit. ⚠️ If it is ever replaced, keep that black tail or the scare arrives over a lit image.
+const INTRO_VIDEO := "res://assets/video/intro_scene.ogv"
+
 var _start_btn: Button
 var _quit_btn: Button
 
@@ -87,5 +92,20 @@ func _build_ui() -> void:
 func _on_start() -> void:
 	_start_btn.disabled = true
 	_quit_btn.disabled = true
+
+	# Black goes down FIRST and is never lifted: the cutscene frees itself the moment it ends,
+	# and without this the menu would flash back for the frames between the video, the scare
+	# and the scene change.
+	var blackout := CanvasLayer.new()
+	blackout.layer = 85
+	add_child(blackout)
+	var fill := ColorRect.new()
+	fill.color = Color(0, 0, 0, 1)
+	fill.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	blackout.add_child(fill)
+
+	var cutscene := CutscenePlayer.play(self, INTRO_VIDEO)
+	if cutscene != null:
+		await cutscene.finished
 	await Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.8)
 	get_tree().change_scene_to_file(GameState.SCENE_INTRO)

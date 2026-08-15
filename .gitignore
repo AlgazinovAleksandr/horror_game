@@ -62,3 +62,8 @@ game/assets/textures/*/draft/*.jpeg
 .Trashes
 
 BACKLOG.md
+claude-image-generation-main
+
+# Image-generation skill trial outputs — evaluation artifacts, not game assets
+assets_src/image_gen_trial/
+backlogs

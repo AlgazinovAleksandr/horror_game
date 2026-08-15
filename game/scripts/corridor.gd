@@ -1183,19 +1183,52 @@ func noclip_fall_distance() -> float:
 const FALL_FADE_AT := -3.0     # metres below the floor before the screen starts to go
 const FALL_ADVANCE_AT := -9.0  # and where the Backrooms takes over
 
+# ⭐ THE FALL IS NOW SHOWN, NOT SIMULATED (user's call): the cutscene covers the screen the
+# instant the floor gives way, so what the player sees is entirely the video — the shaft, the
+# watchers leaning over the hole, the walls turning Backrooms-yellow — and the Backrooms loads
+# when it ends rather than at a depth.
+#
+# ⚠️ The physics fall below is UNCHANGED and still runs, invisibly, behind the video. Two
+# reasons, both load-bearing:
+#   1. `tests/check_noclip_fall.gd` asserts the player actually drops >1 m in 1.2 s. That guard
+#      exists because this ending shipped twice as a fade with the player standing still.
+#   2. `CutscenePlayer.play()` returns null headless and if the file is missing, and then the
+#      old depth-driven fade/advance in `_tick_fall()` is what completes the level.
+# So the video is a presentation layer over the fall, never a replacement for it.
+const FALL_VIDEO := "res://assets/video/fall_scene.ogv"
+
+var _fall_cutscene: bool = false
+
 func _ev_noclip_fall() -> void:
 	if not _noclip_armed or _noclip_fired:
 		return
 	_noclip_fired = true
 
-	# The floor lets go. Keep the jolt and the creak — they are the sound of it breaking.
-	_player.jolt_camera(0.12, 0.5)
-	_play_at("creak", _player.global_position, 3.0)
 	_player.collision_mask = 0
 	# No steering on the way down; you are falling, not flying.
 	if _player.has_method("freeze_input"):
 		_player.freeze_input()
+
+	var cutscene := CutscenePlayer.play(self, FALL_VIDEO)
+	if cutscene != null:
+		_fall_cutscene = true
+		cutscene.finished.connect(_on_fall_cutscene_finished)
+	else:
+		# Fallback path: no video, so the break has to be sold in-engine as it always was.
+		# Keep the jolt and the creak — they are the sound of it breaking. With the cutscene
+		# they are dropped, because the clip carries its own floor-collapse audio and the
+		# camera shake is behind an opaque overlay where nobody can see it.
+		_player.jolt_camera(0.12, 0.5)
+		_play_at("creak", _player.global_position, 3.0)
+
 	set_process(true)   # _process drives the rest — see _tick_fall()
+
+
+func _on_fall_cutscene_finished() -> void:
+	if not _noclip_fired:
+		return
+	_noclip_armed = false      # belt and braces against a second entry
+	GameState.advance_level()  # -> The Backrooms
 
 
 var _fall_fading: bool = false
@@ -1205,6 +1238,10 @@ var _fall_fading: bool = false
 # the fade from the transition the way a fixed 2 s timer did.
 func _tick_fall() -> void:
 	if not _noclip_fired or _player == null or not is_instance_valid(_player):
+		return
+	# The cutscene owns the fade (it is opaque) and the transition (it advances on `finished`).
+	# The body below is the no-video fallback only.
+	if _fall_cutscene:
 		return
 	var y: float = _player.global_position.y
 	if not _fall_fading and y <= FALL_FADE_AT:
