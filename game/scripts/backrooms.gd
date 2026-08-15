@@ -25,9 +25,10 @@ const TURNS_TO_WIN := 3
 const WRONG_TURN_PANIC := 18.0
 const SPAWN := Vector3(0, 0, -5.0)   # entry arm, facing +z into the hub
 
-# Audio. Everything that loops goes through one bus so a SilenceZone can duck the
-# whole bed at once. The score deliberately LEADS the hum by 8 dB — the previous
-# mix had it 6 dB underneath, which made it inaudible.
+# Audio. Everything that RECURS goes through one bus so a SilenceZone can duck the whole
+# bed at once — and so nothing in this level can quietly out-shout the score from Master.
+# The score leads; see the measured note on HUM_VOLUME_DB for how far, and why the gap
+# between the two constants is not the answer.
 # The three zones live at separate world offsets in this one scene; the glitch
 # walls teleport between them. Far enough apart that no lighting or audio bleeds.
 const ZONE2_ORIGIN := Vector3(200, 0, 0)
@@ -38,7 +39,13 @@ const WRONG_WALL_PANIC := 12.0
 
 const AUDIO_BUS := "Backrooms"
 const MUSIC_VOLUME_DB := -4.0
-const HUM_VOLUME_DB := -12.0
+# ⚠️ Set these by MEASURING the files, not by reasoning about the gap between the two
+# numbers (2026-08-15). "-4 vs -12, so the score leads by 8 dB" was never true: the hum
+# is a dense synthesized noise bed at -8.3 dBFS RMS and the score is -18.0, so at -12 the
+# hum was 1.7 dB ABOVE the music — and broadband noise masks music far better than the
+# reverse. At -16 the score leads by ~2 dB measured, which is what the mix was after.
+# Drop this to -20 for the full 6 dB lead if the hum still crowds it.
+const HUM_VOLUME_DB := -16.0
 const BED_SILENCED_DB := -30.0   # what a SilenceZone ducks the bus to
 
 # Arm geometry: id -> { axis (unit Vector3 from hub outward), length }
@@ -749,10 +756,23 @@ func _spawn_phone() -> void:
 	# passes on the procedural `rotary_ring` (duration, then volume/range) didn't
 	# fix it, so the synthesized tone itself was likely the problem, not the mix.
 	# Switched to the same `phone_ringing` KONTUR already uses successfully for its
-	# own Gate 6 phone, at the same proven volume/range.
+	# own Gate 6 phone.
+	#
+	# ⚠️ KONTUR's LEVELS came with it, and they are Gate 6's levels, not this level's
+	# (2026-08-15). At 0 dB / unit_size 12 the ring measured -19.3 dBFS RMS at the
+	# emitter against the score's -22.0, i.e. the phone was ~3 dB LOUDER than the music
+	# — from a source 3 m from the spawn point, with a 12 m unit size that barely
+	# attenuates across the whole Lobby, on Master where no SilenceZone or HoldBreath dip
+	# could touch it. KONTUR wants exactly that (its gate is "ignore the unmissable
+	# phone"); here it buried the score the level is built around.
+	#
+	# Now UNDER the score, as rotary_phone.gd's own header always said the Backrooms ring
+	# should be: -8 dB, a 8 m unit size so walking away actually quietens it, and on the
+	# level's bed bus. The clip is unchanged, so the "I never heard it" fix stands.
 	phone.ring_audio = "phone_ringing"
-	phone.ring_volume_db = 0.0
-	phone.ring_unit_size = 12.0
+	phone.ring_volume_db = -8.0
+	phone.ring_unit_size = 8.0
+	phone.ring_bus = AUDIO_BUS
 	add_child(phone)
 
 

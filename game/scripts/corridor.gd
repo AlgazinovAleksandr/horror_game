@@ -112,8 +112,15 @@ func _ready() -> void:
 	_spawn_events()
 	_spawn_noclip()
 	_start_ambience()
+	_black_background()
 	Vignette.spawn(self, Color(0.9, 0.8, 0.65, 1.0), 1.2)
 	RandomAmbient.register_player(_player)
+	# ⚠️ The Corridor is the ONLY level that caps this, and it is opt-in for that reason —
+	# see random_ambient.gd:set_once_per_type(). At ~300 m this is the longest walk in the
+	# game, so a global 18-35 s metronome cycled the same three sounds many times over
+	# ("too many repeating sounds… falling painting", 2026-08-15). One creak, one painting,
+	# one half-scream, and then this autoload is quiet for the rest of the hall.
+	RandomAmbient.set_once_per_type(true)
 	_pick_silent_mirror()
 	_spawn_apparition_director()
 	# SCARY.md P2's stop-delayed echo. Two extra steps after the player halts: they stop,
@@ -122,6 +129,26 @@ func _ready() -> void:
 	_player.enable_footstep_echo(2)
 	GameState.set_objective("Find room 217 — keep walking, do not run")
 	_place_player()
+
+
+# The shared Environment renders a procedural SKY behind the level. In a sealed corridor
+# nobody ever sees it — until a mirror does. The reflection camera sits behind the glass
+# with its near plane pushed out to the mirror plane, which necessarily clips the ceiling
+# slab as well as the wall, and the sky poured through the gap as a bright blue band across
+# the top of every mirror.
+#
+# `level_1.gd:_boost_ambient()` and the House already switch to a black background for
+# exactly this class of leak ("so any geometry gap reads as darkness rather than blue
+# sky"). The Corridor never needed it before because it had nothing that could see out.
+# ⚠️ Ambient energy is deliberately NOT touched — this level's darkness is tuned.
+func _black_background() -> void:
+	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
+	if not we or not we.environment:
+		return
+	var env: Environment = we.environment.duplicate()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0, 0, 0)
+	we.environment = env
 
 
 # One of the three turn mirrors does not flash this run. See the note in _process.
@@ -164,10 +191,17 @@ func _spawn_apparition_director() -> void:
 # again before they could reach the noclip and go forward. So the only thing worth
 # remembering is how far they got.
 #
-# ⚠️ Deliberately capped short of the noclip onset (_total_len - 10). Respawning INSIDE
-# the noclip trigger would fire the fall-through the instant the level loaded, bouncing
-# the player straight back to the Backrooms they were trying to leave.
-const RETURN_MARGIN := 14.0
+# ⚠️ Deliberately capped short of the noclip ONSET, not just the fall. Respawning inside
+# either trigger would re-fire it the instant the level loaded — the blackout would kill
+# the flashlight on arrival, or the fall would bounce the player straight back to the
+# Backrooms they were trying to leave.
+#
+# ⚠️ THIS MOVES WITH `NOCLIP_ONSET_BEFORE_END`. It was 14.0 against a 10 m onset (cap at
+# 306, clearing the onset box by 3 m); the 2026-08-15 pass moved the onset to 15 m out, so
+# 14.0 would have put the player INSIDE it. 18.0 caps re-entry at 302: 2 m clear of the
+# onset box (304-306) and ~11 m clear of the fall. `tests/check_noclip_fall.gd` asserts
+# both gaps so the pair cannot drift apart again.
+const RETURN_MARGIN := 18.0
 
 # --- "the hotel wakes up behind you" (2026-07-28) --------------------------------------
 # Measured dead stretches before this pass: 90-138 m had NOTHING in it (48 m, ~12 s of pure
@@ -183,12 +217,26 @@ const DOOR_SWING_TIME := 1.6       # slow, and silent — see AjarDoor.swing_aja
 const DOOR_SLAM_LEAD := 22.0       # metres past the ajar door before it slams
 const DOOR_VIEW_DOT := 0.35        # above this the player is looking at it; do not move it
 
-# P4 The False Ceiling. Five telegraphs across Zone B; FOUR are followed by nothing at all.
-const TELEGRAPH_AT: Array[float] = [104.0, 126.0, 150.0, 178.0, 206.0]
+# P4 The False Ceiling. A telegraph that usually means nothing, then one that does.
+#
+# ⚠️ WAS FIVE (104/126/150/178/206), and the user reported the result plainly: "there are
+# too many repeating sounds… the trumpet musical instrument." `telegraph_groan` is a 3.2 s
+# descending brass fall (tools/make_sfx_atmos.py:78-111) and hearing it five times in
+# 100 m stops reading as dread and starts reading as a loop.
+#
+# Cut to TWO on the user's call (2026-08-15): one warning that leads nowhere, and one that
+# delivers the Manager. That keeps the shape of the beat — you learn the sound means
+# something is coming, you are wrong once, and then you are right — which is the whole
+# point of P4, while the instrument is heard twice instead of five times.
+const TELEGRAPH_AT: Array[float] = [126.0, 190.0]
 const TELEGRAPH_PAYOFF_DELAY := 0.9
 
 # The last stretch goes silent (P5's spatial cousin) instead of staying merely quiet.
 const HUSH_AT := 296.0
+
+# The Corridor's score rides its own bus so the hush cannot silence it. Nested under
+# Master rather than Ambience — see _start_ambience().
+const _MUSIC_BUS := "CorridorScore"
 
 # Whether this level arms random apparitions. Same const-plus-director split as
 # level_1/level_2/kontur: the level says WHETHER, ApparitionDirector owns WHEN.
@@ -239,6 +287,17 @@ func _place_player() -> void:
 
 
 func _process(_delta: float) -> void:
+	# Deferred to here because the clearance probes need a physics frame — see
+	# _make_mirror_real(). One-shot; the array is cleared by the call.
+	if not _mirror_figure_spots.is_empty():
+		_spawn_mirror_figures()
+
+	# Falling through the floor owns the rest of the frame — nothing below this point
+	# (turn-mirror proximity, the hush, door slams) means anything once the level is over.
+	if _noclip_fired:
+		_tick_fall()
+		return
+
 	# Walk into a turn mirror and the creature in the glass flashes at you once.
 	var pp := _player.global_position
 	# Cheap high-water mark for the progress snapshot. Path distance is not recoverable
@@ -329,6 +388,21 @@ func _tick_hush() -> void:
 	var tw := create_tween()
 	tw.tween_method(func(v: float) -> void: AudioServer.set_bus_volume_db(idx, v),
 		AudioServer.get_bus_volume_db(idx), -40.0, 3.0)
+
+
+# ⚠️ THE HUSH MUST NOT OUTLIVE THE LEVEL. Audio buses are global and survive a scene
+# change, and this level ducks `Ambience` by 40 dB roughly 20 m before it ends — so for the
+# life of the project every level after the Corridor played with its ambience 40 dB down.
+# It surfaced as "the music in the Backrooms disappeared after I got there from the
+# corridor, but starting the Backrooms from scratch it was there" (2026-08-15).
+#
+# `GameState.start_current_level()` now resets every bus on every load, which is the real
+# guarantee; this is the level cleaning up after itself so it is not the thing relying on
+# it. Both, deliberately — the same belt-and-braces `silence_zone.gd` uses.
+func _exit_tree() -> void:
+	var idx := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if idx != -1:
+		AudioServer.set_bus_volume_db(idx, 0.0)
 
 
 # P4 — the telegraph that usually means nothing, plus N3's announced-but-unbounded window.
@@ -597,7 +671,8 @@ func _spawn_turn_mirror(corner_dist: float, intensity: float) -> void:
 	var pos: Vector3 = pt.pos + dir_in * (W / 2.0 - 0.05) + Vector3(0, 1.5, 0)
 	var face := -dir_in
 	var xform := Transform3D(Basis(Vector3.UP, atan2(face.x, face.z)), pos)
-	_make_cursed_panel_at(xform, Vector2(1.4, 1.95), TURN_MIRROR_SCARE_PATH, intensity)
+	var quad := _make_cursed_panel_at(xform, Vector2(1.4, 1.95), TURN_MIRROR_SCARE_PATH, intensity)
+	_make_mirror_real(quad, pt, face)
 	# `flashes` is decided in _pick_silent_mirror() once all three exist — one corner per run
 	# is a corner and nothing else. The GAZE panel is untouched either way, so a player who
 	# stops and stares at the silent mirror still pays for it.
@@ -607,7 +682,7 @@ func _spawn_turn_mirror(corner_dist: float, intensity: float) -> void:
 # Build a gaze-panic panel (StaticBody + textured quad + collision + ScaryObject)
 # at an arbitrary transform.
 func _make_cursed_panel_at(xform: Transform3D, size: Vector2, tex_path: String,
-		intensity: float) -> void:
+		intensity: float) -> MeshInstance3D:
 	# The ScaryObject must be an ANCESTOR of the collider — player.gd's gaze check
 	# walks UP from the ray-hit StaticBody. Previously it was a child of the body,
 	# so no cursed panel (paintings, clock, mirrors) ever fed gaze panic.
@@ -640,6 +715,90 @@ func _make_cursed_panel_at(xform: Transform3D, size: Vector2, tex_path: String,
 	shape.size = Vector3(size.x, size.y, 0.1)
 	col.shape = shape
 	body.add_child(col)
+	return quad
+
+
+# ⭐ Turn a painted mirror into a REFLECTING one, and put something in it that is not in
+# the corridor (2026-08-15).
+#
+# The old turn mirror was `mirror_with_creature.png` on a flat quad — the user's report was
+# "it does not really look like a mirror," and it wasn't: nothing in this project reflected
+# anything (no ReflectionProbe, no SSR, no SubViewport). See mirror_surface.gd.
+#
+# The creature is now a real `Watcher` standing in the corridor on MIRROR_ONLY_LAYER: the
+# player's camera drops that layer (player.gd:_ready), the reflection camera keeps it. So
+# the glass shows a figure over your shoulder, you turn round, and the corridor is empty —
+# which is a far better beat than a painted figure, and it costs no panic and has no rules
+# (watcher.gd), so it cannot kill anyone by surprise.
+#
+# ⚠️ Everything else about the turn mirror is untouched: the ScaryObject gaze intensity, the
+# 2 m one-shot `flash_scare`, and `_pick_silent_mirror()`'s anti-habituation roll. Those are
+# playtest-derived and were not part of this change.
+const MIRROR_FIGURE_DIST := 7.0    # metres in front of the glass, i.e. behind the player
+# ⚠️ ON THE CENTRELINE. An earlier 0.55 m offset looked better on paper — the figure would
+# not sit directly behind your own head — but `Watcher.spawn()` rejected two of the three
+# placements: the billboard is 1.6 m wide, so at 0.55 off-centre its edge came within
+# 0.15 m of the wall of a 3 m corridor and the clearance fan refused it. Only one figure
+# spawned, silently, because a refused spawn returns null rather than complaining. There is
+# no player body to hide behind anyway (first person, no mesh), so centred is both safer
+# and the better shot: the figure stands dead centre in the glass.
+const MIRROR_FIGURE_SIDE := 0.0
+const TURN_MIRROR_FIGURE_PATH := "res://assets/textures/shared/watcher_figure.png"
+
+var _mirror_figure_spots: Array[Vector3] = []
+
+func _make_mirror_real(quad: MeshInstance3D, pt: Dictionary, face: Vector3) -> void:
+	if quad == null:
+		return
+	MirrorSurface.attach(quad)
+
+	# The figure stands down the corridor the mirror looks along — the stretch the player
+	# has just walked. `face` points from the glass back into that corridor.
+	var side_vec: Vector3 = Vector3(face.z, 0, -face.x)
+	var fig_pos: Vector3 = quad.global_position + face * MIRROR_FIGURE_DIST \
+		+ side_vec * MIRROR_FIGURE_SIDE
+	fig_pos.y = 0.0
+	# ⚠️ QUEUED, not spawned here. `Watcher.spawn()` clearance-probes with raycasts, and
+	# during `_ready()` the CSG colliders this level has just built are not yet registered
+	# with the physics server — so the probe is querying an empty world and its answers are
+	# meaningless. Measured: called inline, one of three figures survived; called from the
+	# first _process tick, all three do, and the same call from a test probe at t=1 s always
+	# worked, which is what pointed at timing rather than at placement.
+	_mirror_figure_spots.append(fig_pos)
+
+
+# Runs once, on the first frame, when physics knows about the level.
+func _spawn_mirror_figures() -> void:
+	for fig_pos in _mirror_figure_spots:
+		# ⚠️ `require_los = false` because the player is 90+ m away round two corners, so an
+		# LOS check would refuse every one of these. The clearance fan and head-room probes
+		# still run, and the position comes off the corridor centreline, so it cannot land
+		# inside geometry — the case require_los normally guards.
+		var w := Watcher.spawn(self, fig_pos, TURN_MIRROR_FIGURE_PATH, 0.0, false)
+		if w == null:
+			continue
+		# ⚠️ PERSISTENT, or it deletes itself. A default Watcher is an apparition: it expires
+		# at MAX_LIFETIME and rolls to vanish whenever the player looks away and back. These
+		# are fixtures — the thing in the glass has to be there every time you pass the
+		# corner, and the look-away roll is meaningless for a figure the player's camera
+		# cannot see at all.
+		w.persistent = true
+		# ⚠️ Named distinctly. Watcher.spawn() calls every one of them "Watcher", and Godot
+		# silently renames the collisions — which made a test counting them by name report
+		# one figure where three existed. The name also says what this one IS: not a roaming
+		# Watcher, a fixture that lives in a mirror.
+		w.name = "MirrorFigure%d" % _mirror_figure_spots.find(fig_pos)
+		# Render it ONLY into mirrors. Watcher builds its own billboard quad, so walk its
+		# meshes rather than assuming a shape.
+		_set_mirror_only(w)
+	_mirror_figure_spots.clear()
+
+
+func _set_mirror_only(n: Node) -> void:
+	if n is VisualInstance3D:
+		n.layers = 1 << (MirrorSurface.MIRROR_ONLY_LAYER - 1)
+	for c in n.get_children():
+		_set_mirror_only(c)
 
 
 func _spawn_fake_door(dist: float, side: float) -> void:
@@ -754,13 +913,40 @@ func _dress_exit_door(body: StaticBody3D) -> void:
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2(2.0, 3.0)
 	quad.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	if ResourceLoader.exists(TEX_DIR + "door.png"):
-		mat.albedo_texture = load(TEX_DIR + "door.png")
-	# Soft red glow that still lets the room-217 texture read through.
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.02, 0.02)
-	mat.emission_energy_multiplier = 0.6
+	# ⚠️ Sized from the ARTWORK's aspect, not chosen: `backrooms_tear_door.png` is
+	# 774x1458 (1:1.884), so a 3.0 m tall panel is 1.593 wide. The old `door.png` was
+	# 2:3 and the quad was 2.0x3.0 to match it; keeping 2.0 here would stretch the new
+	# door 26% wide (SCARY.md §7.1(4)). 1.593 also happens to match the collider width
+	# (1.6, see _make_door_body), which the old art did not.
+	var tex_path := TEX_DIR + "backrooms_tear_door.png"
+	var has_art: bool = ResourceLoader.exists(tex_path)
+	if has_art:
+		mesh.size = Vector2(1.593, 3.0)
+	# ⚠️ UNSHADED, not emissive — and this door is the one place in the game where that is
+	# the right answer. Measured, in this order:
+	#
+	#   emission 0.35-red @ 0.6, no emission_texture .. a flat red slab, art invisible.
+	#     This was the reported bug: a red wash painted OVER the picture.
+	#   door_material() — 0.6-red @ 0.08 WITH the texture .. the art, but uniformly red,
+	#     because unlike the Lab's pale steel or the House's timber this artwork is
+	#     already near-black, so a red tint is all that survives.
+	#   white tint @ 0.42, then @ 0.14 ............... a flat LIGHT-GREY slab, and dropping
+	#     the energy barely moved it; at 0.0 the door went black (sampled 16,12,12). The
+	#     emission was reading as its flat colour rather than modulating the texture.
+	#
+	# The artwork measures 22/255 mean luma, so there is no emission tint that both lights
+	# it and preserves it. Unshaded sidesteps the whole argument: the quad renders the art
+	# exactly as authored — a black door with a red-lit tear already glowing inside it —
+	# and is self-lit by definition, so it stays findable after the blackout force-kills
+	# the flashlight. That is the only thing the blood-red door convention is really for.
+	# `mirror_surface.gd` uses the same shading mode for the same reason.
+	var mat: StandardMaterial3D
+	if has_art:
+		mat = StandardMaterial3D.new()
+		mat.albedo_texture = load(tex_path)
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	else:
+		mat = _DOOR_SCRIPT.door_material("")
 	quad.set_surface_override_material(0, mat)
 	quad.position.y = 1.5
 	body.add_child(quad)
@@ -886,10 +1072,13 @@ func _spawn_nightmare_plate() -> void:
 func _spawn_events() -> void:
 	_spawn_event(6.0, _ev_entry_slam)
 	_spawn_event(46.0, _ev_clock_chime)
-	_spawn_event(72.0, _ev_painting_fall)    
+	_spawn_event(72.0, _ev_painting_fall)
 	_spawn_event(138.0, _ev_lights_out)
 	_spawn_event(188.0, _ev_whisper_oneshot)
-	_spawn_event(195.0, _ev_painting_fall)   
+	# ⚠️ The SECOND scripted painting fall was removed 2026-08-15. Between this level's two
+	# placements and `RandomAmbient` rolling `painting_fall` as one of its three events every
+	# 18-35 s, the same crash was landing many times in one walk. One scripted fall, and the
+	# ambient roll is now capped (see `_ready`'s RandomAmbient.set_once_per_type call).
 	_spawn_event(205.0, _ev_silhouette)
 	_spawn_event(235.0, _ev_whisper_loop)
 	_spawn_event(250.0, _ev_floor_crack)
@@ -918,20 +1107,37 @@ func _spawn_events() -> void:
 
 # ---------------------------------------------------------------- the noclip
 
-# The player never reaches room 217. Ten metres out, the corridor plunges black
-# and the flashlight dies; the floor at the door is a trigger that drops them
-# into the Backrooms (GameState level 4). Replaces the old clean door advance.
+# The player never reaches room 217. The corridor plunges black and the flashlight dies,
+# and then the floor gives way SHORT of the door — they can see it, torn open and lit
+# from inside, and never get to touch it. Replaces the old clean door advance.
+#
+# ⚠️ The fall used to be AT the door (trigger centred at d = 318.5, i.e. its leading face
+# 2.75 m out). The user's call 2026-08-15 was to drop the player ~5 m short, so the door
+# stays a thing seen rather than a thing reached.
+const NOCLIP_FALL_BEFORE_DOOR := 5.0   # metres from the door plane to the trigger's near face
+const NOCLIP_TRIGGER_DEPTH := 2.5
+# The blackout moved with it. At the old d = 310 onset a 5 m-earlier fall left barely 4 m
+# of dark walking; at 15 m out the run-up is ~9 m again, which is what the beat is for.
+const NOCLIP_ONSET_BEFORE_END := 15.0
+
 var _noclip_armed: bool = false
 var _noclip_fired: bool = false
 
 func _spawn_noclip() -> void:
-	_spawn_event(_total_len - 10.0, _ev_noclip_onset)
-	# Floor trigger right at the door.
-	var pt := _path_point(_total_len - 1.5)
+	_spawn_event(_total_len - NOCLIP_ONSET_BEFORE_END, _ev_noclip_onset)
+	# Floor trigger, placed so its NEAR face — the one the player walks into — sits
+	# NOCLIP_FALL_BEFORE_DOOR from the door. The door body itself is at _total_len - 0.08.
+	var door_d: float = _total_len - 0.08
+	# ⚠️ PLUS half the depth. The near face is at centre - depth/2, so to put that face
+	# 5 m from the door the centre goes 5 m out and then half a box back TOWARD it.
+	# Subtracting instead (the obvious-looking arithmetic) placed the fall 7.5 m out —
+	# caught by check_noclip_fall.gd before the level was ever launched.
+	var centre_d: float = door_d - NOCLIP_FALL_BEFORE_DOOR + NOCLIP_TRIGGER_DEPTH / 2.0
+	var pt := _path_point(centre_d)
 	var area := CorridorEvent.new()
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(W, H, 2.5)
+	shape.size = Vector3(W, H, NOCLIP_TRIGGER_DEPTH)
 	col.shape = shape
 	area.add_child(col)
 	area.position = pt.pos + Vector3(0, H / 2.0, 0)
@@ -942,7 +1148,7 @@ func _spawn_noclip() -> void:
 
 func _ev_noclip_onset() -> void:
 	# Pitch black: every torch dies and the flashlight is force-killed (F now
-	# only clicks). The last ten metres are walked blind.
+	# only clicks). The last stretch before the floor goes is walked blind.
 	_noclip_armed = true
 	for entry in _torch_nodes:
 		entry[1].extinguish()
@@ -951,24 +1157,70 @@ func _ev_noclip_onset() -> void:
 	_play_at("creak", _path_point(_total_len - 6.0).pos + Vector3(0, 1.5, 0), 2.0)
 
 
+# Where the floor gives way, in path distance. Exposed so tests can assert the gap to the
+# door and to the re-entry cap without re-deriving the arithmetic (which is how the two
+# constants drifted apart in the first place).
+func noclip_fall_distance() -> float:
+	return (_total_len - 0.08) - NOCLIP_FALL_BEFORE_DOOR + NOCLIP_TRIGGER_DEPTH / 2.0
+
+
+# ⭐ THE FLOOR GIVES WAY AND YOU ACTUALLY FALL (2026-08-15, user's call).
+#
+# ⚠️ This used to fade to black and wait two seconds, which is not a fall — the player
+# stood still while the screen dimmed. Reported as "there is still no such thing as the
+# visual like you are falling; I want like you just walk and fall through the floor."
+#
+# The player is a CharacterBody3D, so zeroing its `collision_mask` means nothing holds it
+# up any more: `player.gd:_apply_gravity()` already runs every frame and `is_on_floor()`
+# goes false, so it accelerates downward through the floor under real gravity. The camera
+# falls with it and the corridor rushes up past the view.
+#
+# ⚠️ Done this way rather than by cutting a hole. The corridor floor is ONE CSGBox3D per
+# 45 m segment (`_build_geometry`), so there is no local piece to delete the way
+# `kontur.gd:_open_the_void()` deletes a room's floor — it would need a CSG subtraction and
+# a collision rebuild, for a hole nobody can see: the blackout killed every light 10 m ago.
+# What the player is owed here is the SENSATION, and that is entirely in the falling.
+const FALL_FADE_AT := -3.0     # metres below the floor before the screen starts to go
+const FALL_ADVANCE_AT := -9.0  # and where the Backrooms takes over
+
 func _ev_noclip_fall() -> void:
 	if not _noclip_armed or _noclip_fired:
 		return
 	_noclip_fired = true
-	# Fade to black, a two-second drop, then wake in the Backrooms.
-	var layer := CanvasLayer.new()
-	layer.layer = 80
-	add_child(layer)
-	var fade := ColorRect.new()
-	fade.color = Color(0, 0, 0, 0)
-	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	layer.add_child(fade)
-	var tween := create_tween()
-	tween.tween_property(fade, "color:a", 1.0, 1.0)
-	_player.jolt_camera(0.05, 0.4)
+
+	# The floor lets go. Keep the jolt and the creak — they are the sound of it breaking.
+	_player.jolt_camera(0.12, 0.5)
 	_play_at("creak", _player.global_position, 3.0)
-	await get_tree().create_timer(2.0).timeout
-	GameState.advance_level()  # -> The Backrooms
+	_player.collision_mask = 0
+	# No steering on the way down; you are falling, not flying.
+	if _player.has_method("freeze_input"):
+		_player.freeze_input()
+	set_process(true)   # _process drives the rest — see _tick_fall()
+
+
+var _fall_fading: bool = false
+
+# Driven from _process while the player is falling. Deliberately not an `await` chain: the
+# distance fallen is what advances the level, so a slow frame or a long drop cannot desync
+# the fade from the transition the way a fixed 2 s timer did.
+func _tick_fall() -> void:
+	if not _noclip_fired or _player == null or not is_instance_valid(_player):
+		return
+	var y: float = _player.global_position.y
+	if not _fall_fading and y <= FALL_FADE_AT:
+		_fall_fading = true
+		var layer := CanvasLayer.new()
+		layer.layer = 80
+		add_child(layer)
+		var fade := ColorRect.new()
+		fade.color = Color(0, 0, 0, 0)
+		fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		layer.add_child(fade)
+		var tween := create_tween()
+		tween.tween_property(fade, "color:a", 1.0, 0.8)
+	if y <= FALL_ADVANCE_AT:
+		_noclip_armed = false      # belt and braces against a second entry
+		GameState.advance_level()  # -> The Backrooms
 
 
 func _spawn_event(dist: float, callback: Callable) -> void:
@@ -1109,7 +1361,18 @@ func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if not ambient:
 		return
-	ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
+	# ⚠️ NOT on the duckable `Ambience` bus (2026-08-15, user's call: "let's leave music to
+	# be present in the entire level"). `_tick_hush()` pulls `Ambience` down by 40 dB for
+	# the last 25 m, which used to take this bed with it and leave the walk to the fall in
+	# total silence. On its own bus the hush still silences the WORLD — the whispers loop
+	# and RandomAmbient's one-shots, which is the beat the hush exists for — while the
+	# score plays through to the floor giving way. Same reasoning as `kontur.gd` keeping
+	# `kontur_music` off the ducked path.
+	# ⚠️ Ensure BEFORE assigning. Godot resolves a bus by name at assignment time and falls
+	# back to Master silently if it does not exist yet — which would look like it worked
+	# and leave the score un-bussed. (`check_audio_buses.gd` documents the same trap.)
+	AudioBuses.ensure_music_bus(_MUSIC_BUS)
+	ambient.bus = _MUSIC_BUS
 	var s := GameState.load_audio("ghost_house")
 	if s:
 		ambient.stream = s

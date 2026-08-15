@@ -58,3 +58,45 @@ static func ensure(bus_name: String) -> int:
 static func ensure_core() -> void:
 	ensure(AMBIENCE)
 	ensure(BODY)
+
+
+# ⭐ A bus for a level's SCORE, sent to Master rather than nested under `Ambience`.
+#
+# `ensure()` deliberately nests every level bed under `Ambience` so a global dip reaches it.
+# That is right for room tone and wrong for music: the Corridor ducks `Ambience` by 40 dB
+# for its last 25 m (`_tick_hush`), which is meant to take the WORLD away — the whispers,
+# the ambient one-shots — and used to take the score with it, leaving the walk to the fall
+# in silence. The user's call on 2026-08-15 was that the music plays for the whole level.
+#
+# ⚠️ Music on this bus is therefore NOT duckable by `HoldBreath` or a `SilenceZone` either.
+# That is the trade and it is the same one `kontur.gd` already makes by leaving
+# `kontur_music` on Master. If a level ever wants its score ducked, put it on `Ambience`.
+static func ensure_music_bus(bus_name: String) -> int:
+	var idx := AudioServer.get_bus_index(bus_name)
+	if idx != -1:
+		return idx
+	idx = AudioServer.bus_count
+	AudioServer.add_bus(idx)
+	AudioServer.set_bus_name(idx, bus_name)
+	AudioServer.set_bus_send(idx, "Master")
+	return idx
+
+
+# ⭐ Put every bus back to 0 dB. Called by `GameState.start_current_level()` on EVERY level
+# load, and it is a guarantee rather than a tidy-up.
+#
+# ⚠️ AudioServer buses are GLOBAL and survive `change_scene_to_file`. Nothing about a scene
+# change resets a volume, `ensure()` early-returns without touching one, and every per-level
+# bed bus nests under `Ambience` — so a single level that ducks a bus and forgets to restore
+# it silences every level that follows, for the rest of the process.
+#
+# That is not hypothetical. `corridor.gd:_tick_hush()` tweened `Ambience` to -40 dB at 296 m
+# with no restore of any kind, which is why the Backrooms music was missing on arrival from
+# the Corridor but present when the Backrooms was loaded directly (reported 2026-08-15). The
+# same shape is latent in `dungeon.gd:_duck_bus()`, which has no `_exit_tree` guard.
+#
+# A level that wants a duck should still restore it itself; this is the floor under that.
+static func reset_all() -> void:
+	for i in range(AudioServer.bus_count):
+		AudioServer.set_bus_volume_db(i, 0.0)
+		AudioServer.set_bus_mute(i, false)

@@ -37,7 +37,10 @@ const CATCH_TIMEOUT := 30.0     # seconds of simulated chase before we call it i
 # = ~2900 px, which at MONSTER_SPEED takes ~33 s. Anything under this is navigation
 # working; a monster that never arrives is jammed.
 const HUNT_TIMEOUT := 60.0
-const ESCAPE_SPEED := 200.0     # under PLAYER_MAX_SPEED (240) — an unhurried player
+const ESCAPE_SPEED := 200.0
+# How close a monster has to be to a cell before the bot prefers another way round.
+# One cell is 96 px, so this is "do not walk into the square it is standing in".
+const AVOID_RADIUS := 70.0     # under PLAYER_MAX_SPEED (240) — an unhurried player
 
 var _ui: Node
 var _fails := 0
@@ -114,10 +117,21 @@ func _process(_delta: float) -> bool:
 			_step_player_toward_target(DT)
 			if t >= grace:
 				_ui.call("_tick_monster", DT)
+				# ⚠️ THE PATROLLER AND THE SNARES TICK HERE TOO (2026-08-15). This harness
+				# drives `_tick_monster()` directly rather than `_process()`, so when the
+				# second monster and the traps were added the measured escape rate did not
+				# move by a single seed — the test was still reporting the difficulty of a
+				# maze with one hunter and no traps. A harness that silently measures the
+				# old build is worse than no harness.
+				_ui.call("_tick_patroller", DT)
+				_ui.call("_check_snares", null)
 			t += DT
 			var mp: Vector2 = _ui.get("_monster_pos")
 			var pp: Vector2 = _ui.get("_player_pos")
 			var tp: Vector2 = _ui.get("_target_pos")
+			if (_ui.get("_patrol_pos") as Vector2).distance_to(pp) <= catch_radius:
+				caught = true
+				break
 			if mp.distance_to(pp) <= catch_radius:
 				caught = true
 				break
@@ -130,7 +144,26 @@ func _process(_delta: float) -> bool:
 			_caught_while_fleeing += 1
 	print("  reached the mark %d/%d (caught in flight %d)"
 		% [_escapes, TRIALS, _caught_while_fleeing])
-	if _escapes < int(TRIALS * 0.75):
+	# ⚠️ FLOOR LOWERED 0.75 -> 0.55 ON 2026-08-15, EXPLICITLY, AS THE USER'S CALL.
+	#
+	# The maze gained loops (`_braid()`), a second monster that patrols and gives chase, and
+	# snares that pin you for 1.2 s. Asked whether to preserve the old difficulty or let it
+	# get harder, the user chose harder, target ~30/40.
+	#
+	# Measured after the change, 40 seeds, with the isolation runs that produced it:
+	#     braid only, non-evading bot .................. 34/40
+	#     + patroller + snares, non-evading bot ........ 18/40
+	#     + patroller + snares, bot allowed to go round  26/40   <- the shipped build
+	#     of which: snares cost 0 seeds (26 either way)
+	#              the patroller's AGGRO costs 2 (28 -> 26)
+	#              the patroller's mere PRESENCE costs the rest
+	#
+	# 26/40 is harder than the ~30 asked for, and four separate tunings of the patroller's
+	# speed, aggro range and start distance all landed on 26 — so 26 is what this roster
+	# costs, not a knob left in the wrong place. The floor is set below it at 22/40 to leave
+	# room for seed noise while still failing loudly if the maze becomes unwinnable.
+	# Raising the escape rate further means removing something, not adjusting something.
+	if _escapes < int(TRIALS * 0.55):
 		_fail("only %d/%d escapes — the monster is now effectively unbeatable"
 			% [_escapes, TRIALS])
 
@@ -145,6 +178,8 @@ func _process(_delta: float) -> bool:
 			_step_player_toward_target(DT)
 			if t >= grace:
 				_ui.call("_tick_monster", DT)
+				_ui.call("_tick_patroller", DT)
+				_ui.call("_check_snares", null)
 			t += DT
 			var pp0: Vector2 = _ui.get("_player_pos")
 			var tp0: Vector2 = _ui.get("_target_pos")
@@ -157,9 +192,11 @@ func _process(_delta: float) -> bool:
 		var got := false
 		while t2 < HUNT_TIMEOUT:
 			_ui.call("_tick_monster", DT)
+			_ui.call("_tick_patroller", DT)
 			t2 += DT
-			if (_ui.get("_monster_pos") as Vector2).distance_to(
-					_ui.get("_player_pos") as Vector2) <= catch_radius:
+			var pp2: Vector2 = _ui.get("_player_pos")
+			if (_ui.get("_monster_pos") as Vector2).distance_to(pp2) <= catch_radius \
+					or (_ui.get("_patrol_pos") as Vector2).distance_to(pp2) <= catch_radius:
 				got = true
 				break
 		if got:
@@ -200,12 +237,46 @@ func _step_player_toward_target(dt: float) -> void:
 	var aim := tp
 	if pcell != tcell:
 		var field: Dictionary = _ui.call("_bfs_distances", tcell)
+		# ⚠️ THE BOT AVOIDS CELLS A MONSTER IS STANDING IN (2026-08-15).
+		#
+		# This pass claims to model "a competent player, not one teleporting through walls",
+		# and until now it modelled one who walks face-first into anything in its way: it
+		# stepped strictly downhill on the distance field and never looked up. That was
+		# harmless while there was one pursuer BEHIND it. With a second monster patrolling
+		# ahead it stopped being a difficulty measurement and became a measurement of how
+		# often something happens to stand in the corridor — the escape rate fell to 20/40
+		# while a human, who can see both icons on the map, would simply go round.
+		#
+		# Going round is the entire point of the braiding the user asked for, so the harness
+		# has to be able to do it, or it cannot measure the feature. The rule is deliberately
+		# minimal — prefer a downhill step that is not into a monster; take the blocked one
+		# only if there is no alternative — so it still is not clairvoyant.
+		var danger: Array[Vector2] = [_ui.get("_monster_pos"), _ui.get("_patrol_pos")]
 		var best := pcell
 		var best_d: int = field.get(pcell, 1 << 30)
+		var fallback := pcell
+		var fallback_d: int = best_d
 		for n in _ui.call("_open_neighbours", pcell):
-			if field.has(n) and int(field[n]) < best_d:
-				best_d = int(field[n])
-				best = n
+			if not field.has(n) or int(field[n]) >= best_d:
+				if field.has(n) and int(field[n]) < fallback_d:
+					fallback_d = int(field[n])
+					fallback = n
+				continue
+			var centre: Vector2 = _ui.call("_cell_center", n)
+			var blocked := false
+			for d in danger:
+				if centre.distance_to(d) < AVOID_RADIUS:
+					blocked = true
+					break
+			if blocked:
+				if int(field[n]) < fallback_d:
+					fallback_d = int(field[n])
+					fallback = n
+				continue
+			best_d = int(field[n])
+			best = n
+		if best == pcell:
+			best = fallback
 		if best != pcell:
 			aim = _ui.call("_cell_center", best)
 	var dir := (aim - pp)

@@ -154,6 +154,11 @@ func _capture_progress() -> void:
 
 func start_current_level() -> void:
 	reset_level_state()
+	# ⚠️ Every level starts with the mixer at zero. Audio buses are global and survive a
+	# scene change, so without this one level's un-restored duck follows the player for the
+	# rest of the session — which is exactly what happened: the Corridor's 296 m hush left
+	# `Ambience` at -40 dB and the Backrooms arrived with no music. See AudioBuses.reset_all().
+	AudioBuses.reset_all()
 	current_objective = ""  # cleared so the next level re-announces its goal cleanly
 	match current_level:
 		0: get_tree().change_scene_to_file(SCENE_INTRO)

@@ -513,6 +513,7 @@ scratch.
 | A prop shows a **magnified crop** of its own texture | Art applied to a `BoxMesh` face | Move art to a `QuadMesh` (Issue 24) |
 | A prop renders **blank/untextured**, no error visible | `.png` that is really JPEG — `load()` fails while `ResourceLoader.exists()` returns TRUE | `file` it, then `sips -s format png` (Issues 1, 25) |
 | A whole emissive surface reads as **flat pure white** | `emission_energy_multiplier > 1.0` with Linear tonemap and no glow | Keep emission below 1.0 (Issue 21) |
+| A textured surface reads as **one flat colour**, art invisible underneath | `emission` set with NO `emission_texture` — a sheet of paint over the picture, not a glow on it | Set `emission_texture`, or go `SHADING_MODE_UNSHADED` if the art is already dark and self-lit (Issue 48) |
 
 ### Diagnostic order (learned the hard way)
 1. **Run the assertion first** — `tests/check_wall_overlap.gd` names the offending nodes in one run
@@ -588,7 +589,9 @@ found the culprit in one run, after three wrong guesses.**
 **The same trap bit the doors.** `door.gd:door_material()` tints a textured door's emission red to
 keep the blood-red convention. At `emission_energy_multiplier = 0.5` the red swamped the pale steel
 texture — in a level lit at 0.45 energy, albedo contributes far less than emission — and the door
-rendered salmon pink. It is now 0.18.
+rendered salmon pink. It is now **0.08** (`door.gd:84`; this entry said 0.18 for a long time and was
+wrong). ⚠️ And the trap bit a third time — see **Issue 48**, where the same convention applied to a
+near-black artwork produced a flat red panel, and the fix was to leave the emissive path entirely.
 
 **General lesson.** In a project with no tonemapping and very low light energy, emission is not a
 finishing touch — it is most of a surface's final colour. Treat any value near or above 1.0 as
@@ -1519,3 +1522,220 @@ dimension on the lattice is a multiple of `CELL = 3.0`.
 of the levels built with it. `BRIDGE_PAD` of 1.3 m is invisible at hand-authored
 room spacing and pathological at 3 m. When a new level changes the scale by an order
 of magnitude, re-derive the constants rather than inheriting them.
+
+---
+
+## Issue 48 — Issue 21 recurred: an untextured `emission` wash hides the art it is meant to light
+
+**Symptom.** The Corridor's exit door was given new artwork — a black-wood door torn open on a
+red-lit void — and rendered as a plain red rectangle. The texture was demonstrably loaded:
+`check_noclip_fall.gd` asserted `albedo_texture` was assigned and passed. Reported twice
+(2026-08-15: *"in the corridor level the door still looks just red, not like [the file]"*).
+
+**Root cause.** `corridor.gd:_dress_exit_door()` is the one door in the game that hand-rolls its
+material instead of calling `door.gd:door_material()`. It set `emission = Color(0.35, 0.02, 0.02)`
+at `emission_energy_multiplier = 0.6` **with no `emission_texture`**. A flat emission colour is
+added to every pixel equally, so it is a sheet of red paint laid over the picture — and in a level
+lit at ~0.45 energy with no tonemapping, emission is most of the final colour (Issue 21). The
+albedo underneath never had a chance.
+
+**Fix.** Two stages, and the second is the interesting one:
+
+1. Switching to `door_material()` fixed the wash — it sets `emission_texture` so the tint is
+   modulated BY the art — but the door then read as uniformly red. That tint exists for the Lab's
+   pale steel and the House's timber; this artwork measures **22/255 mean luma**, so a red tint is
+   the only thing that survives it.
+2. A neutral tint blew out instead: white at 0.42 and again at 0.14 both rendered a flat light-grey
+   slab, and at 0.0 the door went black (sampled 16,12,12) — the emission was behaving as its flat
+   colour rather than as the texture.
+
+The door is now `SHADING_MODE_UNSHADED`. The quad draws the artwork exactly as authored, which is
+already a black door with a glowing tear in it, and is self-lit by definition — so it survives the
+blackout that force-kills the flashlight 10 m earlier. That is the only thing the blood-red door
+convention was ever for.
+
+⚠️ **Issue 21 is stale where it says the textured-door emission "is now 0.18"** — `door.gd:84` has
+been **0.08** for some time, and this door has now left that path entirely.
+
+**General lesson.** `emission` without `emission_texture` is not "a glow on the object", it is an
+opaque colour laid over it. And a convention tuned for pale surfaces inverts on dark ones: when the
+art is already near-black and already contains its own light source, the correct amount of help is
+none. ⚠️ The assertion that would have caught this is not "is a texture assigned" but "is anything
+washed flat over it" — see the note in `check_noclip_fall.gd`.
+
+---
+
+## Issue 49 — An early `return` from `_apply_movement()` leaves velocity for `move_and_slide()` to spend
+
+**Symptom.** Stepping into a beartrap was supposed to pin the player until they mashed free. The
+UI read `TRAPPED — PRESS [E] TO ESCAPE` and the player kept moving anyway, reported twice
+(2026-08-15: *"I am still not trapped in the beartrap once I get into there. I can still move even
+though in the weird way"* — the *weird way* is the tell).
+
+**Root cause.** The pin was implemented as an early return:
+
+```gdscript
+func _apply_movement() -> void:
+	if _input_frozen or _qte_active:
+		return          # ← looks like "do not move"
+	...
+	else:
+		velocity.x = move_toward(velocity.x, 0, SPEED)   # the branch that STOPS you
+		velocity.z = move_toward(velocity.z, 0, SPEED)
+```
+
+`_physics_process` calls `move_and_slide()` on the next line **regardless**, and `velocity` is
+persistent state on the `CharacterBody3D`. Returning early skips the only code that ever zeroes it,
+so the body coasts forever at whatever the last un-pinned frame set — which is why it read as
+drifting rather than as walking. Measured by walking in at 6.40 m/s: **9.16 m of travel in 1.5 s**
+while pinned.
+
+**Fix.** Zero the horizontal velocity and then return. Gravity is left alone so a pinned player
+still rests on the floor rather than hanging in the air.
+
+**Why the existing test passed.** `check_beartrap_hold.gd` teleported the player onto the trap and
+called `_on_body_entered` by hand, so velocity was already zero at the moment of the snap — it was
+asserting that a *stationary* player stays stationary. It now walks in under `ai_move_dir` and
+asserts the speed at the moment of the snap as well.
+
+**General lesson.** In a physics loop, "skip the input handling" and "stop the body" are different
+statements. Any early return in a function that writes `velocity` leaves the previous frame's value
+live for whatever runs after it.
+
+---
+
+## Issue 50 — An audio-bus duck survives `change_scene_to_file`, so one level silences every level after it
+
+**Symptom.** The Backrooms had no music when entered from the Corridor, but played normally when
+its scene was loaded directly (2026-08-15: *"the music in the backroom disappeared after I got
+there from the corridor. But when I started the backrooms scene from scratch, the music was
+there"*).
+
+**Root cause.** `corridor.gd:_tick_hush()` tweens the global `Ambience` bus to **−40 dB** at 296 m —
+the deliberate silence before the ending — and never restores it. `AudioServer` buses are
+**process-global**: `change_scene_to_file()` frees the scene and leaves every bus volume exactly
+where the last level left it. `AudioBuses.ensure()` early-returns on an existing bus without
+touching its volume, and every per-level bed bus is routed INTO `Ambience`, so the Backrooms' score
+arrived already attenuated by 40 dB.
+
+⚠️ **The reported symptom understated it.** Nothing restores that bus, so this silenced the ambience
+of *every* level for the rest of the process — KONTUR, the dungeon, the Lab on a revisit. It was
+only noticed at the very next transition.
+
+**Fix.** Two layers, deliberately:
+
+1. `AudioBuses.reset_all()` — called from `GameState.start_current_level()`, so every level starts
+   with the mixer at unity no matter which ducking path leaked. This is the guarantee, and it also
+   covers the same latent shape in `dungeon.gd:_duck_bus()` (no `_exit_tree` guard).
+2. `corridor.gd:_exit_tree()` restores `Ambience` itself, so the level cleans up after itself
+   rather than relying on the guarantee. `silence_zone.gd` already used this belt-and-braces shape.
+
+**Why no existing test could see it.** Every audio test loads ONE scene and asserts within it. This
+fault exists only in the seam BETWEEN two scenes, so `check_bus_leak.gd` drives a real level
+transition and asserts the arrival: without the fix it reports `Ambience −40.0 dB` and the music at
+−44 dB through the chain.
+
+**General lesson.** Anything that lives on a server rather than in the scene tree — audio buses,
+physics parameters, `Engine.time_scale`, `Input` mouse mode — outlives the scene that set it. If a
+level mutates global state, either restore it in `_exit_tree()` or reset it centrally on load; and
+prefer both, because the level that forgets is the one that will not have a test.
+
+---
+
+## Issue 51 — `hit_from_inside` defaults to false: a ray that STARTS inside a shape reports nothing
+
+**Symptom.** After widening several interact colliders so they could be hit from an angle, the
+prompt vanished at the CLOSEST range — standing in a doorway with a slam door, E did nothing, while
+stepping back a metre made it work again. `check_purge_interact.gd` began failing on the very fix
+that was supposed to make interaction easier.
+
+**Root cause.** `PhysicsRayQueryParameters3D.hit_from_inside` defaults to **false**, so a ray whose
+ORIGIN lies inside a shape does not report that shape at all. Interact volumes here are deliberately
+non-solid (layer 2, mask 0 — `note.gd`'s convention: raycast-hittable, invisible to movement), so
+the player walks straight through them. The moment those volumes were given real depth, standing in
+a doorway put the camera inside the box.
+
+⚠️ Thin colliders hid this by being too thin to stand in — the same defect from the other side. Deep
+volumes fix oblique approach and break point-blank; the two symptoms have one cause.
+
+**Fix.** `query.hit_from_inside = true` in `player.gd:_get_raycast_target()`.
+
+**General lesson.** ⚠️ This is the exact complement of **Issue 40** (a *shape* query reports nothing
+when it is wholly inside a solid). Godot's containment defaults are consistently "inside means no
+hit", and that is a silent answer, not an error. When a query starts somewhere the player can stand,
+decide explicitly what containment should mean.
+
+---
+
+## Issue 52 — CSG colliders are not registered during `_ready()`, so clearance raycasts answer against an empty world
+
+**Symptom.** Three mirror figures were spawned in `corridor.gd:_ready()` by the same call with the
+same clearance rules; exactly one appeared. No error, no warning — `Watcher.spawn()` simply returned
+`null` for two of them.
+
+**Root cause.** `Watcher.spawn()` validates a placement with raycasts (`_fits()`). The Corridor
+builds its geometry from `CSGBox3D` in the same `_ready()`, and CSG colliders are not registered
+with the physics server until the next physics frame — so the probes were querying a world with no
+geometry in it and returning arbitrary results. Calling the identical spawn from a test probe at
+t = 1 s placed all three every time, which is what pointed at timing rather than at placement.
+
+**Fix.** Queue the positions during `_ready()` and spawn them from the first `_process` tick, once
+physics knows about the level.
+
+⚠️ A second, unrelated cause was hiding behind the first: `Watcher` is an apparition by default — it
+expires at `MAX_LIFETIME` and rolls to vanish whenever the player looks away and back. These are
+fixtures, so they need `persistent = true`. Both had to be fixed before three figures survived.
+
+**General lesson.** ⚠️ Same family as **Issue 40** — the `_fits()` clearance machinery again, a
+different failure mode. A physics query made in the same frame as the geometry it is asking about is
+not wrong, it is *early*, and an empty world answers every question cheerfully. If a spawn validates
+against level geometry, run it after a physics frame.
+
+---
+
+## Issue 53 — A SubViewport mirror renders the wall it is mounted on unless `near` is pushed to the mirror plane
+
+**Symptom.** The project's first real mirror — a `SubViewport` with a reflected camera, replacing a
+painted PNG — rendered as a black rectangle with a strip of blue sky across the top.
+
+**Root cause.** The virtual camera sits as far BEHIND the glass as the player stands in front of it,
+which puts it inside and behind the wall the mirror is hung on. Looking back toward the corridor,
+the first thing it meets is that wall, so the reflection was the inside of the masonry; the sky came
+through where the ceiling slab ran out.
+
+**Fix.** Push the reflection camera's `near` plane out to the distance from the virtual camera to
+the mirror PLANE — `absf(local.origin.z)` in the mirror's own local space, where the plane is z = 0.
+That clips away everything between the camera and the glass, wall included, leaving exactly the half
+of the world the mirror should show.
+
+⚠️ Clipping the wall also clips the ceiling, so the sky leaked through the gap. The fix for that was
+the one the Lab and House already use: a **black background** on the environment, so any geometry
+gap reads as darkness. A mirror is simply the first thing in this project that could ever see out.
+
+⚠️ Two further traps in the same build, both silent: the reflected basis needs **two** axes negated
+(negating z alone leaves an improper, inside-out frame), and a `SubViewport` child left at its
+default `UPDATE_ALWAYS` renders a second full scene pass every frame for every mirror.
+
+**General lesson.** Playbook diagnostic step 4 — *suspect the camera before the geometry* — applies
+to cameras you placed yourself. When a render is black, ask what is between the camera and the
+subject before asking what is wrong with the subject.
+
+---
+
+## Issue 54 — `Object.get()` reads properties, not `const`s, so a test predicate matched nothing and passed
+
+**Symptom.** A test that walked the scene tree looking for mirrors reported `0 found` against three
+mirrors that provably existed and were rendering.
+
+**Root cause.** The predicate was `n.get("MIRROR_ONLY_LAYER") != null`, and `MIRROR_ONLY_LAYER` is a
+GDScript **`const`**. `Object.get()` reads *properties*; constants are not properties, so it returns
+`null` for every node — including the ones that define it. The predicate could never be true.
+
+**Fix.** Match on something that exists at runtime (the node name and its child structure), and read
+the constant from the script rather than the instance: `node.get_script().get("MIRROR_ONLY_LAYER")`.
+
+**General lesson.** ⚠️ Same reflection family as **Issue 45** (`bool(node.get("missing_property"))`
+hangs a test forever). `get()` fails *quietly* for a const and *loudly* for a missing property, and
+the quiet one is worse: a duck-type predicate that matches nothing does not error, it simply reports
+that the thing you are looking for is not there. **A test whose search returns zero should assert
+its own sample size** — several tests in this project now do exactly that.

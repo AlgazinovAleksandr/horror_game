@@ -124,11 +124,16 @@ func _build() -> void:
 	_light.position = Vector3(0, 0.18, 0.28)
 	add_child(_light)
 
+	# ⚠️ Wider than the fitting, on purpose (2026-08-15). At 0.4 x 0.5 this subtended only
+	# ~9° x 11° at the interact range — seven of these are the level's progress gate, in a
+	# room lit by a 4.5 m candle, and `can_interact()` returns false the moment one is lit,
+	# so a player whose AIM was off got no prompt at all and read it as a RANGE problem.
+	# The volume is not the prop: the plate, arm and cup are unchanged.
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.4, 0.5, 0.45)
+	shape.size = Vector3(0.62, 0.72, 0.5)
 	col.shape = shape
-	col.position = Vector3(0, 0, 0.15)
+	col.position = Vector3(0, 0, 0.17)
 	add_child(col)
 
 

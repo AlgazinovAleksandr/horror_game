@@ -36,11 +36,11 @@ signal smashed
 
 # Which ring to load, and how loud.
 #
-# The Backrooms keeps `rotary_ring` — a procedurally generated stinger from
-# make_sfx_backrooms.py, deliberately mixed UNDER that level's score at -6 dB so it
-# reads as "distant". KONTUR needs the opposite: Gate 6 is "ignore the phone", so the
-# ring has to be an unmistakable, sustained temptation heard for a whole room's
-# length. It overrides both to a real recorded ring at full level.
+# The Backrooms mixes its ring UNDER that level's score so it reads as "distant" — it
+# now uses the same recorded `phone_ringing` clip (the procedural `rotary_ring` playtested
+# as inaudible three times) but at -8 dB on the level's own bed bus. KONTUR needs the
+# opposite: Gate 6 is "ignore the phone", so the ring has to be an unmistakable, sustained
+# temptation heard for a whole room's length, at full level on Master.
 # Backrooms Zone 2 (the Sprawl) reuses this phone ALREADY OFF THE HOOK: it never rings, and
 # instead leaks `phone_whisper` continuously at low level from an alcove. Something else
 # answered it. Defaults true so zone 1's and KONTUR's phones are completely unaffected.
@@ -54,6 +54,14 @@ signal smashed
 @export var ring_volume_db: float = RING_VOLUME_DB
 # Larger unit_size = audible from further away before distance attenuation bites.
 @export var ring_unit_size: float = 6.0
+
+# Which bus the ring rides. Defaults to Master so KONTUR's Gate 6 phone — a temptation
+# that must be heard through everything — is unaffected. The Backrooms puts it on its own
+# "Backrooms" bed bus instead, so the ring sits inside the level mix it is supposed to be
+# under, and ducks with the bed when a SilenceZone or a HoldBreath dip fires. A recurring
+# level sound on Master survives every silence effect in the game, which is exactly what
+# a phone ringing 3 m from the spawn point should not do.
+@export var ring_bus: String = "Master"
 
 var _answered: bool = false
 var _smashed: bool = false
@@ -73,6 +81,14 @@ func _ready() -> void:
 		_ring_player.stream = ring
 	_ring_player.unit_size = ring_unit_size
 	_ring_player.volume_db = ring_volume_db
+	# ⚠️ ENSURE, don't test-and-skip. Props are spawned before the level starts its
+	# ambience, so the level's bed bus does not exist yet when this runs — a
+	# `get_bus_index() != -1` guard here silently left the ring on Master, which is the
+	# exact bug this export was added to fix. AudioBuses.ensure() is idempotent and gets
+	# the nesting (under Ambience, never Master) right on its own.
+	if ring_bus != "Master":
+		AudioBuses.ensure(ring_bus)
+	_ring_player.bus = ring_bus
 	add_child(_ring_player)
 
 	_whisper_player = AudioStreamPlayer3D.new()
@@ -142,10 +158,18 @@ func _process(delta: float) -> void:
 		if _whisper_player.stream and not _whisper_player.playing:
 			_whisper_player.play()
 		return
+	# ⚠️ The timer counts SILENCE, not wall time (2026-08-15). It used to be re-armed the
+	# moment it expired, while the play() call was skipped if the clip was still running —
+	# so with a ring LONGER than RING_INTERVAL the burst ended and the next one started
+	# almost immediately. The Backrooms' 10 s `phone_ringing` on a 7 s timer rang ~10 s in
+	# every 14: not a phone ringing across the maze, a phone ringing continuously. Only
+	# start the countdown once the burst has actually finished.
+	if _ring_player.playing:
+		return
 	_ring_timer -= delta
 	if _ring_timer <= 0.0:
 		_ring_timer = RING_INTERVAL
-		if _ring_player.stream and not _ring_player.playing:
+		if _ring_player.stream:
 			_ring_player.play()
 
 

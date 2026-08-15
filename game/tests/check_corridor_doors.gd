@@ -12,7 +12,7 @@ extends SceneTree
 # Also asserted, because each is a way the beats could silently die:
 #   * a door must NOT open while it is being looked at (an anomaly, not a visible effect)
 #   * it must open once the player is well past it and facing elsewhere
-#   * four of the five telegraphs cost NOTHING — that is the whole anti-habituation trick
+#   * a non-payoff telegraph costs NOTHING — that is the whole anti-habituation trick
 #   * exactly one of the three turn mirrors is silent this run
 #
 #   Godot --headless --path game --script res://tests/check_corridor_doors.gd
@@ -95,11 +95,18 @@ func _process(delta: float) -> bool:
 		# --- the telegraphs -----------------------------------------------------------
 		var payoff: int = int(_scene.get("_telegraph_payoff"))
 		var count: int = (_scene.get("TELEGRAPH_AT") as Array).size()
-		_ok("five telegraphs, exactly one of which delivers",
-			count == 5 and payoff >= 0 and payoff < 5, "payoff index %d of %d" % [payoff, count])
+		# ⚠️ WAS `count == 5`. Cut to two on 2026-08-15 (user: "too many repeating sounds…
+		# the trumpet musical instrument") — `telegraph_groan` is a 3.2 s brass fall and
+		# five of them in 100 m read as a loop rather than as dread. The MECHANIC is what
+		# this test protects, not the number: at least one telegraph that means nothing,
+		# and exactly one that delivers. `check_corridor_repeats.gd` owns the upper bound.
+		_ok("more than one telegraph, exactly one of which delivers",
+			count >= 2 and payoff >= 0 and payoff < count,
+			"payoff index %d of %d" % [payoff, count])
 		# A non-payoff telegraph must be free. If it ever charged panic, the player could not
 		# afford to learn to ignore it, and the mechanic would invert.
-		var quiet: int = (payoff + 1) % 5
+		# ⚠️ `% count`, not `% 5` — with two telegraphs a hardcoded 5 indexes past the array.
+		var quiet: int = (payoff + 1) % count
 		_player.set("_panic", 0.0)
 		var before: float = _player.get_panic_ratio()
 		_scene.call("_telegraph", quiet)

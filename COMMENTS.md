@@ -318,3 +318,89 @@ centimetres from its own light, and its emission must stay below 1.0 because the
 tonemapping. The same trap then washed a textured steel door to salmon pink. In a project with
 Linear tonemap, no glow and ~0.45 light energy, **emission is not polish — it is most of a surface's
 final colour.**
+
+---
+
+## Session 16 — Twelve reports, and the three I had to be told about twice
+
+Two rounds of playtest feedback, twelve issues. Seven were ordinary work. The interesting number
+is the other one: **three of the five in the second round were regressions of fixes I had shipped
+in the first round with passing tests.** The user reported the door, the beartrap and the fall a
+second time, in the same words, after I had told them all three were done.
+
+That is the session. The features are in `CLAUDE.md`; what belongs here is why a green suite was
+compatible with a game that was visibly broken.
+
+### Assertions that cannot fail
+Every one of those three tests asserted that WIRING EXISTED rather than that the OUTCOME WAS RIGHT.
+
+- The door test asserted `albedo_texture` was assigned. It was — underneath a flat red emission
+  wash painted over it. The question a player asks is *can I see the art*, and the test never asked
+  it. It asks two things now: is the emission textured, and is anything laid flat over the picture.
+- The beartrap test asserted a caught player does not move — after **teleporting** them onto the
+  trap. Teleporting sets velocity to zero, and the entire bug was velocity surviving the snap. It
+  walks in now, at 6.40 m/s, and asserts the speed at the moment the jaws close. Against the old
+  code it reports 9.16 m of travel while the UI reads TRAPPED.
+- The reach test aimed at the **collider** — the one object in the scene a player cannot see. Aimed
+  at the mesh instead, it immediately failed against the very colliders it had been passing.
+
+The common shape is that each test was written from the implementation rather than from the
+complaint. **A test derived from the code you just wrote will agree with the code you just wrote.**
+The discipline that actually worked was mechanical and I should have applied it from the start:
+after writing an assertion, disable the fix and watch it go red. Every fix in the second round has
+that proof recorded next to it, and two of them exposed further bugs in the process — widening an
+interact volume broke point-blank interaction (Issue 51), and aiming at the mesh revealed that the
+level's only win condition had the same defect as the doors (`PurgeChamber`).
+
+### Global state outlives the scene that set it
+The best bug of the session was reported as *"the music in the backroom disappeared after I got
+there from the corridor, but starting the backrooms from scratch it was there"* — a level-specific
+symptom with a project-wide cause. The Corridor ducks the `Ambience` bus by 40 dB for its final
+stretch and never restores it. `AudioServer` buses are process-global; `change_scene_to_file()`
+frees the scene and leaves the mixer exactly as it was. Every level after the Corridor was 40 dB
+down for the rest of the session, and only the very next transition happened to have music worth
+missing.
+
+The fix is two-layered on purpose — the level restores its own duck, and `start_current_level()`
+resets every bus regardless. The second is not redundancy, it is the acknowledgement that **the
+level that forgets to clean up is exactly the level nobody wrote a test for.** No test in the suite
+could have seen this, either: every audio test loads one scene and asserts inside it, and this
+fault exists only in the seam between two.
+
+### Measuring the wrong build
+The House maze got loops, a second monster and snares. The 40-seed harness reported the escape rate
+had not moved by a single seed — because it drives `_tick_monster()` directly, so the patroller and
+the snares were never ticked. It was faithfully measuring the previous build.
+
+Worse, once fixed it measured something nobody wanted to know. The test bot walked in a straight
+line down the shortest route and straight into the new monster, because it had no notion of going
+around anything. The whole point of braiding the maze was that you CAN go around; a harness that
+cannot do the thing the feature exists for cannot measure the feature. Teaching the bot to prefer a
+downhill step that is not into a monster moved the measured rate from 18/40 to 26/40 — and that
+delta is the closest thing to direct evidence that the loops work.
+
+**A difficulty harness encodes an assumption about how the game is played.** When the design
+changes what a competent player does, the harness has to change with it or it quietly starts
+answering a different question.
+
+### A mirror is a near plane
+The first genuine reflection in the project — a `SubViewport` with a camera mirrored through the
+glass — rendered as a black rectangle with a strip of sky across the top. The reflection was
+working perfectly; it was looking at the inside of the wall the mirror is mounted on, because the
+virtual camera sits behind that wall by construction. Pushing the near plane out to the mirror
+plane clips the wall away and leaves exactly the half of the world the glass should show.
+
+Two things made this pleasant rather than painful. The `Watcher` that appears only in the
+reflection is a real object on a reserved visibility layer, so it moves correctly with the player
+instead of being a painted figure that betrays itself the moment you strafe. And clipping the wall
+also clipped the ceiling, which let the procedural sky through — fixed by the black background the
+Lab and House already use, for the same reason. **A mirror is simply the first thing in a sealed
+level that can see out of it.**
+
+### What the tooling still cannot tell me
+Three of this session's fixes were confirmed by looking at a screenshot: the door, the mirror and
+the maze. The door took four attempts — red wash, then uniformly red, then blown out white, then
+right — and no assertion I can write distinguishes attempt three from attempt four. `CLAUDE.md`
+already says a clean screenshot is not evidence that geometry is sound. The converse is also true:
+for anything whose correctness is *appearance*, a passing test is not evidence either, and the only
+honest report is one that says which claims were measured and which were looked at.

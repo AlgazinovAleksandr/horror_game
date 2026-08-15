@@ -22,9 +22,14 @@ const GURNEY_TOP_Y := 0.6           # frame top 0.5, mattress top 0.6 — see _b
 const SWITCH_POS := Vector3(-5.77, 1.3, -1.0)  # snug against WallLeft's inner face (-5.85)
 const TABLE_POS := Vector3(0, 0.4, 0.0)
 const EXIT_DOOR_POS := Vector3(0, 1.1, -8.5)
-const DOOR_SIZE := Vector3(1.0, 2.2, 0.15)   # panel extents; _corrupt_room() boards across this
+# Panel extents; _corrupt_room() boards across this.
+# ⚠️ WIDTH IS DERIVED FROM THE ARTWORK, not chosen (2026-08-15). `intro_lab_door.png` is
+# 780x1511 after cropping, i.e. 1:1.937, and a texture squashed onto a mismatched quad is
+# SCARY.md §7.1(4) — the same fault that made KONTUR's roster plate render as a stretched
+# picture on a box. 2.2 / 1.937 = 1.136. Changing the height means changing the width too.
+const DOOR_SIZE := Vector3(1.136, 2.2, 0.15)
 const WHEELCHAIR_POS := Vector3(3.0, 0.0, -3.0)    # floor anchor — open floor between the table and the door
-const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door (spans x -0.5..0.5)
+const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door (spans x ±DOOR_SIZE.x/2)
 const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
 
 # --- "the ward is occupied" (2026-07-28) ---------------------------------------------
@@ -626,7 +631,12 @@ func _build_exit_door() -> void:
 	body.position = EXIT_DOOR_POS
 	add_child(body)
 
-	_DOOR_SCRIPT.build_visual(body, DOOR_SIZE, "")
+	# ⚠️ Was `""` for the life of the project — the ONLY door in a textured level with no
+	# art, so the first door the player ever sees rendered as a flat red box at emission
+	# 1.5 while every later level had a real door. The textured branch of
+	# `door.gd:door_material()` drops emission to 0.08 by itself; do not raise it (Issue
+	# 21 — at 0.5 the red swamps the steel and the door renders salmon pink).
+	_DOOR_SCRIPT.build_visual(body, DOOR_SIZE, TEX + "intro_lab_door.png")
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()

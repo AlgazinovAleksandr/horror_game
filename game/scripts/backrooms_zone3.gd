@@ -88,11 +88,25 @@ func build(origin: Vector3, player: Node3D) -> void:
 	_build_pressure()
 	_build_tide_marks()
 	_build_wader()
-	# The player's own footfalls become wading, which is what makes the unseen wader legible:
-	# what you hear out in the dark has to be audibly the same act you are performing.
-	var wade := GameState.load_audio("wade_step")
-	if wade and _player and _player.has_method("set_footstep_stream"):
-		_player.set_footstep_stream(wade)
+	# ⚠️ NO WADING FOOTSTEP (2026-08-15, user's call, second report).
+	#
+	# This zone used to swap the player's footstep sample for `wade_step` — a synthesized
+	# splash+thud (tools/make_sfx_atmos.py:199) whose stated purpose was P10's anchor:
+	# "what you hear in the distance has to be audibly the same ACT you are performing."
+	# Two problems, one of them fatal:
+	#
+	#   1. It was installed in build(), which runs at LEVEL START for all three zones, so
+	#      the player waded audibly across the DRY CARPET OF THE LOBBY from their first
+	#      step. Fixed once by gating it on the footprint; the user then asked for the
+	#      sound gone in the Flood as well.
+	#   2. Measured, it was the wrong sound to lead with anyway: -17.1 dBFS RMS at 0 dB,
+	#      at the ear, on the un-duckable Body bus, every 0.5 s — against a water bed at
+	#      -39.6 dBFS. The zone announced wading twice a second and never sounded wet.
+	#
+	# The replacement is the inverse and is what _build_water_audio() now does: an audible
+	# standing body of water, and ordinary footsteps in it. `wade_distant` (the unseen
+	# wader) is untouched and still reads correctly — it is something moving through water
+	# you can now actually hear.
 	set_process(true)
 
 
@@ -189,9 +203,25 @@ func _build_water() -> void:
 # spends longest. Placed at the room centres of the four largest chambers so coverage
 # is continuous while every position still has a nearest source, which keeps it
 # directional rather than a flat wall of noise.
-const WATER_BED_ROOMS := ["Basin", "Cistern", "Sump", "Throat"]
+#
+# ⚠️ COVERS EVERY ROOM, and the gain is set from the FILE's measured level, not from a
+# number that looks reasonable (2026-08-15). Two faults, and together they are why the
+# player reported the Flood as having a step-splash but no water:
+#
+#   * `water.wav` is a very quiet asset — **-39.6 dBFS RMS**, some 20 dB below every other
+#     sound in this level (the score is -18.0, `wade_step` -17.1). At the old -6 dB it
+#     landed near -46 dBFS: present in the node tree, inaudible in the room. A volume_db
+#     that reads as sensible means nothing without the level of the file under it.
+#   * `max_db = 0.0` capped it again at close range, which is exactly where a bed the
+#     player is standing IN should be loudest. Back to Godot's default.
+#
+# The four skipped rooms (Landing, Descent, EastRun, WestRun) are the entrance, the whole
+# mandatory approach and both digit-note side runs — i.e. most of the walking. Now wet too.
+const WATER_BED_ROOMS := ["Landing", "Descent", "Basin", "EastRun", "WestRun",
+	"Sump", "Cistern", "Throat"]
 const WATER_BED_UNIT := 13.0
-const WATER_BED_DB := -6.0
+const WATER_BED_DB := 14.0     # +14 over a -39.6 dBFS file ≈ -26 dBFS at the emitter
+const WATER_BED_MAX_DB := 3.0  # Godot's default; 0.0 clamped the near field
 
 var _water_beds: Array[AudioStreamPlayer3D] = []
 
@@ -207,13 +237,17 @@ func _build_water_audio() -> void:
 		a.stream = stream
 		a.volume_db = WATER_BED_DB
 		a.unit_size = WATER_BED_UNIT
-		a.max_db = 0.0
+		a.max_db = WATER_BED_MAX_DB
 		add_child(a)
 		a.position = Vector3(c.x, WATER_Y + 0.2, c.z)
 		# ⚠️ Every .wav.import in this project is loop_mode=0, so the node has to
 		# restart itself. Canonical form, lifted from level_1.gd:_add_beacon_layer().
 		a.finished.connect(a.play)
-		a.play()
+		# Start each bed at a different point in the same 31.5 s file. Eight coherent
+		# copies of one loop comb-filter against each other into something that reads as
+		# a synthesizer; offset, they read as one continuous body of water. The offsets
+		# persist, because each player re-arms off its OWN finished signal.
+		a.play(randf_range(0.0, 20.0))
 		_water_beds.append(a)
 
 
@@ -473,8 +507,7 @@ func _process(delta: float) -> void:
 	# it lapses naturally the moment the zone is left.
 	var p: Vector3 = _player.global_position
 	var local: Vector3 = p - _origin
-	var submerged: bool = local.z > -4.0 and local.z < 30.0 \
-		and absf(local.x) < 20.0 and p.y < _origin.y + 1.5
+	var submerged: bool = _in_footprint(local) and p.y < _origin.y + 1.5
 	if submerged:
 		_player.apply_slow(WADE_SLOW)
 		_player.add_panic(DREAD_DRIP * delta)
@@ -491,11 +524,30 @@ func _process(delta: float) -> void:
 	# i.e. near the player, which is what was wanted, but only by accident of the two
 	# errors cancelling. Stated plainly now: place it relative to the player IN LOCAL
 	# SPACE, which is what a child of this node needs.
+	#
+	# ⚠️ GATED ON THE PLAYER BEING IN THIS ZONE (2026-08-15). All three zones are built at
+	# level start and this `_process` runs from the first frame, so an ungated drip
+	# followed the player into the LOBBY: a wet plink landing beside them every 3-8 s, at
+	# -4 dB from a source ~1 m away, in a dry mono-yellow corridor 200 m from any water,
+	# for the whole level. Measured in `tests/probe_backrooms_audio.gd` — it was the
+	# loudest thing near the player after the phone, and it is the single most likely
+	# thing a player means by "a weird sound that shouldn't be there".
+	#
+	# The gate is the horizontal footprint, NOT `submerged`: the Flood's dry platform is
+	# the zone's one CalmZone anchor, and the drips should still be heard from it — it is
+	# the y-test, not the room, that ends them.
 	_drip_timer -= delta
 	if _drip_timer <= 0.0:
 		_drip_timer = randf_range(3.0, 8.0)
-		var near_player := Vector3(local.x + randf_range(-6, 6), 2.0, local.z + randf_range(-6, 6))
-		_play("water_drip", near_player, -4.0)
+		if _in_footprint(local):
+			var near_player := Vector3(local.x + randf_range(-6, 6), 2.0, local.z + randf_range(-6, 6))
+			_play("water_drip", near_player, -4.0)
+
+
+# The Flood's horizontal extent, in this node's local space. Shared by the wade test
+# (which adds a height test on top) and the drip ticker, so the two cannot drift apart.
+func _in_footprint(local: Vector3) -> bool:
+	return local.z > -4.0 and local.z < 30.0 and absf(local.x) < 20.0
 
 
 func _play(base_name: String, pos: Vector3, volume_db: float) -> void:

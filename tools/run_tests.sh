@@ -41,8 +41,13 @@ TESTS=(
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_intro_beats           # the Intro's dread beats, and that it stays UNLOSEABLE
   check_house_guest           # THE GUEST rearranges the House off-screen; the fridge is 10, once
-  check_corridor_doors        # ajar doors never block the hall; 4 of 5 telegraphs are free
+  check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
+  check_noclip_fall           # the fall, the blackout and the re-entry cap stay in formation
+  check_bus_leak              # one level's audio duck must not follow you into the next
+  check_corridor_repeats      # no sound in the Corridor is a loop; the score survives the hush
+  check_turn_mirror           # the turn mirrors reflect, and the figure is ONLY in the glass
   check_backrooms_occupants   # the Congregation has NO rules; the wader is never rendered
+  check_backrooms_audio       # the score leads the mix; the Flood's drips stay in the Flood
   check_wall_overlap          # coincident surfaces — the "merging textures" family
   check_doorways              # nothing seals a doorway
   test_room_builder           # the procedural room graph itself
@@ -54,9 +59,11 @@ TESTS=(
   check_flood_notes           # BACKLOG #24 — the roster digits are findable
   check_cellar_key            # BACKLOG #16 — the key must be used, not just found
   check_journal               # the notes journal, and that trap notes stay out of it
+  check_lock_input            # the lock takes typed digits, and keeps its Esc hint on a miss
   check_level_resume          # BACKLOG #30 — going back keeps your progress
   check_level6_breach         # BACKLOG #28 — SlamDoor type crash + doorway clearance
   check_purge_interact        # Level 6 win path is reachable by a real E press
+  check_interact_reach        # L6/L7 props answer E from a real distance, aiming at the ART
   check_lab_locker            # Lab locker gate + NO_LAMP_ROOMS stay dark
   check_lab_hint              # the Lab's hint props are actually visible
   check_morgue_props          # morgue trigger objects are not buried
@@ -65,6 +72,7 @@ TESTS=(
   check_spawn_blocked         # nothing invisible blocks either spawn
   check_backrooms_death       # Backrooms fail paths
   check_death_freeze          # a dead player stops accruing panic (Issue 15)
+  check_beartrap_hold         # trapped means trapped: movement pinned, look still free
   check_kontur                # KONTUR structure + exit lock
   test_apparition             # HOLD rule: hold still lives, flee dies
   check_apparition_clearance  # BACKLOG #8 — never materialises inside geometry

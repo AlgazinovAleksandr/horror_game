@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/dungeon.gd" id="1"]
-[ext_resource type="Script" uid="uid://bhxpo0kngyl8e" path="res://scripts/player.gd" id="2"]
+[ext_resource type="Script" uid="uid://clrrpr8eki41u" path="res://scripts/player.gd" id="2"]
 [ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="3"]
 
 [sub_resource type="CapsuleShape3D" id="1"]

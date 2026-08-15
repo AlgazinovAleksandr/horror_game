@@ -71,11 +71,22 @@ func _build() -> void:
 	top.rotation = Vector3(-PI / 2.0, 0, 0)
 	add_child(top)
 
+	# ⚠️ The INTERACT volume is deliberately taller than the cot (2026-08-15). The shape
+	# used to match the furniture — 0.7 m tall, topping out at y 0.70 — against a camera
+	# at y 1.65. Reaching it cost sqrt(d² + 0.95²) of the 2.5 m interact budget, so the
+	# usable ground distance was ~2.31 m AND ONLY WHILE LOOKING DOWN; aimed level, the ray
+	# flew clean over the cot at any distance. Both of Level 7's transitions are gated on
+	# this one prop (climbing on to enter the dungeon, and the bed to wake up), which is
+	# why "you have to stand very close" was reported hardest here.
+	#
+	# 1.4 m puts the top of the volume at y 1.4 — still visibly below eye level, so the
+	# player is looking down at a cot, but a level ray now finds it from across the room.
+	# It is an interaction volume, not the furniture: nothing renders at this size.
 	var col := CollisionShape3D.new()
 	var sh := BoxShape3D.new()
-	sh.size = Vector3(1.1, 0.7, 2.1)
+	sh.size = Vector3(1.2, 1.4, 2.2)
 	col.shape = sh
-	col.position = Vector3(0, 0.35, 0)
+	col.position = Vector3(0, 0.7, 0)
 	add_child(col)
 
 

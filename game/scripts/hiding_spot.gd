@@ -26,11 +26,24 @@ var _hinge: Node3D
 
 func _ready() -> void:
 	_build_visual()
+	# ⚠️ The interact volume is the carcass GROWN FORWARD, not the carcass (2026-08-15).
+	# Two reasons, both reported as "you have to stand very close" in Levels 6 and 7:
+	#
+	#   * `wall_point(room, side, 0.0, 0.22)` mounts these against a wall, which buries
+	#     ~0.18 m of the box inside it and leaves only ~0.42 m protruding to be hit.
+	#   * the swinging door is a child of `_hinge` and is NOT covered by this shape, so an
+	#     open locker's art stands clear of the only interactable surface (the same fault
+	#     as slam_door.gd — see the note there).
+	#
+	# Growing depth and pushing the volume into the room covers both without changing what
+	# is drawn. A desk is 0.9 m tall, so the height is floored to keep it findable by a ray
+	# from a camera at 1.65 rather than only by one aimed at the floor.
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = _kind_size()
+	var size := _kind_size()
+	shape.size = Vector3(size.x + 0.35, maxf(size.y, 1.3), size.z + 0.6)
 	col.shape = shape
-	col.position.y = shape.size.y * 0.5
+	col.position = Vector3(0.0, shape.size.y * 0.5, size.z * 0.35)
 	add_child(col)
 
 

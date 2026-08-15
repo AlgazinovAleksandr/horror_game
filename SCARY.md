@@ -104,7 +104,7 @@ which specs them properly rather than in one paragraph each:
 
 Items #3, #8, #10, #11, #12, #13, #14, #15, #16, #19 are puzzle/agency/systems work, not fear craft,
 and this file never claimed them. They now live — with audited build status — in
-`GAME_MECHANICS_IDEAS.md` §2. `KONTUR.md` is already a cautionary tale in this repo about a stale doc
+`GAME_MECHANICS_IDEAS.md` §2. `drafts/KONTUR.md` is already a cautionary tale in this repo about a stale doc
 silently contradicting the shipped game, which is why the consolidation happened at all.
 
 ---

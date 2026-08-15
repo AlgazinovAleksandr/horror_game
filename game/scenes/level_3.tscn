@@ -1,10 +1,10 @@
 [gd_scene format=3 uid="uid://cg4uo3omo4m1o"]
 
-[ext_resource type="Script" uid="uid://gkgw13edxt3p" path="res://scripts/level_3.gd" id="1"]
-[ext_resource type="Script" uid="uid://bhxpo0kngyl8e" path="res://scripts/player.gd" id="2"]
+[ext_resource type="Script" uid="uid://l5hknh82b2hs" path="res://scripts/level_3.gd" id="1"]
+[ext_resource type="Script" uid="uid://clrrpr8eki41u" path="res://scripts/player.gd" id="2"]
 [ext_resource type="PackedScene" uid="uid://xsefagb4qa88" path="res://assets/elements/environment.tscn" id="2_p6vls"]
-[ext_resource type="Script" uid="uid://cq75prfex0038" path="res://scripts/note.gd" id="3"]
-[ext_resource type="Script" uid="uid://bgyii5601s482" path="res://scripts/door.gd" id="4"]
+[ext_resource type="Script" uid="uid://q0oljbw7gsis" path="res://scripts/note.gd" id="3"]
+[ext_resource type="Script" uid="uid://bqffj4c8kxnbq" path="res://scripts/door.gd" id="4"]
 [ext_resource type="Script" path="res://scripts/creature_stalker.gd" id="5"]
 
 [sub_resource type="CapsuleMesh" id="8"]

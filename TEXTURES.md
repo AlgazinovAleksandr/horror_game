@@ -11,6 +11,7 @@ Columns:
 ### intro/
 | file_name | texture_description | where_used | status |
 |-----------|---------------------|------------|--------|
+| `intro/intro_lab_door.png` | Rusted steel asylum door — barred observation hatch, bolt and padlock, fungus and creeping roots, blood handprint, stencilled "PSYCHIATRIC WING / BLOCK D-7". User-supplied; background keyed off with `tools/cutout_alpha.py --chroma auto`, then cropped to the leaf and re-stencilled from Cyrillic to English by `tools/restencil_door.py` | Intro Room — `ExitDoor`, `intro_room.gd:_build_exit_door()`. The first door in the game, and the only one that had no art at all before this | done |
 | `intro/wall_intro.png` | Cold dark concrete/stone — damp, rough, minimally detailed | Intro Room — **superseded by `intro_wall.png`** below; kept on disk, no longer referenced by `_apply_textures()` | to_be_added |
 | `intro/intro_wall.png` | Cold dark concrete/stone, peeling institutional wallpaper over damp plaster — a sharper, more detailed replacement for `wall_intro.png` | Intro Room — all wall CSGBox3D nodes, `uv1_scale=4.0` (`intro_room.gd:_apply_textures()`) | done |
 | `intro/floor_intro.png` | Dark stone slab — faint cracks, slightly uneven | Intro Room — floor CSGBox3D node | done |
@@ -78,7 +79,8 @@ Columns:
 |-----------|---------------------|------------|--------|
 | `level_3_corridor/wall.png` | Victorian hotel wall — peeling damask wallpaper above dark wood wainscoting | Level 3 (The Corridor) — all wall CSGBox3D nodes (triplanar, y-scale −1/3 so wainscot sits at floor) | done |
 | `level_3_corridor/carpet.png` | Ornate hotel carpet — dark green/mustard diamond pattern, aged | Level 3 (The Corridor) — floor CSGBox3D nodes + one wall-hung carpet quad in Zone C | done |
-| `level_3_corridor/door.png` | Old hotel room door (room 217) on matching wallpaper/wainscot background | Level 3 (The Corridor) — **exit door (room 217) only** | done |
+| `level_3_corridor/door.png` | Old hotel room door (room 217) on matching wallpaper/wainscot background | Level 3 (The Corridor) — **superseded by `backrooms_tear_door.png`**; kept on disk, no longer referenced by `_dress_exit_door()` | to_be_added |
+| `level_3_corridor/backrooms_tear_door.png` | Room 217 — a black-wood panelled door torn open down its middle, red-lit void and sinew inside. User-supplied, cropped to the architrave (the chroma key could not be used: a dark door on a black ground keys to nothing) | Level 3 (The Corridor) — exit door (room 217), `corridor.gd:_dress_exit_door()`. ⚠️ The player never reaches it — the noclip drops them 5 m short | done |
 | `level_3_corridor/ordinary_hotel_door.png` | Plain hotel room door on matching wallpaper/wainscot background | Level 3 (The Corridor) — all non-final doors: 3 fake locked panels (`fake_door.gd`) + 6 decor doors | done |
 | `level_3_corridor/clock.png` | Grandfather clock on matching wallpaper/wainscot background | Level 3 (The Corridor) — full-height cursed panel at d=48 m (ScaryObject 1.0, chime event) | done |
 | `level_3_corridor/mirror.png` | Ornate oval mirror reflecting a torch-lit corridor, matching background | Level 3 (The Corridor) — side-wall cursed panel(s) (ScaryObject 2.0/2.5) | done |

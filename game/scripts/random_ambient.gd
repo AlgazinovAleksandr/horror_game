@@ -20,6 +20,8 @@ var _timer: float = 0.0
 var _next_trigger: float = 0.0
 var _player: CharacterBody3D = null
 var _since_last_scare: float = 999.0   # large, so the first apparition isn't blocked
+var _once_per_type: bool = false       # see set_once_per_type()
+var _used: Dictionary = {}             # event name -> played, this level
 
 
 # How long since this autoload last startled the player. ApparitionDirector reads it so
@@ -36,7 +38,23 @@ func _ready() -> void:
 
 func register_player(p: CharacterBody3D) -> void:
 	_player = p
+	_used.clear()          # a fresh level starts with every event available again
 	_schedule_next()
+
+
+# ⭐ OPT-IN: play each event AT MOST ONCE for this level.
+#
+# ⚠️ Deliberately opt-in, and deliberately not a change to MIN/MAX_INTERVAL. This autoload
+# is GLOBAL — `CLAUDE.md` warns that retuning it "changes ambient pressure everywhere at
+# once", and the levels that were balanced against a repeating creak should keep it. The
+# Corridor is the level the user walked, and at ~300 m it is by far the longest, so the
+# same three sounds came round again and again: "too many repeating sounds… falling
+# painting." One of each is punctuation; five is a playlist.
+#
+# Cleared by `register_player()`, so it is per-level and cannot leak into the next one.
+func set_once_per_type(enabled: bool) -> void:
+	_once_per_type = enabled
+	_used.clear()
 
 
 func _process(delta: float) -> void:
@@ -57,7 +75,18 @@ func _schedule_next() -> void:
 
 func _fire_random_event() -> void:
 	var events := ["floor_creak", "painting_fall", "half_scream"]
+	if _once_per_type:
+		# Only what has not been heard yet. When the list empties this autoload simply
+		# stops making noise for the rest of the level, which is the intent.
+		var left: Array[String] = []
+		for e in events:
+			if not _used.has(e):
+				left.append(e)
+		if left.is_empty():
+			return
+		events = left
 	var choice: String = events[randi() % events.size()]
+	_used[choice] = true
 	match choice:
 		"floor_creak":
 			_play_near_player("floor_creak", -2.0)

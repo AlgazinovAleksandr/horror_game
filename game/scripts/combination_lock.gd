@@ -17,6 +17,10 @@ signal wrong_code(attempts: int)
 
 var _attempts: int = 0
 
+# The controls, stated once and never overwritten. Typing is listed FIRST because it is
+# what a player reaches for; the dials stay for anyone who prefers them.
+const HINT_TEXT := "type 0-9  ·  ↑↓ change  ·  ←→ select  ·  Enter/E confirm  ·  Esc cancel"
+
 
 # THE LOCK SIZES ITSELF FROM ITS ANSWER.
 #
@@ -31,7 +35,8 @@ func _digit_count() -> int:
 var _canvas: CanvasLayer
 var _panel: PanelContainer
 var _digit_labels: Array[Label] = []
-var _feedback_label: Label
+var _feedback_label: Label   # UNLOCKED / INCORRECT — transient
+var _hint_label: Label       # the controls — never written to after _build_ui()
 var _digits: Array[int] = []
 var _selected: int = 0
 var _ui_open: bool = false
@@ -94,8 +99,26 @@ func _build_ui() -> void:
 		hbox.add_child(lbl)
 		_digit_labels.append(lbl)
 
+	# ⚠️ TWO LABELS, and this is the fix, not a tidy-up (2026-08-15).
+	#
+	# There was one label doing both jobs, and `_submit()` overwrote it with "INCORRECT"
+	# on the first wrong guess — so the line telling the player how to LEAVE disappeared
+	# exactly when they most needed it, while WRONG_CODE_PANIC was ticking against them.
+	# It only ever came back on the next `interact()`. Reported as "double check if it is
+	# written that you need to press Esc to escape the lock": it was written, and then it
+	# was destroyed.
+	#
+	# `note_ui.gd:77` and `journal_ui.gd:125` both carry a separate, immutable hint label
+	# for this reason. This matches their styling so the three read as one convention.
+	_hint_label = Label.new()
+	_hint_label.text = HINT_TEXT
+	_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint_label.add_theme_font_size_override("font_size", 14)
+	_hint_label.add_theme_color_override("font_color", Color(0.45, 0.42, 0.38))
+	vbox.add_child(_hint_label)
+
 	_feedback_label = Label.new()
-	_feedback_label.text = "↑↓ change  ←→ select  E confirm  Esc cancel"
+	_feedback_label.text = ""
 	_feedback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_feedback_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 	vbox.add_child(_feedback_label)
@@ -106,8 +129,13 @@ func _build_ui() -> void:
 func interact() -> void:
 	_ui_open = true
 	_panel.visible = true
-	_feedback_label.text = "↑↓ change  ←→ select  E confirm  Esc cancel"
+	_feedback_label.text = ""
 	_feedback_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	# ⚠️ Start from zero every time. The dials used to persist between opens, so a second
+	# attempt began on the digits of the previous wrong guess — which reads as the lock
+	# having remembered something, and quietly makes brute-forcing cheaper.
+	_digits.fill(0)
+	_selected = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().paused = true
 	_refresh_display()
@@ -116,6 +144,40 @@ func interact() -> void:
 func _input(event: InputEvent) -> void:
 	if not _ui_open:
 		return
+
+	# ⚠️ TYPING COMES FIRST, before the action checks (2026-08-15, user's request: "we shall
+	# make it possible to enter the digits directly from the keyboard").
+	#
+	# The order matters. `ui_up`/`ui_down` are bound to more than the arrow keys by Godot's
+	# built-in InputMap, so an action check can swallow a key that was meant as a digit.
+	# Reading the raw keycode first makes 0-9 unambiguous, and the dials still work exactly
+	# as they did for anyone who prefers them.
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key: int = event.keycode
+		var digit := -1
+		if key >= KEY_0 and key <= KEY_9:
+			digit = key - KEY_0
+		elif key >= KEY_KP_0 and key <= KEY_KP_9:
+			digit = key - KEY_KP_0
+		if digit >= 0:
+			_digits[_selected] = digit
+			# Advance, but STOP on the last dial rather than wrapping to the first —
+			# wrapping would silently overwrite the digit you typed first.
+			_selected = min(_digit_count() - 1, _selected + 1)
+			_refresh_display()
+			get_viewport().set_input_as_handled()
+			return
+		if key == KEY_BACKSPACE:
+			# Step back and clear, the way a text field behaves.
+			_selected = max(0, _selected - 1)
+			_digits[_selected] = 0
+			_refresh_display()
+			get_viewport().set_input_as_handled()
+			return
+		if key == KEY_ENTER or key == KEY_KP_ENTER:
+			_submit()
+			get_viewport().set_input_as_handled()
+			return
 
 	if event.is_action_pressed("ui_left"):
 		_selected = max(0, _selected - 1)

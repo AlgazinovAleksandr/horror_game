@@ -74,7 +74,13 @@ const PLAYER_MIN_SPEED := 100.0
 #     172 — caught in 3.5 s; hunted down 5.2 s after stopping; still 37/40
 # The escape rate has not moved at all; what changed is how quickly a mistake is punished.
 # ⚠️ Do not raise it again without re-running that test. This minigame once killed 12 players
-# in 40 for an unrelated reason, and 37/40 is the line that says it is still a game.
+# in 40 for an unrelated reason.
+#
+# ⚠️ 37/40 WAS the line that said it is still a game; it is 26/40 now, and deliberately so.
+# The 2026-08-15 pass braided the maze, added the patroller below and added snares, and the
+# user chose to let the level get harder rather than hold the old rate. The isolation
+# numbers behind that figure are in check_maze_chase.gd, next to the asserted floor. This
+# speed was NOT touched as part of it.
 const MONSTER_SPEED := 172.0
 const MONSTER_START_DELAY := 3.0  # frozen this long after open() before it hunts
 
@@ -114,6 +120,7 @@ var _wall_nodes: Array[ColorRect] = []
 var _walls_container: Control
 var _player_icon: Control
 var _monster_icon: Control
+var _patrol_icon: Control
 var _target_icon: Control
 
 
@@ -129,7 +136,9 @@ func open() -> void:
 	_generate_maze()
 	_reset_positions()
 	_rebuild_wall_visuals()
+	_rebuild_snare_visuals()
 	_update_visual_positions()
+	_start_chase_audio()
 	_ui_open = true
 	_focus_lost_clear = false
 	_root.visible = true
@@ -140,6 +149,7 @@ func open() -> void:
 func _close() -> void:
 	_ui_open = false
 	_root.visible = false
+	_stop_chase_audio()
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
@@ -149,6 +159,9 @@ func _close() -> void:
 func _hide_after_external_unpause() -> void:
 	_ui_open = false
 	_root.visible = false
+	# ⚠️ Stop the music HERE too, not only in _close(). This path is the one a screamer
+	# takes, and a chase loop left running would play on over the reloaded scene.
+	_stop_chase_audio()
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 
@@ -190,13 +203,24 @@ func _process(delta: float) -> void:
 			step = step.normalized() * max_step
 		_player_pos = _resolve_wall_slide(_player_pos, _player_pos + step, ICON_HALF_EXTENT)
 
+	# A snare holds you where you are. Movement above still ran, so the position is
+	# rolled back — the drag keeps fighting and simply achieves nothing, which reads as
+	# being caught on something rather than as the controls dying.
+	if _snare_hold > 0.0:
+		_snare_hold -= delta
+		_player_pos = _snared_at
+
 	var in_grace: bool = _monster_start_timer > 0.0
 	if in_grace:
 		_monster_start_timer -= delta
 	else:
 		_tick_monster(delta)
+		_tick_patroller(delta)
+
+	_check_snares(p)
 
 	var dist_to_monster: float = _monster_pos.distance_to(_player_pos)
+	dist_to_monster = minf(dist_to_monster, _patrol_pos.distance_to(_player_pos))
 
 	# Playtest: moving the monster to spawn right next to the player (per your
 	# request) meant the proximity term was already near its max from frame one
@@ -225,6 +249,173 @@ func _process(delta: float) -> void:
 
 func _player() -> CharacterBody3D:
 	return get_tree().current_scene.get_node_or_null("Player") as CharacterBody3D
+
+
+# ---------------------------------------------------------------- the patroller
+#
+# ⭐ The SECOND monster, and deliberately not a second copy of the first (2026-08-15).
+#
+# Two identical hunters would double the pressure without adding a decision. This one
+# walks a circuit and only gives chase when you come near it, which is what makes ROUTE
+# CHOICE matter — and route choice is the entire reason the maze is now braided. The
+# hunter punishes standing still; the patroller punishes taking the obvious line.
+#
+# It is slower than the hunter on purpose: meeting it should be a mistake you can still
+# walk out of, not a second unavoidable death.
+const PATROL_SPEED := 86.0
+const PATROL_AGGRO := 112.0     # px; inside this it drops the circuit and comes for you
+const PATROL_CALM := 240.0      # px; outside this it gives up and resumes patrolling
+const PATROL_MIN_START := 7     # cells of BFS distance from the player's start
+
+var _patrol_pos := Vector2.ZERO
+var _patrol_target := Vector2i.ZERO
+var _patrol_chasing := false
+var _patrol_flow: Dictionary = {}
+var _patrol_flow_origin := Vector2i(-99, -99)
+
+
+func _place_patroller(dist: Dictionary) -> void:
+	# Somewhere genuinely elsewhere — a patroller that starts on top of the player is
+	# just a second hunter with extra steps.
+	var far: Array[Vector2i] = []
+	for cell in dist.keys():
+		if int(dist[cell]) >= PATROL_MIN_START and cell != _target_cell:
+			far.append(cell)
+	var start: Vector2i = far[randi() % far.size()] if not far.is_empty() else _target_cell
+	_patrol_pos = _cell_center(start)
+	_patrol_chasing = false
+	_patrol_flow.clear()
+	_patrol_flow_origin = Vector2i(-99, -99)
+	_pick_patrol_target()
+
+
+# ⚠️ The circuit avoids the player's likely route (2026-08-15). Measured across 40 seeds:
+# a patroller wandering to uniformly-random cells dropped the escape rate from 34/40 to
+# 25/40 on its own, BEFORE it ever gave chase — it was simply standing in the corridor the
+# player had to walk. That is not a second threat, it is a roadblock, and it is the exact
+# failure `_place_monster()` already guards against for the hunter.
+#
+# Off the artery, the patroller is something you MEET by choosing a greedy line or a wrong
+# turn — which is the decision the braiding exists to offer.
+func _pick_patrol_target() -> void:
+	var options: Array[Vector2i] = []
+	for row in range(GRID_ROWS):
+		for col in range(GRID_COLS):
+			var c := Vector2i(col, row)
+			if not _route_cells.has(c):
+				options.append(c)
+	if options.is_empty():
+		_patrol_target = Vector2i(randi() % GRID_COLS, randi() % GRID_ROWS)
+		return
+	_patrol_target = options[randi() % options.size()]
+
+
+func _tick_patroller(delta: float) -> void:
+	var to_player: float = _patrol_pos.distance_to(_player_pos)
+	# Hysteresis, or it flickers between states on the aggro boundary and jitters in place.
+	if _patrol_chasing:
+		if to_player > PATROL_CALM:
+			_patrol_chasing = false
+			_pick_patrol_target()
+	elif to_player <= PATROL_AGGRO:
+		_patrol_chasing = true
+
+	var goal: Vector2i = _cell_at(_player_pos) if _patrol_chasing else _patrol_target
+	if not _patrol_chasing and _cell_at(_patrol_pos) == _patrol_target:
+		_pick_patrol_target()
+		goal = _patrol_target
+
+	# Same BFS-downhill steering the hunter uses — walking the ACTUAL corridors. A beeline
+	# in a maze points into a wall most of the time (BACKLOG #14, measured).
+	if goal != _patrol_flow_origin:
+		_patrol_flow = _bfs_distances(goal)
+		_patrol_flow_origin = goal
+	var here: Vector2i = _cell_at(_patrol_pos)
+	var best: Vector2i = here
+	var best_d: int = int(_patrol_flow.get(here, 9999))
+	for n in _open_neighbours(here):
+		var nd: int = int(_patrol_flow.get(n, 9999))
+		if nd < best_d:
+			best_d = nd
+			best = n
+	var aim: Vector2 = _cell_center(best) if best != here else _player_pos
+	var dir: Vector2 = (aim - _patrol_pos)
+	if dir.length() < 0.01:
+		return
+	var speed: float = PATROL_SPEED * (1.05 if _patrol_chasing else 1.0)
+	_patrol_pos = _resolve_wall_slide(
+		_patrol_pos, _patrol_pos + dir.normalized() * speed * delta, ICON_HALF_EXTENT)
+
+
+# ---------------------------------------------------------------- snares
+#
+# ⭐ Traps that HOLD you, never kill you (2026-08-15, user's choice).
+#
+# The danger is where being held leaves you, not the trap itself — the same logic the real
+# beartrap uses (`beartrap.gd`: 15 panic and an escape, not a death). The maze already has
+# one fail state; stacking a second on a minigame you can only retry by walking back across
+# the House would be a lot of punishment for one wrong pixel.
+#
+# ⚠️ Placed OFF the start-to-target route. A snare on the only line is a tax every player
+# pays; a snare beside it is a decision about how greedy a corner to cut. The braiding is
+# what makes "beside it" exist at all.
+const SNARE_COUNT := 5
+const SNARE_RADIUS := 26.0
+const SNARE_HOLD := 1.2
+const SNARE_PANIC := 3.0
+
+var _snares: Array[Vector2] = []
+var _snare_hold: float = 0.0
+var _snared_at := Vector2.ZERO
+var _snare_nodes: Array[Control] = []
+var _route_cells: Dictionary = {}   # cells on a shortest start->mark path
+
+
+# Every cell on a shortest path from the start to the mark — the line the player is most
+# likely to walk. Both the snares and the patroller's circuit are placed relative to it.
+func _compute_route(dist: Dictionary) -> void:
+	_route_cells.clear()
+	var walk: Vector2i = _target_cell
+	var guard := 0
+	while walk != _start_cell and guard < GRID_COLS * GRID_ROWS:
+		guard += 1
+		_route_cells[walk] = true
+		var here: int = int(dist.get(walk, 0))
+		for n in _open_neighbours(walk):
+			if int(dist.get(n, 9999)) == here - 1:
+				walk = n
+				break
+	_route_cells[_start_cell] = true
+
+
+func _place_snares(dist: Dictionary) -> void:
+	_snares.clear()
+	_snare_hold = 0.0
+	var on_route: Dictionary = _route_cells
+
+	var candidates: Array[Vector2i] = []
+	for cell in dist.keys():
+		if on_route.has(cell) or cell == _target_cell or cell == _start_cell:
+			continue
+		if int(dist[cell]) >= 2:
+			candidates.append(cell)
+	candidates.shuffle()
+	for i in range(min(SNARE_COUNT, candidates.size())):
+		_snares.append(_cell_center(candidates[i]))
+
+
+func _check_snares(p: Node) -> void:
+	if _snare_hold > 0.0:
+		return
+	for s in _snares:
+		if s.distance_to(_player_pos) <= SNARE_RADIUS:
+			_snares.erase(s)          # one-shot: a snare you already sprang is spent
+			_snare_hold = SNARE_HOLD
+			_snared_at = _player_pos
+			if p and p.has_method("add_panic"):
+				p.add_panic(SNARE_PANIC)
+			_rebuild_snare_visuals()
+			return
 
 
 # ---------------------------------------------------------------- monster AI
@@ -344,6 +535,8 @@ func _generate_maze() -> void:
 		_cells[_idx(next)]["visited"] = true
 		stack.append(next)
 
+	_braid()
+
 	_start_cell = Vector2i(0, GRID_ROWS / 2)
 	var dist := _bfs_distances(_start_cell)
 
@@ -374,6 +567,52 @@ func _generate_maze() -> void:
 					WALL_THICKNESS, CELL_SIZE + WALL_THICKNESS))
 
 	_place_monster(dist)
+	_compute_route(dist)
+	_place_patroller(dist)
+	_place_snares(dist)
+
+
+# ⭐ BRAID THE MAZE — knock extra walls out so it has LOOPS (2026-08-15).
+#
+# User report: "make more space so that you can actually bypass the monster when it is
+# running towards you." In a randomized-DFS maze there is exactly ONE route between any two
+# cells, so a monster coming down a corridor at you cannot be passed — not because it is
+# fast, but because the topology forbids it. Widening corridors or enlarging the grid does
+# not fix that; only cycles do.
+#
+# ⚠️ This project has already paid to learn it once. `dungeon_gen.gd` adds `ceil(0.25 * K)`
+# extra edges to its spanning tree with the note: "The extra edges are NOT optional. A
+# spanning tree is a perfect maze, and in one a corridor-following pursuer is unbeatable.
+# `maze_chase_ui.gd` already cost this project 12 instant deaths in 40 to learn that." That
+# was about monster PLACEMENT; this is the same lesson applied to the maze itself.
+#
+# Dead ends are the target: removing a wall from a dead end is what turns a trap into a
+# through-route, which is exactly the space the player was asking for.
+const BRAID_FRACTION := 0.55   # share of dead ends opened into loops
+
+func _braid() -> void:
+	var dead_ends: Array[Vector2i] = []
+	for row in range(GRID_ROWS):
+		for col in range(GRID_COLS):
+			var c := Vector2i(col, row)
+			if _open_neighbours(c).size() <= 1:
+				dead_ends.append(c)
+	dead_ends.shuffle()
+	var quota := int(ceil(dead_ends.size() * BRAID_FRACTION))
+	for i in range(min(quota, dead_ends.size())):
+		var cell: Vector2i = dead_ends[i]
+		# Candidate walls that lead to a real neighbour and are still closed.
+		var options: Array[Vector2i] = []
+		var open_now: Array[Vector2i] = _open_neighbours(cell)
+		for d: Vector2i in [Vector2i(0, -1), Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0)]:
+			var n: Vector2i = cell + d
+			if n.x < 0 or n.y < 0 or n.x >= GRID_COLS or n.y >= GRID_ROWS:
+				continue
+			if not open_now.has(n):
+				options.append(n)
+		if options.is_empty():
+			continue
+		_remove_wall(cell, options[randi() % options.size()])
 
 
 func _unvisited_neighbors(cell: Vector2i) -> Array[Vector2i]:
@@ -476,6 +715,7 @@ func _reset_positions() -> void:
 	_monster_start_timer = MONSTER_START_DELAY
 	_flow.clear()
 	_flow_origin = Vector2i(-1, -1)
+	_snare_hold = 0.0
 
 
 # ---------------------------------------------------------------- UI construction
@@ -562,6 +802,10 @@ func _build_ui() -> void:
 	_target_icon = _make_icon(TEX + "house_map_target_icon.png", Color(1.0, 0.85, 0.25))
 	_player_icon = _make_icon(TEX + "house_map_player_icon.png", Color(0.45, 0.85, 1.0))
 	_monster_icon = _make_icon(TEX + "house_map_monster_icon.png", Color(1.0, 0.25, 0.18))
+	# The patroller wears the same art in a different colour — it must read as "another one
+	# of those", not as a new species, because the thing the player has to learn is its
+	# BEHAVIOUR. Amber against the hunter's red.
+	_patrol_icon = _make_icon(TEX + "house_map_monster_icon.png", Color(1.0, 0.60, 0.12))
 
 
 # The project's universal legibility trick, same as ScreenText._outline(): this is
@@ -643,4 +887,69 @@ func _update_visual_positions() -> void:
 	var half := Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE) / 2.0
 	_player_icon.position = _player_pos - half
 	_monster_icon.position = _monster_pos - half
+	_patrol_icon.position = _patrol_pos - half
 	_target_icon.position = _target_pos - half
+
+
+# Snares are drawn UNDER the icons, as small dark discs. They must be visible — a trap the
+# player cannot see is not a decision, it is a dice roll (SCARY.md §8.11: never punish a
+# scare the player could not have seen coming).
+func _rebuild_snare_visuals() -> void:
+	for n in _snare_nodes:
+		n.queue_free()
+	_snare_nodes.clear()
+	for s in _snares:
+		var disc := _disc(SNARE_RADIUS * 1.6, Color(0.12, 0.05, 0.03, 0.85))
+		disc.position = s - Vector2(SNARE_RADIUS * 0.8, SNARE_RADIUS * 0.8)
+		disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# ⚠️ Into the WALLS container, which is added once in _build_ui(). Adding to the
+		# playfield instead would place them after the icons in the draw order and paint
+		# over them — the confirmed cause of the target being invisible in a past playtest.
+		_walls_container.add_child(disc)
+		_snare_nodes.append(disc)
+
+
+# ---------------------------------------------------------------- chase audio
+#
+# ⚠️ A plain AudioStreamPlayer (not 3D): this is a 2D overlay, there is nothing to pan
+# around. Parented to this CanvasLayer so it inherits PROCESS_MODE_ALWAYS and keeps
+# playing while the tree is paused — which it is, the whole time the map is open.
+#
+# ⚠️ Bus left unset, i.e. Master, matching `combination_lock.gd`'s buzz — the only other
+# paused-UI sound in the game. A chase cue must not be duckable by a SilenceZone or a
+# HoldBreath dip firing somewhere else.
+#
+# ⚠️ Looped in CODE. Every .wav.import in this project is loop_mode=0, so the stream never
+# repeats itself; `finished -> play` is the house idiom. `tools/make_loop.py` trimmed the
+# supplied file's fade-out and crossfaded the seam so the repeat is inaudible.
+# ⚠️ Loaded BY PATH, not through `GameState.load_audio()`. `check_maze_gen.gd` instantiates
+# this class by its class_name, which compiles this file before the autoloads are
+# registered — so a bare `GameState` here is a COMPILE error that takes the test down with
+# it, and the test then spins instead of failing. Same hazard `screenshot_maze_ui.gd`
+# documents for naming game classes in a SceneTree script. The texture constants above are
+# hardcoded for the same reason, so this matches the file's own convention.
+const CHASE_PATH := "res://assets/audio/level_2_house/chase.wav"
+const CHASE_VOLUME_DB := -6.0
+
+var _chase_audio: AudioStreamPlayer
+
+
+func _start_chase_audio() -> void:
+	if _chase_audio == null:
+		if not ResourceLoader.exists(CHASE_PATH):
+			return
+		var stream: AudioStream = load(CHASE_PATH)
+		if stream == null:
+			return
+		_chase_audio = AudioStreamPlayer.new()
+		_chase_audio.name = "ChaseAudio"
+		_chase_audio.stream = stream
+		_chase_audio.volume_db = CHASE_VOLUME_DB
+		add_child(_chase_audio)
+		_chase_audio.finished.connect(_chase_audio.play)
+	_chase_audio.play()
+
+
+func _stop_chase_audio() -> void:
+	if _chase_audio and _chase_audio.playing:
+		_chase_audio.stop()

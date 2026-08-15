@@ -3,8 +3,17 @@ extends CharacterBody3D
 const SPEED := 4.0
 const MOUSE_SENSITIVITY := 0.002
 const PITCH_LIMIT := deg_to_rad(80)
-const INTERACT_RANGE := 2.5
-const GAZE_RANGE := 3.0          # panic detection radius — wider than interact range
+# ⚠️ 2.5 -> 3.0 on 2026-08-15, the user's call, alongside five collider fixes in Levels 6
+# and 7 (slam_door, hiding_spot, dungeon_cot, wall_sconce). The range was NEVER the main
+# fault — those props had colliders thinner than their art, below knee height, or swung a
+# metre away from it — but reach and gaze now match, which is the more defensible pair.
+#
+# ⚠️ Know the cost: `trigger_object.gd` is instant-fail on E, so this is also the distance
+# from which a player can kill themselves on one. It now equals the distance those same
+# objects already fire from on a 3 s gaze, so nothing is reachable that was not already
+# dangerous — but do not raise it further without revisiting that.
+const INTERACT_RANGE := 3.0
+const GAZE_RANGE := 3.0          # panic detection radius — was wider than interact range
 const GAZE_TRIGGER_TIME := 3.0  # seconds of staring to trigger a trigger_object
 const PANIC_MAX := 50.0
 const PANIC_BASE_RATE := 20.0  # panic per second at scare_intensity 1.0
@@ -70,9 +79,14 @@ var _footstep_echo_enabled: bool = false
 var _echo_player: AudioStreamPlayer3D = null
 var _echo_trail_steps: int = 0                  # P2: extra steps after the player STOPS
 var _echo_trail_stream: AudioStream = null      # `footstep_trail`, if present
+var _default_footstep_stream: AudioStream = null  # what restore_footstep_stream() goes back to
 var _was_moving: bool = false                   # for the moving -> stopped transition
 var _dead_click_player: AudioStreamPlayer = null
 const FOOTSTEP_INTERVAL := 0.5
+# Visual layer for objects that must appear in a MIRROR but never in the world. Kept in
+# step with mirror_surface.gd's constant of the same name; the mirror's camera keeps this
+# bit, the player's camera (below, in _ready) drops it.
+const MIRROR_ONLY_LAYER := 20
 const _SCARY_OBJECT_SCRIPT := preload("res://scripts/scary_object.gd")
 const _PANIC_HUD_SCENE := preload("res://assets/elements/hud_canvas.tscn")
 
@@ -83,6 +97,11 @@ func _ready() -> void:
 	# "../Player" path. living_mirror.gd already documents a group fallback, but
 	# nothing ever joined the group, so that fallback was dead. Join it here.
 	add_to_group("player")
+	# ⚠️ Reserve a visual layer for things that exist ONLY in reflections, and clear it
+	# here rather than per level, so no level can forget and accidentally show the player
+	# a figure that is supposed to be visible only in the glass. `mirror_surface.gd` keeps
+	# the bit on its reflection camera; this is the other half of that contract.
+	camera.cull_mask &= ~(1 << (MIRROR_ONLY_LAYER - 1))
 	interact_label.visible = false
 	_flash_base_energy = flashlight.light_energy
 	# Your own body goes on the un-duckable bus. This is the half of the silence
@@ -94,6 +113,7 @@ func _ready() -> void:
 	var fs := GameState.load_audio("footstep")
 	if fs:
 		footstep_player.stream = fs
+		_default_footstep_stream = fs
 
 	var hb_stream := GameState.load_audio("heartbeat")
 	if hb_stream:
@@ -228,6 +248,26 @@ func _apply_gravity(delta: float) -> void:
 
 
 func _apply_movement() -> void:
+	# ⚠️ `_qte_active` blocks MOVEMENT ONLY — look is untouched, because `_unhandled_input`
+	# tests `_input_frozen` and not this. That asymmetry is the whole point: caught in a
+	# beartrap you cannot take a step, but you can still turn your head and watch what is
+	# coming while you mash E. See begin_qte().
+	#
+	# ⚠️ ZERO THE VELOCITY, DO NOT JUST RETURN (2026-08-15, second report of the same bug).
+	# `_physics_process` calls `move_and_slide()` whether or not this function did anything,
+	# so an early return leaves `velocity.x/z` exactly as the last un-pinned frame set them
+	# and the player keeps coasting at full walking — or sprinting — speed forever. Measured
+	# by walking into a trap at 6.40 m/s: 9.16 m of travel in 1.5 s while the UI read
+	# "TRAPPED". The first fix only ever looked right because the test TELEPORTED the player
+	# onto the trap, so there was no velocity to carry.
+	#
+	# Gravity is deliberately untouched: velocity.y still applies, so a pinned player still
+	# rests on the floor instead of hanging in the air.
+	if _qte_active:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		_is_moving = false
+		return
 	if _input_frozen:
 		return
 	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
@@ -308,6 +348,16 @@ func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:
 	var ray_end := ray_origin + (-camera.global_transform.basis.z * range)
 	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
 	query.exclude = [self]
+	# ⚠️ `hit_from_inside` defaults to FALSE, and that is a real gameplay rule, not a
+	# detail: a ray whose ORIGIN is inside a shape reports nothing at all.
+	#
+	# It surfaced on 2026-08-15. Interact volumes on layer 2 are deliberately non-solid
+	# (note.gd's convention: raycast-hittable, invisible to movement), so the player walks
+	# straight through them — and the moment those volumes were given real depth so an
+	# oblique approach would register, standing IN a doorway put the camera inside the box
+	# and the prompt vanished at exactly the distance the player was closest. Thin volumes
+	# hid this by being too thin to stand in, which is the same fault from the other side.
+	query.hit_from_inside = true
 	var result := space_state.intersect_ray(query)
 	if result and result.collider:
 		return result.collider
@@ -315,6 +365,13 @@ func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:
 
 
 func _try_interact() -> void:
+	# ⚠️ E belongs to the QTE while one is running (2026-08-15). `beartrap.gd` polls the
+	# `interact` action itself, from its own _process, so every escape press was ALSO
+	# arriving here — a player thrashing at the trap could open a note or a lock they
+	# happened to be facing, pausing the tree mid-escape. Now that the trap pins them they
+	# cannot walk to something new, but they can still be looking at one.
+	if _qte_active:
+		return
 	# While hidden, the interact ray originates from inside the spot's own
 	# collider (unreliable to hit-test), so route E straight to it instead.
 	if _hidden and _hide_spot and _hide_spot.has_method("interact"):
@@ -538,12 +595,37 @@ func set_standstill_suspended(suspended: bool) -> void:
 	_standstill_suspended = suspended
 
 
-# Swap the footstep sample. The Flood uses it so the player's own wading sounds like wading
-# — which is what makes SCARY.md P10's unseen wader legible, because the thing you hear in
-# the distance has to be audibly the same ACT you are performing.
+# Swap the footstep sample.
+#
+# ⚠️ NO LEVEL CURRENTLY CALLS THIS, and that is deliberate — don't wire it up again without
+# reading backrooms_zone3.gd:93. The Flood was the only caller: it swapped in a wading
+# splash so the player's own steps matched SCARY.md P10's distant wader. Measured, that
+# splash was 22 dB louder than the water bed it stood for, and the player asked for it gone
+# twice. The kept pair below is the correct SHAPE for anyone who needs this again.
+#
+# ⚠️ A SWAP IS TEMPORARY AND MUST BE UNDONE — pair every call with
+# `restore_footstep_stream()` (2026-08-15). This used to be one-way, and the Flood called
+# it from `build()`, which runs at LEVEL START for all three Backrooms zones: the player
+# waded audibly across the dry carpet of the Lobby, 200 m from any water, from their very
+# first step, for the whole level. Reported as "every time I make a step it is there. When
+# I stay there is none."
+#
+# The ECHO has to follow, or the phantom step two paces behind stops matching the step
+# that casts it — which is the one thing that makes it read as a footstep rather than as
+# a glitch.
 func set_footstep_stream(stream: AudioStream) -> void:
 	if stream:
 		footstep_player.stream = stream
+		if _echo_player:
+			_echo_player.stream = stream
+
+
+# Back to the sample this player spawned with. Safe to call when nothing was ever swapped.
+func restore_footstep_stream() -> void:
+	if _default_footstep_stream:
+		footstep_player.stream = _default_footstep_stream
+		if _echo_player:
+			_echo_player.stream = _default_footstep_stream
 
 
 # THE NIGHTMARE only: suppress panic DECAY without adding any pressure. Driven by
@@ -596,11 +678,18 @@ func unfreeze_input() -> void:
 	_input_frozen = false
 
 
-# A QTE that clamps the player without literally freezing input. The beartrap escape is
-# the only one: it deliberately uses apply_slow() rather than freeze_input(), so the
-# player can still limp and look while mashing E — that IS the beartrap's design and it
-# must not change. But for fairness purposes a player at 45 % speed mashing a key is
-# just as unable to demonstrate anything as a frozen one, so it has to read as busy.
+# A QTE that PINS the player without blinding them. `beartrap.gd` is the only caller.
+#
+# ⚠️ THIS COMMENT USED TO SAY THE OPPOSITE, and the code agreed with it: the beartrap only
+# called `apply_slow()`, so "trapped" meant 45 % speed and nothing else. The player could
+# walk — or sprint — out of an open trap while the UI still read "TRAPPED", and
+# `_escape_fail()` would then land its 40 panic on them from anywhere on the level. The
+# old note called that "the beartrap's design and it must not change."
+#
+# The user overrode it on 2026-08-15: "when you are stuck you are actually stuck until you
+# escape." Movement now stops dead (see `_apply_movement`); look does not, so the trap is
+# tense rather than blinding. `apply_slow()` is kept because it still supplies the limp
+# AFTER the jaws come off.
 func begin_qte() -> void:
 	_qte_active = true
 

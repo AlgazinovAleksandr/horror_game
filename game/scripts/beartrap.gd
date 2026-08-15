@@ -257,9 +257,13 @@ func _start_escape() -> void:
 	_escaping = true
 	_escape_timer = ESCAPE_TIME
 	_escape_presses = 0
-	# Mark the player busy WITHOUT freezing input — the limp-and-look is the beartrap's
-	# design. This is only so ApparitionDirector and JournalUI can see the QTE; the
-	# protection they both document did not exist before (GAME_MECHANICS_IDEAS §3(e)).
+	# ⚠️ This now PINS the player (2026-08-15). `begin_qte()` stops movement dead while
+	# leaving look free — read the note on it in player.gd for what it used to do and why
+	# the user overrode it. Until this change "trapped" meant `apply_slow()` and nothing
+	# more: you could walk, and even sprint, out of a closed trap while the UI read
+	# "TRAPPED — PRESS [E] TO ESCAPE", and still take the 40-panic timeout from the far
+	# side of the level. It also remains what lets ApparitionDirector and JournalUI see
+	# that a QTE is running (GAME_MECHANICS_IDEAS §3(e)).
 	if _body_ref and _body_ref.has_method("begin_qte"):
 		_body_ref.begin_qte()
 	_build_escape_ui()
@@ -274,10 +278,15 @@ func _process(delta: float) -> void:
 
 	if Input.is_action_just_pressed("interact"):
 		_escape_presses += 1
-		# Replay snap at low volume for each press — ratcheting sound
-		if _snap_player.stream:
-			_snap_player.volume_db = -18.0
-			_snap_player.play()
+		# ⚠️ NO SNAP REPLAY PER PRESS (2026-08-15). This used to re-fire `beartrap_snap` at
+		# -18 dB on EVERY keypress as a "ratcheting" sound — seven presses per trap, five
+		# traps in the Corridor's dark stretch, and the same 0.7 s sample became the most
+		# repeated noise in the level ("the beartrap snap… only once", user report). The
+		# snap is now what it says it is: the sound of the trap closing, once.
+		#
+		# The QTE keeps its feedback — the countdown bar drains and the press counter
+		# climbs (`_update_escape_ui`), both of which are on screen and neither of which
+		# repeats a sound.
 		if _escape_presses >= ESCAPE_PRESSES_NEEDED:
 			_escape_success()
 			return

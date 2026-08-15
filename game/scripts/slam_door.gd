@@ -52,9 +52,31 @@ func _ready() -> void:
 	collision_mask = 0
 	_collider = CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.1, 2.2, 0.1)
+	# ⚠️ DEPTH 1.2, NOT 0.1 (2026-08-15). `purge_chamber.gd:43-49` had this exact fault
+	# fixed on the 2026-07-24 playtest and wrote down why: "the raycast-hittable box used
+	# to match the physical panel exactly — a razor-thin slab at the doorway plane… a
+	# player glancing back at the creature or approaching off-axis would miss the z-depth
+	# entirely." SlamDoor was never given the same fix and was THINNER still, on doors the
+	# player is walking THROUGH (so the approach is routinely oblique) while being chased.
+	# Reported as "you need to stand very close" in Levels 6 and 7 — the two levels that
+	# are the only users of this class.
+	#
+	# ⚠️ It is also what de-conflicts this shape from the blocker below. The two used to be
+	# identical in size AND position, so on a CLOSED door `intersect_ray` could return
+	# `_block_body` — which has no `interact()`, so `player.gd:_is_interactable()` nulled
+	# the target and E did nothing in exactly the state you need to reopen it. Depth is
+	# what makes the interact box win, the same way PurgeChamber's 1.2 wins over its 0.15.
+	#
+	# ⚠️ And WIDER than the doorway, offset toward the hinge side, because an OPEN door's
+	# art is not where its collider is. `_build_visual()` parks the panel at -100°, which
+	# puts it about 0.65 m to -x and 0.54 m to +z of the frame — a metre from the only
+	# interactable surface. A player aiming at the door they can SEE got nothing, while a
+	# player standing in the empty doorway got the prompt. A CollisionShape3D has to be a
+	# direct child of its body, so it cannot simply be parented to the hinge; spanning both
+	# positions is the fix that needs no second body and no forwarding script.
+	shape.size = Vector3(1.9, 2.2, 1.2)
 	_collider.shape = shape
-	_collider.position.y = 1.1
+	_collider.position = Vector3(-0.3, 1.1, 0.0)
 	add_child(_collider)
 
 	# The actual physical blocker — default layer (matches the player/walls/every

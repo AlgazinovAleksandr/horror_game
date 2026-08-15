@@ -32,7 +32,7 @@ others, with no one place recording what was actually *built*.
 an audit of the code at commit `559514e`, **not** from what a design document claims about itself.
 That distinction is not pedantry — it is how the shadow error in §2.0 was found.
 
-⚠️ **`KONTUR.md` is the cautionary tale.** It is a stale root-level doc that silently contradicts the
+⚠️ **`drafts/KONTUR.md` is the cautionary tale.** It is a stale doc that silently contradicts the
 shipped game. Four overlapping idea files was that failure mode in slow motion. If you add a fifth
 design document, say here what it supersedes.
 

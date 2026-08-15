@@ -112,7 +112,13 @@ func _finish_route(reached_door: bool) -> void:
 		var approach: Vector3 = _auto.player.global_position
 		var normal: Vector3 = door.global_transform.basis.z.normalized()
 		var side: float = 1.0 if (approach - door.global_position).dot(normal) >= 0.0 else -1.0
-		var face: Vector3 = door.global_position + normal * side * 1.2
+		# ⚠️ The standoff is DERIVED FROM INTERACT_RANGE, not hardcoded (2026-08-15). It was
+		# a flat 1.2 m, which meant this suite proved only that a door answers from 1.2 m —
+		# so every prop in Levels 6 and 7 whose collider was thinner than its art, or below
+		# knee height, or swung a metre off it, passed here while being unusable in the
+		# hand. Testing at 90% of the real reach is what makes this an actual reach test.
+		var stand: float = float(_auto.player.get_script().get("INTERACT_RANGE")) * 0.9
+		var face: Vector3 = door.global_position + normal * side * stand
 		_auto.player.global_position = Vector3(face.x, _auto.player.global_position.y, face.z)
 		_auto.player.force_update_transform()
 		_auto.player.call("ai_look_at", door.global_position)

@@ -1,8 +1,15 @@
 # Godot
+#
+# ⚠️ `.godot/` is the only generated Godot data that should be ignored. `*.import` and
+# `*.uid` are DELIBERATELY NOT ignored (2026-08-15): they carry the stable `uid://`
+# identifiers that `.tscn` files reference — 51 resource refs and 36 script refs across
+# the scenes here. If they are not committed, a fresh clone re-imports and generates NEW
+# uids, so every one of those references misses and Godot falls back to the text path
+# with a warning. They are portable: every path inside them is `res://`-relative and the
+# cache filename is derived from the source path, so they are identical on any machine.
+# This matches Godot 4's own recommended .gitignore, which ignores `.godot/` and nothing else.
 .godot/
-*.import
 export_presets.cfg
-*.uid
 
 # Blender
 *.blend1

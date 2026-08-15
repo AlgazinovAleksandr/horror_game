@@ -46,9 +46,20 @@ func _ready() -> void:
 	# chased, so a player glancing back at the creature or approaching off-axis would miss
 	# the 0.15 m z-depth entirely. Depth alone increased (not width/height, which were
 	# already generous) so the interact ray has real margin along the approach axis.
-	shape.size = Vector3(2.2, 3.0, 1.2)
+	#
+	# ⚠️ 2026-08-15 — that fix was only half of it, and the other half survived another
+	# three weeks because no test aimed where a player aims. The box is centred on the
+	# DOORWAY, but `_build_visual()` parks the blast door at -95°, which puts the visible
+	# panel about 1.2 m to -x and 1.1 m to +z — outside this volume on both axes. So a
+	# player looking at the enormous open blast door and pressing E got nothing; only a
+	# player aiming at the empty doorway beside it was answered. On the level's ONLY
+	# permanent win condition, triggered while being chased.
+	#
+	# The volume now spans the doorway AND the swung-open panel. `check_interact_reach.gd`
+	# aims at the mesh, which is what caught it and what stops it coming back.
+	shape.size = Vector3(3.6, 3.0, 2.4)
 	_collider.shape = shape
-	_collider.position.y = 1.5
+	_collider.position = Vector3(-0.7, 1.5, 0.6)
 	add_child(_collider)
 
 	_block_body = StaticBody3D.new()
