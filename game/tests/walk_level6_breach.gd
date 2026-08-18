@@ -15,6 +15,12 @@ extends SceneTree
 # never get an interact prompt on either door at all. Driving the real raycast
 # path is what would have caught that immediately.
 #   Godot --headless --path game --script res://tests/walk_level6_breach.gd
+#
+# ⚠️ IT COULD NOT FAIL UNTIL 2026-08-17 (workstream H2, Issue 97's sibling). Every terminal
+# path printed `RESULT: FAIL (...)` and then `return true` — which ends the SceneTree loop and
+# exits **0**. `tools/run_tests.sh` reads the exit code, so this level's only end-to-end
+# completability proof reported PASS whether the creature chased, whether it entered the trap,
+# and whether the win flag ever flipped. Every path now calls `quit()` with a code.
 
 const STATE_CHASE := 2   # CreatureObject12.State enum order: PATROL/INVESTIGATE/CHASE/SEARCH/STAGGERED
 
@@ -41,6 +47,7 @@ func _initialize() -> void:
 func _process(_delta: float) -> bool:
 	if Time.get_ticks_msec() - _start_ms > HARD_TIMEOUT_MS:
 		print("RESULT: FAIL (hard timeout at phase %d)" % _phase)
+		quit(1)
 		return true
 
 	if not _level:
@@ -77,6 +84,7 @@ func _process(_delta: float) -> bool:
 				_t = 0.0
 			elif _t > 10.0:
 				print("RESULT: FAIL (creature never entered CHASE — state=%d)" % state)
+				quit(1)
 				return true
 
 		2:
@@ -104,6 +112,7 @@ func _process(_delta: float) -> bool:
 				_t = 0.0
 			elif _t > 20.0:
 				print("RESULT: FAIL (creature never reached the trap bounds — last pos=%v)" % pos)
+				quit(1)
 				return true
 
 		25:
@@ -118,15 +127,18 @@ func _process(_delta: float) -> bool:
 				_t = 0.0
 			elif _t > 3.0:
 				print("RESULT: FAIL (player's own interact raycast never resolved to the purge chamber — target=%s)" % [target])
+				quit(1)
 				return true
 
 		3:
 			var defeated = _level.get("_creature_defeated")
 			if defeated:
 				print("RESULT: PASS — creature_defeated=true, win sequence confirmed end-to-end")
+				quit(0)
 				return true
 			elif _t > 6.0:
 				print("RESULT: FAIL (sealed the door but creature_defeated never became true)")
+				quit(1)
 				return true
 
 	return false

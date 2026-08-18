@@ -212,16 +212,7 @@ func _signs_not_buried() -> void:
 	print("\n--- signs are proud of their walls ---")
 	var buried := 0
 	var total := 0
-	for c in _scene.get_children():
-		if not (c is Node3D) or c.get_child_count() == 0:
-			continue
-		# Signs are the Node3D roots holding a plate + a Label3D.
-		var has_label := false
-		for gc in c.get_children():
-			if gc is Label3D:
-				has_label = true
-		if not has_label:
-			continue
+	for c in _sign_roots():
 		total += 1
 		# Cast from inside the room toward the sign; nothing may intervene.
 		# The plate is a QuadMesh (faces +z locally) and the root is yawed to aim it
@@ -232,8 +223,34 @@ func _signs_not_buried() -> void:
 		if not _space().intersect_ray(q).is_empty():
 			buried += 1
 			print("      buried: %s at %v" % [c.name, c.global_position])
-	_ok("found the redacted signs (%d)" % total, total >= 7)
+	# ⚠️ EXACTLY the eight `_make_sign()` calls. `>= 7` was a floor a stray prop could
+	# satisfy — and did: the count read 9 while one of them was a shelf ornament.
+	_ok("found the redacted signs (%d)" % total, total == 8)
 	_ok("no sign is buried inside its wall (%d buried)" % buried, buried == 0)
+
+
+# ⚠️ IDENTIFIED BY THEIR ARTWORK, not by a `Label3D` child (2026-08-18). The eight signs
+# were engine text over a blank plate until this pass and are now generated printed
+# documents (`tools/make_kontur_signs.py`) with the rule and the censor bar STRUCK INTO
+# THE IMAGE — so there is no `Label3D` to find, and a collector that looked for one went
+# from finding a shelf ornament to finding nothing at all. The texture path is the
+# structural fact: it cannot be renamed by a sibling collision (Issue 17) and it is the
+# thing that makes the prop a sign.
+func _sign_roots() -> Array:
+	var out: Array = []
+	for c in _scene.get_children():
+		if not (c is Node3D):
+			continue
+		for gc in c.get_children():
+			if not (gc is MeshInstance3D and (gc as MeshInstance3D).mesh is QuadMesh):
+				continue
+			var mat := (gc as MeshInstance3D).get_surface_override_material(0)
+			if mat is StandardMaterial3D and (mat as StandardMaterial3D).albedo_texture:
+				var path: String = (mat as StandardMaterial3D).albedo_texture.resource_path
+				if path.get_file().begins_with("kontur_sign_"):
+					out.append(c)
+					break
+	return out
 
 
 func _escort_grace() -> void:
@@ -280,13 +297,11 @@ func _escort_grace() -> void:
 
 	# And the rule must be readable BEFORE the corridor, not inside it.
 	var sign_in_airlock := false
-	for c in _scene.get_children():
-		if not (c is Node3D):
+	for c in _sign_roots():
+		if not String(c.name).contains("escort"):
 			continue
-		for gc in c.get_children():
-			if gc is Label3D and gc.text.contains("ESCORT"):
-				# The Airlock spans z 60..66; the corridor starts at 66.
-				sign_in_airlock = c.global_position.z < gate.span_start_z
+		# The Airlock spans z 60..66; the corridor starts at 66.
+		sign_in_airlock = c.global_position.z < gate.span_start_z
 	_ok("the escort rule is posted before the corridor, not inside it", sign_in_airlock)
 
 

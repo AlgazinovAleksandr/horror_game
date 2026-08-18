@@ -19,8 +19,11 @@ extends SceneTree
 # Three passes. The first two are deliberately opposed, because "smarter" has an obvious
 # wrong answer; the third is the one that actually discriminates:
 #   CATCH   — a player who stands still AT THE START is caught.
-#   ESCAPE  — a player who walks the corridor route to the target still wins. If this
-#             fails the monster is unbeatable, a worse bug than the one being fixed.
+#   ESCAPE  — a player who walks the corridor route still wins. ⚠️ Since 2026-08-16 that
+#             means the WHOLE two-stage objective: collect every fragment, then reach the
+#             mark. The bot steers by `_bot_goal()` and the win is decided by the UI's own
+#             `_is_won()`, so a mark that opened early, or never opened, reddens this pass.
+#             If it fails the monster is unbeatable, a worse bug than the one being fixed.
 #   PURSUE  — a player who runs to the far end of the maze and THEN stops is still
 #             hunted down. This is the reported bug in one sentence: "it can basically
 #             kill the player only at the beginning."
@@ -33,6 +36,14 @@ extends SceneTree
 const TRIALS := 40
 const DT := 1.0 / 60.0
 const CATCH_TIMEOUT := 30.0     # seconds of simulated chase before we call it inert
+# ⚠️ SEPARATE from CATCH_TIMEOUT since 2026-08-16, and it had to be. The objective is
+# two-stage now (collect every fragment, THEN reach the mark) and a winning run is designed
+# to take 30-45 s, so the 30 s ceiling the ESCAPE pass used to share with the CATCH pass
+# would have scored almost every successful escape as a timeout — i.e. as neither a win nor
+# a catch — and reported a collapse in the escape rate that never happened. A harness that
+# silently measures the wrong build is worse than no harness (this file has said so since
+# the patroller shipped; this is the same mistake in the time domain).
+const ESCAPE_TIMEOUT := 100.0
 # Generous: crossing a 10x8 maze corner to corner along the corridors is ~30 cells
 # = ~2900 px, which at MONSTER_SPEED takes ~33 s. Anything under this is navigation
 # working; a monster that never arrives is jammed.
@@ -47,6 +58,14 @@ var _fails := 0
 var _catch_times: Array[float] = []
 var _escapes := 0
 var _caught_while_fleeing := 0
+var _escape_times: Array[float] = []
+var _fragments_got: Array[int] = []
+
+# The bot's current waypoint, recomputed only when the fragment count changes — which is what
+# a player does (pick the nearest piece, go and get it), and what keeps this to a handful of
+# BFS runs per attempt instead of one per frame.
+var _goal := Vector2.ZERO
+var _goal_for := -1
 
 
 func _initialize() -> void:
@@ -66,6 +85,30 @@ func _fresh(seed_value: int) -> void:
 	# The caller gates ticking on MONSTER_START_DELAY itself (see `grace`), so clear the
 	# UI's own counter — otherwise the delay would be applied twice.
 	_ui.set("_monster_start_timer", 0.0)
+	_goal_for = -1
+
+
+# Where the bot is heading RIGHT NOW: the nearest live fragment by corridor distance, or the
+# mark once every fragment is in hand. ⚠️ The mark is genuinely inert until then — see
+# `_is_won()` — so a bot that walked straight at it would sit on top of it forever and this
+# whole pass would read 0/40.
+func _bot_goal() -> Vector2:
+	var frags: Array = _ui.get("_fragments")
+	if frags.is_empty():
+		return _ui.get("_target_pos")
+	if _goal_for != frags.size():
+		_goal_for = frags.size()
+		var pcell: Vector2i = _ui.call("_cell_at", _ui.get("_player_pos"))
+		var field: Dictionary = _ui.call("_bfs_distances", pcell)
+		var best: Vector2 = frags[0]
+		var best_d: int = 1 << 30
+		for f: Vector2 in frags:
+			var d: int = int(field.get(_ui.call("_cell_at", f), 1 << 30))
+			if d < best_d:
+				best_d = d
+				best = f
+		_goal = best
+	return _goal
 
 
 func _process(_delta: float) -> bool:
@@ -107,13 +150,15 @@ func _process(_delta: float) -> bool:
 		print("  caught %d/%d — time to catch: min %.1f s / mean %.1f s / max %.1f s"
 			% [_catch_times.size(), TRIALS, lo, sum / _catch_times.size(), hi])
 
-	print("--- %d mazes: can a player who KEEPS MOVING still win? ---" % TRIALS)
+	print("--- %d mazes: can a player who KEEPS MOVING still collect and escape? ---" % TRIALS)
+	var timed_out := 0
 	for i in TRIALS:
 		_fresh(9000 + i)
+		var armed: int = (_ui.get("_fragments") as Array).size()
 		var t := 0.0
 		var won := false
 		var caught := false
-		while t < CATCH_TIMEOUT:
+		while t < ESCAPE_TIMEOUT:
 			_step_player_toward_target(DT)
 			if t >= grace:
 				_ui.call("_tick_monster", DT)
@@ -125,25 +170,58 @@ func _process(_delta: float) -> bool:
 				# old build is worse than no harness.
 				_ui.call("_tick_patroller", DT)
 				_ui.call("_check_snares", null)
+			# ⚠️ THE REAL PICKUP PATH, every frame, for the same reason. `_check_fragments()`
+			# owns the pickup radius, the collection and the "the mark is now open" state; a
+			# harness that decided for itself when a fragment had been reached would be
+			# measuring its own arithmetic.
+			_ui.call("_check_fragments")
 			t += DT
 			var mp: Vector2 = _ui.get("_monster_pos")
 			var pp: Vector2 = _ui.get("_player_pos")
-			var tp: Vector2 = _ui.get("_target_pos")
 			if (_ui.get("_patrol_pos") as Vector2).distance_to(pp) <= catch_radius:
 				caught = true
 				break
 			if mp.distance_to(pp) <= catch_radius:
 				caught = true
 				break
-			if pp.distance_to(tp) <= float(_ui.get_script().get("WIN_RADIUS")):
+			# ⚠️ The SHIPPING win predicate, never a distance test written here — the whole
+			# point of the redesign is that touching the mark early does nothing, and a
+			# harness with its own win rule could not see that rule break.
+			if bool(_ui.call("_is_won")):
 				won = true
 				break
+		var got: int = armed - (_ui.get("_fragments") as Array).size()
+		_fragments_got.append(got)
 		if won:
 			_escapes += 1
+			_escape_times.append(t)
+			if got != armed:
+				_fail("maze seed %d: won with only %d/%d fragments — the mark opened early"
+					% [9000 + i, got, armed])
 		elif caught:
 			_caught_while_fleeing += 1
-	print("  reached the mark %d/%d (caught in flight %d)"
-		% [_escapes, TRIALS, _caught_while_fleeing])
+		else:
+			timed_out += 1
+	# ⚠️ Sample-size assertion: a pass in which nothing ever finished would otherwise look
+	# like a difficulty result rather than a broken harness.
+	if _fragments_got.size() != TRIALS:
+		_fail("only %d of %d escape attempts were scored" % [_fragments_got.size(), TRIALS])
+	if timed_out > TRIALS / 4:
+		_fail("%d/%d attempts hit the %.0f s ceiling without winning OR being caught — the "
+			% [timed_out, TRIALS, ESCAPE_TIMEOUT] + "harness is measuring its own timeout")
+	var mean_escape := 0.0
+	var med_escape := 0.0
+	if not _escape_times.is_empty():
+		for v in _escape_times:
+			mean_escape += v
+		mean_escape /= _escape_times.size()
+		var sorted := _escape_times.duplicate()
+		sorted.sort()
+		med_escape = sorted[sorted.size() / 2]
+	print("  collected everything and reached the mark %d/%d (caught in flight %d, timed out %d)"
+		% [_escapes, TRIALS, _caught_while_fleeing, timed_out])
+	print("  winning run: median %.1f s / mean %.1f s   (design target 30-45 s)"
+		% [med_escape, mean_escape])
 	# ⚠️ FLOOR LOWERED 0.75 -> 0.55 ON 2026-08-15, EXPLICITLY, AS THE USER'S CALL.
 	#
 	# The maze gained loops (`_braid()`), a second monster that patrols and gives chase, and
@@ -167,23 +245,61 @@ func _process(_delta: float) -> bool:
 		_fail("only %d/%d escapes — the monster is now effectively unbeatable"
 			% [_escapes, TRIALS])
 
+	# ⚠️ A FOURTH PASS, added 2026-08-16 because the third was VACUOUS. The escape pass above
+	# also asserts "won with only n/N fragments", and that assertion CANNOT FIRE: the bot walks
+	# to the fragments first by construction, so it collects them whether or not the rule
+	# exists. Verified by deleting the collection half of `_is_won()` — `check_maze_traps.gd`
+	# went red and this file stayed green at 25/40. A guard that cannot fail is not a guard.
+	#
+	# So: drive a player who IGNORES the fragments and runs straight for the mark, and assert
+	# they do NOT win. This is the only pass in the file that can see the two-stage rule break,
+	# and it decides it through the shipping `_is_won()`.
+	print("--- %d mazes: a player who SKIPS the fragments must not win ---" % TRIALS)
+	var skipped_wins := 0
+	var skip_checked := 0
+	for i in TRIALS:
+		_fresh(9000 + i)
+		if (_ui.get("_fragments") as Array).is_empty():
+			continue
+		skip_checked += 1
+		# The pursuers are parked: this pass is about the objective gate, not about survival,
+		# and a catch would end the run before it could prove anything.
+		var away := Vector2(-99999.0, -99999.0)
+		_ui.set("_monster_pos", away)
+		_ui.set("_patrol_pos", away)
+		var t := 0.0
+		while t < 40.0:
+			_step_toward(DT, _ui.get("_target_pos"))
+			_ui.call("_check_fragments")
+			t += DT
+			if bool(_ui.call("_is_won")):
+				skipped_wins += 1
+				break
+	# ⚠️ Assert the sample size, or "0 of 0 skipping players won" reads as a pass.
+	if skip_checked != TRIALS:
+		_fail("only %d of %d seeds had a fragment to skip" % [skip_checked, TRIALS])
+	print("  skipping players who reached the mark anyway: %d/%d (want 0)"
+		% [skipped_wins, skip_checked])
+	if skipped_wins > 0:
+		_fail("%d/%d runs won WITHOUT collecting — the mark is not actually sealed"
+			% [skipped_wins, skip_checked])
+
 	print("--- %d mazes: player runs to the far end, THEN stops. Hunted down? ---" % TRIALS)
 	var hunted := 0
 	var hunt_times: Array[float] = []
 	for i in TRIALS:
 		_fresh(9000 + i)
 		var t := 0.0
-		# Phase 1: run for the target, monster held for its usual head start.
+		# Phase 1: run the objective, monster held for its usual head start.
 		while t < 12.0:
 			_step_player_toward_target(DT)
 			if t >= grace:
 				_ui.call("_tick_monster", DT)
 				_ui.call("_tick_patroller", DT)
 				_ui.call("_check_snares", null)
+			_ui.call("_check_fragments")
 			t += DT
-			var pp0: Vector2 = _ui.get("_player_pos")
-			var tp0: Vector2 = _ui.get("_target_pos")
-			if pp0.distance_to(tp0) <= float(_ui.get_script().get("WIN_RADIUS")):
+			if bool(_ui.call("_is_won")):
 				break
 		# Phase 2: freeze. From here the ONLY question is whether it can navigate.
 		var start_gap: float = (_ui.get("_monster_pos") as Vector2).distance_to(
@@ -229,9 +345,18 @@ func _process(_delta: float) -> bool:
 
 # Drive the player along the SAME corridor route the monster uses, so "escape" means a
 # competent player, not one teleporting through walls.
+#
+# ⚠️ Since 2026-08-16 the destination is `_bot_goal()`, not the mark: the objective is
+# two-stage and the mark is inert until every fragment is collected.
 func _step_player_toward_target(dt: float) -> void:
+	_step_toward(dt, _bot_goal())
+
+
+# The same corridor walk aimed at an explicit point, so the skip pass can drive a player who
+# heads for the mark and ignores everything else.
+func _step_toward(dt: float, goal: Vector2) -> void:
 	var pp: Vector2 = _ui.get("_player_pos")
-	var tp: Vector2 = _ui.get("_target_pos")
+	var tp: Vector2 = goal
 	var pcell: Vector2i = _ui.call("_cell_at", pp)
 	var tcell: Vector2i = _ui.call("_cell_at", tp)
 	var aim := tp

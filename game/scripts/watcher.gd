@@ -72,6 +72,29 @@ var require_los: bool = true
 # Height in metres; the width follows the texture's aspect. See spawn().
 var figure_height: float = SIZE.y
 
+# Multiplied into the cutout's albedo. ⚠️ ADDITIVE, DEFAULT 1.0 — every existing caller
+# (the Corridor doorway, the House cellar) renders byte-identically to before this existed.
+#
+# It exists because the header's stated premise above — "a dark shape OCCLUDING a lit
+# surface" — is a CONSTANT ALBEDO against a VARIABLE BACKGROUND, and it inverts wherever
+# the ground is darker than the cutout. Measured in the Backrooms Sprawl (2026-08-17):
+#
+#   figure at  2 m .................. 43.7 lum   (44,44,44)
+#   figure at 25 m .................. 42.4 lum   — flat, no falloff: the material is
+#                                                 SHADING_MODE_UNSHADED, so albedo IS
+#                                                 the final colour at every distance
+#   Sprawl floor behind it .......... 29.5 - 36.3 lum
+#   Sprawl ceiling behind it ........ 28.8 lum
+#   watcher_figure.png, opaque px ... mean 43.6
+#
+# i.e. over most of the frame the "shadow" was a LIGHTER patch than its ground, and
+# achromatic in a room that is uniformly yellow. Two lit placements are fine and the one
+# dark placement was upside down. Cross-level item X36.
+#
+# ⚠️ This is a tint, NOT an emission and NOT a light. Never give a Watcher emission — see
+# the header, and Issues 21/27/33.
+var figure_tint: Color = Color(1, 1, 1, 1)
+
 var _player: CharacterBody3D = null
 var _camera: Camera3D = null
 var _quad: MeshInstance3D = null
@@ -111,9 +134,12 @@ var _going: bool = false
 # an adult at 30 m and a child in a hallway, and a 2.4 m child is not a child. The WIDTH is
 # never passed — it is derived from the texture's own aspect (see _build_figure), per
 # SCARY.md §7.1(4): a portrait cutout on a fixed 1.6x2.4 quad renders visibly stretched.
+#
+# `tint` multiplies the cutout's albedo — see figure_tint. LAST parameter and defaulted to
+# white on purpose, so no existing positional call site changes at all.
 static func spawn(parent: Node, pos: Vector3, tex_path: String,
 		vanish_within: float = 10.0, require_los: bool = true,
-		height: float = SIZE.y) -> Watcher:
+		height: float = SIZE.y, tint: Color = Color(1, 1, 1, 1)) -> Watcher:
 	var player := parent.get_tree().get_first_node_in_group("player") as CharacterBody3D
 	if not player:
 		return null
@@ -122,6 +148,7 @@ static func spawn(parent: Node, pos: Vector3, tex_path: String,
 	w.despawn_dist = vanish_within
 	w.require_los = require_los
 	w.figure_height = height
+	w.figure_tint = tint
 	w.name = "Watcher"
 	parent.add_child(w)
 
@@ -155,7 +182,8 @@ func _build_figure(tex_path: String) -> void:
 	if tex_path != "" and ResourceLoader.exists(tex_path):
 		var tex: Texture2D = load(tex_path)
 		_mat.albedo_texture = tex
-		_mat.albedo_color = Color(1, 1, 1, 1)
+		# figure_tint defaults to white, so this is the literal Color(1,1,1,1) it replaced.
+		_mat.albedo_color = figure_tint
 		# ⚠️ Size the quad from the SOURCE ASPECT, keeping the requested height. The
 		# generator returns whatever crop it likes (the child came back 586x1489, the adult
 		# 757x1474), and a portrait cutout stretched across a fixed 1.6-wide quad reads as a
@@ -165,8 +193,8 @@ func _build_figure(tex_path: String) -> void:
 			mesh.size = Vector2(figure_height * aspect, figure_height)
 	else:
 		# Procedural fallback: a flat dark shape. Still legible, because unshaded albedo
-		# is the final colour and the walls behind it are lit.
-		_mat.albedo_color = Color(0.06, 0.06, 0.08, 1)
+		# is the final colour and the walls behind it are lit. (× white = unchanged.)
+		_mat.albedo_color = Color(0.06, 0.06, 0.08, 1) * figure_tint
 	_quad.set_surface_override_material(0, _mat)
 	# ⚠️ Half the ACTUAL height, not the constant. QUAD_Y is 1.2 because the default figure is
 	# 2.4 m; with `figure_height` variable, a fixed 1.2 would leave a 1.25 m child hovering

@@ -1,9 +1,20 @@
 extends SceneTree
 
-# Dev tool: dump the morgue trigger props and the exit door, with their meshes,
-# materials and textures, so "the face isn't showing" / "the door art is cropped"
-# can be diagnosed from facts rather than from screenshots.
-# Usage: Godot --headless --path game --script res://tests/check_morgue_props.gd
+# DIAGNOSTIC PRINTER, not a guard — renamed from `check_morgue_props.gd` and REMOVED from
+# `tools/run_tests.sh` on 2026-08-17 (workstream H2).
+#
+# It dumps the morgue trigger props and the exit door, with their meshes, materials and
+# textures, so "the face isn't showing" / "the door art is cropped" can be diagnosed from
+# facts rather than from screenshots. It asserts NOTHING and never calls `quit()`, so it
+# exited 0 whatever it found — while the runner listed it as "morgue trigger objects are not
+# buried", a claim it could not make. The claim itself is covered, by things that do assert:
+#
+#   * `check_reachable.gd`      — both morgue triggers are among the Lab's 22 REACHABLE
+#                                 interactables, found by flood fill + the shipping interact ray
+#   * `check_wall_overlap.gd`   — their quads are not coincident with the wall
+#   * `check_prop_mounting.gd`  — and not floating off it
+#
+# Usage: Godot --headless --path game --script res://tests/probe_morgue_props.gd
 
 var _frame := 0
 

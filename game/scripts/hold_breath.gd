@@ -7,7 +7,7 @@ class_name HoldBreath
 # it. This is the EVENT form — duck a bus hard, hold, restore — and its most valuable
 # placement is inside `Screamer.flash_scare()` as a pre-duck, which improves every
 # survivable scare in the game at once: the House forest window, the Corridor Manager,
-# the three turn mirrors, the Lab nook payoff, all eight KONTUR strike flashes.
+# the turn mirrors, the Lab nook payoff, all eight KONTUR strike flashes.
 #
 # F.E.A.R.'s entire audio thesis is that the silence before the hit is what makes the hit.
 # The game's longest telegraph before this was 0.22 s (`apparition.gd:TELEGRAPH_TIME`);

@@ -56,11 +56,15 @@ const CHILD_DIST := 3.2              # how far in front of the player it materia
 # room, and at child height it read as small and far away rather than as on top of you.
 const CHILD_HEIGHT := 1.95
 
-# The bedroom painting comes off the wall in front of you, loudly.
+# The falling painting comes off the wall in front of you, loudly. It hangs on the ChildRoom's
+# NORTH wall, beside the exit door, so approaching the combination lock is what drops it.
 const PAINTING_TRIGGER_DIST := 4.5
 const PAINTING_TRIGGER_DOT := 0.45
 const PAINTING_FALL_TIME := 0.45
 const PAINTING_FALL_DB := 8.0
+# Offset along the north wall from its centre. The exit door occupies x -1.33..-0.08, so this
+# puts the panel on the other side of it with ~0.5 m of wall between the two.
+const PAINTING_X := 0.85
 
 # The fridge — the single new panic term in the atmosphere pass. Voluntary, optional,
 # off the quest path, one-shot. See house_fridge.gd's header.
@@ -69,6 +73,13 @@ const FRIDGE_PANIC := 10.0
 # The footsteps overhead, after the scripted one-shot. Zero panic, on a long gap.
 const OVERHEAD_MIN := 40.0
 const OVERHEAD_MAX := 70.0
+
+# The four objective lines, in one place so the fresh-level path and _restore_progress()
+# cannot drift apart (they have, twice).
+const OBJ_FIND_KEY := "The cellar is locked. Find the key."
+const OBJ_COLLECT_KEY := "Collect the cellar key"
+const OBJ_UNLOCK_CELLAR := "Unlock the cellar door under the kitchen stairs"
+const OBJ_CODE := "Read the 3 notes for the code, then enter it at the exit lock"
 
 # The cellar's cross-level hint for THE NIGHTMARE (level 7), on the wall AND on screen.
 const CELLAR_HINT := "TIMING IS EVERYTHING\nIN THE NIGHTMARE."
@@ -139,13 +150,22 @@ func _ready() -> void:
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
-	# ⚠️ This string has now been wrong twice — it has to be re-checked whenever the
-	# key quest moves. It said "kitchen" when the key was a Landing drawer search, then
-	# "somewhere upstairs" (playtest 2026-07-25) after the drawers were deleted and the
-	# quest became the folded map in the BATHROOM (_spawn_bathroom_map). The key is
-	# neither upstairs nor a search any more, so name the prop rather than a room: the
-	# map is the thing to find, and finding it is the whole of the puzzle.
-	GameState.set_objective("Find the folded map — it hides the cellar key")
+	# ⚠️ STATE THE GOAL, NEVER THE SOLUTION (2026-08-16, playtest capture B2: *"I do not think
+	# this hint to find the cellar key is needed. The player will figure it out"*). The line
+	# read `Find the folded map — it hides the cellar key`, and the objective HUD was the ONLY
+	# thing anywhere in the level that mentioned the map or the key — there is no note, scrawl,
+	# prop or caption about either. So the level's one puzzle was solved on the HUD before the
+	# player had entered a room.
+	#
+	# ⚠️ It is REPLACED, not deleted (the user's call). The map is the only route to the key
+	# and nothing else in the game names it, so an empty objective would strand a player who
+	# never walks into the Bathroom. A goal is fair; a pointer is not.
+	#
+	# ⚠️ This string has now been wrong three times — re-check it whenever the key quest moves.
+	# It said "kitchen" when the key was a Landing drawer search, then "somewhere upstairs"
+	# (playtest 2026-07-25) after the drawers were deleted and the quest became the folded map
+	# in the BATHROOM (_spawn_bathroom_map), then it named the map outright.
+	GameState.set_objective(OBJ_FIND_KEY)
 	_restore_progress()      # last — overrides the fresh-level objective above
 	_creak_timer = randf_range(CREAK_MIN, CREAK_MAX)
 	_pipe_timer = randf_range(PIPE_MIN, PIPE_MAX)
@@ -294,14 +314,14 @@ func _restore_progress() -> void:
 	if bool(data.get("cellar_open", false)):
 		if is_instance_valid(_cellar_gate):
 			_cellar_gate.open()
-		GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
+		GameState.set_objective(OBJ_CODE)
 	elif bool(data.get("has_cellar_key", false)):
 		_has_cellar_key = true
 		GameState.set_carried("cellar key")
-		GameState.set_objective("Unlock the cellar door under the kitchen stairs")
+		GameState.set_objective(OBJ_UNLOCK_CELLAR)
 	elif _map_solved:
 		# Won the map but never picked the key up — it is still lying on the counter.
-		GameState.set_objective("Collect the cellar key")
+		GameState.set_objective(OBJ_COLLECT_KEY)
 
 
 # ---------------------------------------------------------------- cellar (lowered)
@@ -310,8 +330,26 @@ const CELLAR_Y := -1.5
 const CELLAR_CENTER := Vector2(5, -6)
 const CELLAR_SIZE := Vector2(7, 7)
 const CELLAR_H := 2.6
+const CELLAR_WALL_T := 0.2
+const CELLAR_WALL_CLEAR := 0.06
 
 var _cellar_mat: StandardMaterial3D
+
+
+# `RoomBuilder.wall_point()` for the CELLAR, which is not a RoomBuilder room and so had no
+# equivalent — which is exactly why the third note was hand-typed and ended up 1.40 m out in
+# mid-air (capture A4). Same contract as the real one: `side` is a unit direction, the return
+# is `clearance` metres in front of that wall's INNER FACE (the shell is CELLAR_WALL_T thick
+# and centred on the nominal boundary, so the face is T/2 in). The 3 cm floor mirrors
+# RoomBuilder.MIN_FACE_CLEAR — below that a prop is buried in the wall (Issue 11) and at
+# exactly 0 it is coplanar and z-fights.
+func _cellar_wall_point(side: Vector2, y: float, clearance := CELLAR_WALL_CLEAR) -> Vector3:
+	var half: Vector2 = CELLAR_SIZE * 0.5
+	var inset: float = CELLAR_WALL_T / 2.0 + maxf(clearance, 0.03)
+	return Vector3(
+		CELLAR_CENTER.x + side.x * (half.x - inset),
+		y,
+		CELLAR_CENTER.y + side.y * (half.y - inset))
 
 
 func _build_cellar() -> void:
@@ -488,8 +526,15 @@ func _spawn_notes() -> void:
 	# The cellar note is THE GUEST's last trigger: reading it is the deepest point of the
 	# route, so the walk back up is the longest single stretch the player will make with
 	# their back to the whole house.
+	# ⚠️ HUNG ON THE SOUTH WALL, not hand-computed (fixed 2026-08-16, playtest capture A4:
+	# *"This note is floating in the air"*). It was at
+	# `Vector3(CELLAR_CENTER.x - 1.5, CELLAR_Y + 1.4, CELLAR_CENTER.y - 2.0)` = (3.5, -0.1,
+	# -8.0) with `y_rot = 0`, i.e. facing +z with the nearest wall behind it — the south wall's
+	# inner face — a measured **1.40 m** away. It was the only note in the level not placed by
+	# a wall_point() helper, and the cellar had no such helper because it is not a RoomBuilder
+	# room. It has one now; see _cellar_wall_point().
 	var cellar_note := _make_note(
-		Vector3(CELLAR_CENTER.x - 1.5, CELLAR_Y + 1.4, CELLAR_CENTER.y - 2.0), 0.0,
+		_cellar_wall_point(Vector2(0, -1), CELLAR_Y + 1.4) + Vector3(-1.5, 0.0, 0.0), 0.0,
 		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.", false)
 	if cellar_note:
 		cellar_note.read.connect(func() -> void: _advance_guest(4))
@@ -668,14 +713,40 @@ func _spawn_window() -> void:
 # ---------------------------------------------------------------- cursed props
 
 func _spawn_cursed_props() -> void:
-	# Family painting on the bedroom's SOUTH wall; tarnished mirror in the living room.
-	# (The east wall is the bedroom's only doorway — a collider/ScaryObject there both
-	# blocks entry AND spikes panic as you push against it. The note with digit 2 is on
-	# the north wall, the bed on the west, so the south wall is clear.)
-	# Handle kept: THE GUEST puts this face-down on the floor at stage 2.
+	# ⚠️ THE FALLING PAINTING MOVED BEDROOM -> CHILD'S ROOM (2026-08-16, playtest capture B4:
+	# *"Usually the player would not return to this room to see the painting fall — shall we
+	# switch child painting and this one places, so that the falling painting will be next to
+	# the lock and the player is guaranteed to enter it"*). The two panels swapped places:
+	# `painting_house.png` is here now, and the child's crayon drawing took over the Bedroom's
+	# south wall (see _spawn_room_props).
+	#
+	# It is the right trade. THE GUEST's stage 1 fires on the map being solved, and after that
+	# the Bedroom is off every remaining route — map -> key -> Kitchen -> cellar -> the exit
+	# lock never re-enters it — so the level's most expensive scripted beat was being staged in
+	# a room the player had already finished with. The ChildRoom holds the exit lock and cannot
+	# be skipped.
+	#
+	# ⚠️ NORTH WALL, BESIDE THE EXIT DOOR (2026-08-16, second replay: *"Let's make this painting
+	# be next to the wall … I mean next to the door — let it be next to the door so once you
+	# approach the lock it falls"*). It hung on the ChildRoom's east wall for one session: the
+	# right ROOM but the wrong wall, so approaching the lock did not stage the beat, it merely
+	# happened somewhere in the same room.
+	#
+	# The exit door is at x = -0.7 on the north wall and is 1.25 wide (x -1.33..-0.08), so
+	# PAINTING_X puts the 0.8 m panel at x 0.45..1.25 — the far side of the same wall, half a
+	# metre clear of the leaf, in the frame you are looking at while you work the lock.
+	#
+	# ⚠️ It is NOT on a doorway. `wall_point()` returns the wall CENTRE, and a collider there
+	# seals the room — but ChildRoom's only RoomBuilder doorway is SOUTH at (0, 14); the exit
+	# door in the north wall is a prop, and the offset keeps the panel clear of it anyway.
+	# ⚠️ And where it LANDS matters as much as where it hangs: `_drop_painting()` slides it
+	# 0.55 m along its own forward, i.e. to (PAINTING_X, 0.06, 18.29) — inside the room, clear
+	# of the small bed at (1.5, 16.5) and clear of the walking line to the lock at x = -0.7.
+	# The tarnished mirror stays in the living room, untouched.
 	_bedroom_painting = _make_cursed_body(
-		_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.08),
-		Vector2(0.8, 1.0), 0.0, 0.8, Color(0.1, 0.08, 0.07), TEX + "painting_house.png")
+		_builder.wall_point("ChildRoom", Vector2(0, 1), 1.5, 0.16) + Vector3(PAINTING_X, 0, 0),
+		Vector2(0.8, 1.0), PI, 0.8, Color(0.1, 0.08, 0.07), TEX + "painting_house.png")
+	_bedroom_painting.name = "FallingPainting"
 	_make_cursed_body(_builder.wall_point("LivingRoom", Vector2(0, -1), 1.5, 0.08),
 		Vector2(0.7, 1.1), 0.0, 1.2, Color(0.05, 0.07, 0.08), "")
 
@@ -1060,7 +1131,26 @@ func _spawn_music_box() -> void:
 	col.shape = shape
 	col.position = Vector3(0, 0.05, 0)
 	box.add_child(col)
-	box.attach_parts(audio, crank_pivot)
+
+	# The WIND payoff is a second, separate stream — the recording the user supplied
+	# (2026-08-16). `audio` above stays the room's quiet bed and is NOT what a wind plays; see
+	# the ⚠️ at the top of `music_box.gd`. Also a child of `_music_box`, so THE GUEST's final
+	# stage still carries the sound with the box when the house moves it.
+	var tune_audio: AudioStreamPlayer3D = null
+	var tune := GameState.load_audio("music_box_tune")
+	if tune:
+		tune_audio = AudioStreamPlayer3D.new()
+		tune_audio.name = "MusicBoxTuneAudio"
+		tune_audio.stream = tune
+		tune_audio.volume_db = -40.0     # silent until wound
+		tune_audio.unit_size = 6.0
+		tune_audio.max_db = 6.0
+		tune_audio.bus = AudioBuses.AMBIENCE
+		tune_audio.position = Vector3(0, 0.2, 0)
+		_music_box.add_child(tune_audio)
+		tune_audio.finished.connect(tune_audio.play)   # every .wav/.ogg here is loop_mode=0
+
+	box.attach_parts(audio, crank_pivot, tune_audio)
 
 
 # Solid furniture so each room reads as a place. No panic — these are just props.
@@ -1094,18 +1184,20 @@ func _spawn_room_props() -> void:
 	var bc: Vector3 = _builder.room_center("Bathroom")
 	_make_prop(Vector3(bc.x + 1.4, 0.3, bc.z), Vector3(0.9, 0.6, 2.2), Color(0.7, 0.72, 0.72))
 	_spawn_bathroom_map(bc)
-	# Bedroom: a bed (the cursed painting is already here).
+	# Bedroom: a bed, plus the child's crayon drawing — which swapped places with the falling
+	# painting on 2026-08-16 (capture B4; see _spawn_cursed_props for why). SOUTH wall: the
+	# east wall is the Bedroom's only doorway, the note with digit 2 is on the north, the bed
+	# is on the west.
 	var bd: Vector3 = _builder.room_center("Bedroom")
 	_build_bed(Vector3(bd.x - 1.6, 0.0, bd.z), Vector2(2.0, 1.4))
-	# Child's room: a small bed + an unsettling crayon drawing on the wall.
+	var drawing := TEX + "child_drawing.png"
+	if ResourceLoader.exists(drawing):
+		_make_cursed_body(_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.06),
+			Vector2(0.7, 0.7), 0.0, 0.6, Color(0.6, 0.55, 0.5), drawing)
+	# Child's room: a small bed. The falling painting is on its NORTH wall, beside the exit door.
 	var cc: Vector3 = _builder.room_center("ChildRoom")
 	# Turned 180° on request (playtest 2026-07-29) — the headboard now faces the other way.
 	_build_bed(Vector3(cc.x + 1.5, 0.0, cc.z), Vector2(1.7, 0.95), PI)
-	var drawing := TEX + "child_drawing.png"
-	if ResourceLoader.exists(drawing):
-		# East wall (the north wall holds the exit lock/door; the west holds a note).
-		_make_cursed_body(_builder.wall_point("ChildRoom", Vector2(1, 0), 1.5, 0.06),
-			Vector2(0.7, 0.7), -PI / 2.0, 0.6, Color(0.6, 0.55, 0.5), drawing)
 
 
 # The Bathroom map-and-chase minigame (new feature, replaces the Landing 2-drawer
@@ -1119,7 +1211,7 @@ func _spawn_room_props() -> void:
 # stand/position rather than a separate one.
 func _spawn_bathroom_map(bc: Vector3) -> void:
 	var map_pos := Vector3(bc.x - 1.0, 0.65, bc.z - 1.5)
-	_make_prop(Vector3(map_pos.x, 0.3, map_pos.z), Vector3(0.5, 0.6, 0.4), Color(0.55, 0.5, 0.45))
+	_build_stool(Vector3(map_pos.x, 0.0, map_pos.z))
 	var map := HouseMap.new()
 	map.position = map_pos
 	map.name = "HouseMap"
@@ -1129,6 +1221,43 @@ func _spawn_bathroom_map(bc: Vector3) -> void:
 		_advance_guest(1)
 	)
 	add_child(map)
+
+
+# The stand the map — and then the cellar key — sits on.
+#
+# ⚠️ BUILT FROM PARTS (2026-08-16, playtest capture A2). It was one call to `_make_prop`, i.e.
+# a single flat-tinted 0.5 x 0.6 x 0.4 CSGBox: a featureless grey cube, and the frame the
+# *"Collect the key."* payoff is delivered in. Issue 35 in furniture form, and the same note
+# the kitchen chairs, the table and the music box each earned in turn — the SILHOUETTE carries
+# a prop here, art does not. A stool is legible because it has legs and a rail under a seat.
+#
+# ⚠️ The seat's TOP SURFACE must land at 0.60, exactly where the old box's did, because the
+# map and the key that replaces it are placed at y=0.65 and `check_wall_overlap.gd` fails any
+# QuadMesh within MIN_CLEAR (2 cm) of a CSG box. 0.60 keeps the same 5 cm the shipped prop had.
+# STOOL_TOP_Y is the seat's CENTRE, so top = STOOL_TOP_Y + STOOL_SEAT_T / 2.
+const STOOL_TOP_Y := 0.57
+const STOOL_SEAT_T := 0.06
+const STOOL_SEAT := Vector2(0.46, 0.38)
+
+func _build_stool(base: Vector3) -> void:
+	var wood := Color(0.32, 0.24, 0.16)
+	var dark := Color(0.24, 0.18, 0.12)
+	_make_prop(base + Vector3(0, STOOL_TOP_Y, 0),
+		Vector3(STOOL_SEAT.x, STOOL_SEAT_T, STOOL_SEAT.y), wood)
+	# A lip under the seat, so the edge reads as a board rather than as the top of a box.
+	_make_prop(base + Vector3(0, STOOL_TOP_Y - 0.05, 0),
+		Vector3(STOOL_SEAT.x - 0.07, 0.04, STOOL_SEAT.y - 0.06), dark)
+	for dx in [-1.0, 1.0]:
+		for dz in [-1.0, 1.0]:
+			_make_prop(base + Vector3(dx * (STOOL_SEAT.x / 2.0 - 0.05),
+					(STOOL_TOP_Y - STOOL_SEAT_T / 2.0) / 2.0,
+					dz * (STOOL_SEAT.y / 2.0 - 0.05)),
+				Vector3(0.05, STOOL_TOP_Y - STOOL_SEAT_T / 2.0, 0.05), dark)
+	# Cross rails near the floor — the detail that stops four legs reading as one block.
+	_make_prop(base + Vector3(0, 0.16, -(STOOL_SEAT.y / 2.0 - 0.05)),
+		Vector3(STOOL_SEAT.x - 0.10, 0.035, 0.035), dark)
+	_make_prop(base + Vector3(0, 0.16, STOOL_SEAT.y / 2.0 - 0.05),
+		Vector3(STOOL_SEAT.x - 0.10, 0.035, 0.035), dark)
 
 
 func _spawn_cellar_contents() -> void:
@@ -1146,6 +1275,22 @@ func _spawn_cellar_contents() -> void:
 	# Water drips ambience.
 	_loop_audio("water_drip", Vector3(c.x, CELLAR_Y + 1.0, c.y), -10.0)
 	# A beartrap waiting in the dark.
+	#
+	# ⚠️ DELIBERATE (2026-08-16). This trap sits 1.6 m past the cellar blackout trigger
+	# (`_spawn_cellar_props`'s event box spans x 3.5..6.5, z -3.9..-2.3) on the only heading
+	# into the room, inside an 8.5 s window in which `_begin_cellar_blackout()` kills every
+	# lamp AND calls `force_flashlight_off()`. It fired in BOTH playtest sessions on
+	# 2026-08-16 — `ESCAPE_INITIAL_PANIC` 15 at (6.30, -1.50, -4.90) and at
+	# (6.20, -1.50, -4.30), each within ~1.2 m of it and within 3 s of the torch dying.
+	#
+	# The analysis pass proposed moving it off that line (backlog 02-house item A6). The user
+	# was shown the measurement and chose to LEAVE IT WHERE IT IS. Do not re-file this as a
+	# bug and do not "fix" it in a later session.
+	#
+	# What it does change: `_cellar_child_appear()`'s postponement guard is the only thing
+	# standing between this trap and the user's original complaint ("will I always see that
+	# doll"), because a QTE and the child's appearance will keep colliding. Read the ⚠️ there
+	# before touching either.
 	var trap := Beartrap.new()
 	trap.position = Vector3(c.x + 1.5, CELLAR_Y, c.y + 0.5)
 	add_child(trap)
@@ -1293,7 +1438,7 @@ func _build_cellar_key(pos: Vector3) -> void:
 func _on_cellar_key_taken() -> void:
 	_has_cellar_key = true
 	GameState.set_carried("cellar key")
-	GameState.set_objective("Unlock the cellar door under the kitchen stairs")
+	GameState.set_objective(OBJ_UNLOCK_CELLAR)
 	_advance_guest(2)
 
 
@@ -1312,6 +1457,11 @@ func _on_cellar_key_taken() -> void:
 func _advance_guest(stage: int) -> void:
 	if stage <= _guest_stage:
 		return
+	# Playtest instrumentation only (2026-08-16). THE GUEST's stages left no trace in the log,
+	# so a session could not be told apart from one where the house never rearranged at all.
+	var _dbg := get_node_or_null("/root/DebugLog")
+	if _dbg:
+		_dbg.note("GUEST stage %d (was %d)" % [stage, _guest_stage])
 	# Apply every stage up to `stage`, so a restored snapshot lands in the right state even
 	# if it skipped one (e.g. the key was taken but the map's stage never fired).
 	for s in range(_guest_stage + 1, stage + 1):
@@ -1410,7 +1560,34 @@ func _tick_painting() -> void:
 		return
 	if fwd.normalized().dot(to_it.normalized()) < PAINTING_TRIGGER_DOT:
 		return
+	# ⚠️ AND YOU MUST ACTUALLY BE ABLE TO SEE IT (added 2026-08-16). Distance + facing alone is
+	# not "in front of you", it is "within 4.5 m and pointed roughly that way" — and walls do
+	# not enter into it. Measured on the replay log: THE GUEST reached stage 2 (key taken, at
+	# the Bathroom stand) at t = 146.8 and the painting fell at t = 148.26, ~130 s before the
+	# player first entered the ChildRoom. It went down through the Landing's south wall, to an
+	# empty room, and the beat — whose whole point is that it happens while you watch — was
+	# spent on a bang from behind a wall. A single ray fixes it and costs nothing.
+	if not _painting_in_sight(cam):
+		return
 	_drop_painting(true)
+
+
+# Line of sight from the eye to the panel, excluding the panel's own body (it is on layer 1,
+# so without the exclusion the ray always stops on the thing it is asking about) and the
+# player. Any other solid in between means the player cannot see it fall.
+func _painting_in_sight(cam: Camera3D) -> bool:
+	var space := get_world_3d().direct_space_state
+	if not space:
+		return true
+	var q := PhysicsRayQueryParameters3D.create(
+		cam.global_position, _bedroom_painting.global_position)
+	q.collision_mask = 1
+	var skip: Array[RID] = [_bedroom_painting.get_rid()]
+	var pl := _player()
+	if pl:
+		skip.append(pl.get_rid())
+	q.exclude = skip
+	return space.intersect_ray(q).is_empty()
 
 
 # `animate` false is the restore path — a player returning through a back door should find it
@@ -1419,13 +1596,40 @@ func _drop_painting(animate: bool) -> void:
 	if _painting_fallen or not _bedroom_painting:
 		return
 	_painting_fallen = true
+	var _dbgp := get_node_or_null("/root/DebugLog")
+	if _dbgp:
+		_dbgp.note("GUEST painting fell")   # instrumentation only
 	var p: Vector3 = _bedroom_painting.position
 	# -90° pitch lays it flat with the picture facing UP; +90° would point the quad's own +Z
 	# at the floor and backface culling would erase it (Issue 28, and it shipped that way
 	# once). The small yaw stops it landing squarely.
-	var end_pos := Vector3(p.x, 0.06, p.z + 0.55)
+	#
+	# ⚠️ THE LANDING OFFSET RUNS ALONG THE PANEL'S OWN FORWARD (fixed 2026-08-16). It was a
+	# hard-coded `p.z + 0.55`, correct only for a panel facing +z — which was true of every
+	# painting this level had ever had. The falling painting is now on the ChildRoom's EAST
+	# wall at `y_rot = -PI/2`, where +z is sideways: the picture would have slid a metre along
+	# the wall and ended up half inside it. A QuadMesh faces its own +Z, so `basis.z` is the
+	# direction "out into the room" for any yaw, and for the old bedroom panel it is exactly
+	# (0,0,1) — this changes nothing about the beat that shipped.
+	var out: Vector3 = _bedroom_painting.global_transform.basis.z
+	out.y = 0.0
+	out = out.normalized() if out.length() > 0.01 else Vector3(0, 0, 1)
+	var end_pos: Vector3 = Vector3(p.x, 0.06, p.z) + out * 0.55
 	var end_rot := _bedroom_painting.rotation \
 		+ Vector3(deg_to_rad(-90.0), deg_to_rad(14.0), 0.0)
+	# ⚠️ THE PANEL ON THE FLOOR MUST NOT BE A WALL (2026-08-16, Issue 76's second head).
+	# Pitched flat it is a 0.8 x 1.0 footprint standing 11 cm proud of the boards, and
+	# `move_and_slide` cannot step up. MEASURED with the player's own capsule, with this fix
+	# disabled: the north end of the child's room — the end the exit lock is on — split from
+	# ONE free lane `x -1.95..1.95` into `[-1.95..0.15]` and `[1.40..1.95]` at z 17.8, 18.0
+	# and 18.3, the second of which is a cul-de-sac. Nothing was made unreachable that had been
+	# reachable, so the flood fill above stays green; this is the NARROWING half, and after the
+	# 2026-08-16 report there is no appetite for a prop of this level's dropping a solid into a
+	# walking line. Layer 2 is this project's existing "raycast-hittable, invisible to movement"
+	# convention (`note.gd`), and the gaze ray uses the default all-layers mask, so the picture
+	# still feeds panic when you look at it on the floor.
+	_bedroom_painting.collision_layer = 2
+	_bedroom_painting.collision_mask = 0
 	if not animate:
 		_bedroom_painting.position = end_pos
 		_bedroom_painting.rotation = end_rot
@@ -1458,6 +1662,7 @@ func _begin_cellar_blackout() -> void:
 		return
 	_guest_child_done = true
 	_child_dark = true
+	_child_postponed = 0.0
 	var pl := _player()
 	if pl:
 		pl.force_flashlight_off()
@@ -1465,7 +1670,64 @@ func _begin_cellar_blackout() -> void:
 	get_tree().create_timer(CHILD_APPEAR_DELAY).timeout.connect(_cellar_child_appear)
 
 
+# ⚠️ IT MUST NOT APPEAR WHILE THE PLAYER CANNOT LOOK (2026-08-16).
+#
+# Playtest capture A3: *"Please double check that I will always see that doll."* The log said
+# why, exactly: the 15-point spike at t=205.48 is `Beartrap.ESCAPE_INITIAL_PANIC`, 0.63 m from
+# the cellar beartrap, and the child spawned at t=206.98 and was freed at 209.98 — the ENTIRE
+# appearance sat inside a 7-second beartrap QTE, with a countdown UI over the screen and
+# `begin_qte()` holding the player. The placement code did what it was told: 3.20 m dead ahead,
+# exactly `CHILD_DIST`. What it was not told is that the player was pinned.
+#
+# `_begin_cellar_blackout()` armed a bare `SceneTreeTimer`, which defaults to
+# `process_always = true` and therefore fires straight THROUGH a tree pause — so an open note
+# or the journal would have done the same thing. `apparition_director.gd:100-108` refuses on
+# exactly these three conditions and is the only thing in the project that did; the level's own
+# scripted beat checked none of them.
+#
+# ⚠️ This guard is now LOAD-BEARING, not belt-and-braces. The beartrap sits 1.6 m past the
+# blackout trigger on the only heading in, and the user's decision on 2026-08-16 is that it
+# STAYS there (see _spawn_cellar_contents) — so the collision will keep happening, and this is
+# the only thing preventing it.
+#
+# ⚠️ And it must not postpone FOREVER: the blackout's end is armed by _cellar_child_appear(),
+# so a beat that never fires leaves the player with no lamps and no torch, which is a worse bug
+# than the one being fixed. All three conditions are transient and player-resolvable (a QTE
+# lasts ESCAPE_TIME 7 s; a note and the journal close on a keypress), but CHILD_POSTPONE_MAX is
+# the safety valve: past it, give up on the figure and hand the lights back.
+const CHILD_RETRY := 0.25
+const CHILD_POSTPONE_MAX := 45.0
+
+var _child_postponed: float = 0.0
+
+
+func _can_show_child() -> bool:
+	if NoteUI.is_open:
+		return false
+	if get_tree().paused:
+		return false
+	var pl := _player()
+	if pl and pl.has_method("is_input_frozen") and pl.is_input_frozen():
+		return false
+	return true
+
+
 func _cellar_child_appear() -> void:
+	if not _can_show_child():
+		if _child_postponed >= CHILD_POSTPONE_MAX:
+			var _dbgx := get_node_or_null("/root/DebugLog")
+			if _dbgx:
+				_dbgx.note("CELLAR child ABANDONED after %.1fs of postponement" % _child_postponed)
+			_end_cellar_blackout()
+			return
+		if _child_postponed <= 0.0:
+			var _dbgp := get_node_or_null("/root/DebugLog")
+			if _dbgp:
+				_dbgp.note("CELLAR child postponed (player cannot look)")
+		_child_postponed += CHILD_RETRY
+		get_tree().create_timer(CHILD_RETRY).timeout.connect(_cellar_child_appear)
+		return
+
 	var pl := _player()
 	if not pl:
 		_end_cellar_blackout()
@@ -1479,16 +1741,26 @@ func _cellar_child_appear() -> void:
 
 	# Straight ahead if it fits, otherwise closer, otherwise the middle of the room. It must
 	# NOT be allowed to fail silently the way the Hallway version did.
+	#
+	# ⚠️ `require_los` IS NOW TRUE (2026-08-16). It was passed FALSE, which `watcher.gd:98-109`
+	# and CLAUDE.md both restrict to `congregation.gd` — because the line-of-sight ray is also
+	# the ONLY probe that catches "this point is inside a wall". `_fits()`'s other three tests
+	# (head room, top-down column, 16-ray fan) all ORIGINATE inside the slab for an embedded
+	# candidate and, against a concave CSG trimesh, cross no faces and report clear (Issue 40 /
+	# Issue 59). So the first candidate at CHILD_DIST essentially always passed, the
+	# [3.2, 2.4, 1.8] ladder and the room-centre fallback below were dead code, and a player
+	# facing a wall from a metre got a figure buried in it with the scream still playing.
+	# With the check live, the ladder does its job and a spot that will not work is refused.
 	var here := pl.global_position
 	for d in [CHILD_DIST, 2.4, 1.8]:
 		var cand := Vector3(here.x + fwd.x * d, CELLAR_Y, here.z + fwd.z * d)
-		_child_node = Watcher.spawn(self, cand, TEX + "house_child.png", 0.0, false, CHILD_HEIGHT)
+		_child_node = Watcher.spawn(self, cand, TEX + "house_child.png", 0.0, true, CHILD_HEIGHT)
 		if _child_node:
 			break
 	if not _child_node:
 		_child_node = Watcher.spawn(self,
 			Vector3(CELLAR_CENTER.x, CELLAR_Y, CELLAR_CENTER.y),
-			TEX + "house_child.png", 0.0, false, CHILD_HEIGHT)
+			TEX + "house_child.png", 0.0, true, CHILD_HEIGHT)
 	if _child_node:
 		# Only this sequence decides when it goes — no lifetime, no look-away roll.
 		_child_node.persistent = true
@@ -1496,6 +1768,17 @@ func _cellar_child_appear() -> void:
 		# corner). Two anonymous "Watcher" nodes in one room made the test's count ambiguous.
 		_child_node.name = "GuestChild"
 	_spawn_guest_child()
+	# Instrumentation only — logs WHERE the figure went and where the player was standing, so
+	# "I heard it but never saw it" can be diagnosed instead of guessed at.
+	var _dbgc := get_node_or_null("/root/DebugLog")
+	if _dbgc:
+		var _pl := _player()
+		if _child_node and is_instance_valid(_child_node):
+			_dbgc.note("CELLAR child spawned at %s  player at %s" % [
+				_child_node.global_position,
+				_pl.global_position if _pl else Vector3.ZERO])
+		else:
+			_dbgc.note("CELLAR child NOT spawned (Watcher.spawn returned null)")
 	get_tree().create_timer(CHILD_HOLD).timeout.connect(_end_cellar_blackout)
 
 
@@ -1579,7 +1862,7 @@ func _on_cellar_gate_used() -> void:
 	GameState.set_carried("")
 	_cellar_gate.open()
 	_play_at("creak", Vector3(5, 1.2, 3), 2.0)
-	GameState.set_objective("Read the 3 notes for the code, then enter it at the exit lock")
+	GameState.set_objective(OBJ_CODE)
 	_advance_guest(3)
 
 
@@ -1596,6 +1879,16 @@ func _trigger_apparition() -> void:
 	if _apparition_fired or not _apparition:
 		return
 	_apparition_fired = true
+	# Playtest instrumentation only (2026-08-16). Only `ApparitionDirector._fire()` ever wrote
+	# a DebugLog note, so the House's OWN scripted HOLD encounter left no trace at all: across
+	# two full sessions (~880 s of play) the question "did it ever fire?" was unanswerable from
+	# the log, and both logged apparitions turned out to be the director's. Two lines; makes
+	# the next log decisive either way.
+	var _dbga := get_node_or_null("/root/DebugLog")
+	if _dbga:
+		var _pl := _player()
+		_dbga.note("HOUSE scripted apparition armed, player at %s" % [
+			_pl.global_position if _pl else Vector3.ZERO])
 	# Fatal — unless this is somehow the player's first HOLD encounter, which the
 	# global ledger in ApparitionDirector.arm() decides.
 	ApparitionDirector.arm(_apparition)

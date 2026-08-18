@@ -88,12 +88,34 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 2. Import the project: `File > Open Project` → select `game/`
 3. Press **F5** to run
 
+Or run one level directly, skipping the run-up:
+
+```bash
+/Applications/Godot.app/Contents/MacOS/Godot --path game res://scenes/corridor.tscn
+```
+
+## Testing
+
+```bash
+tools/run_tests.sh          # the whole headless suite, one summary table
+tools/run_tests.sh -q       # summary + failing output only
+tools/run_tests.sh maze     # only tests whose name matches a substring
+```
+
+Exit code is the number of failing tests. **73 entries** across ~105 scripts: `check_*` assert, `walk_*` drive a physics body along a route, `autoplay_*` drive the **real** player through its `ai_*` surface, `screenshot_*` need a render target so they run *without* `--headless`, `probe_*` are throwaway diagnostics.
+
+Three rules this project learned expensively, and which every new check is held to:
+
+- **A passing test is evidence only if it is pointed, complete, and able to fail.** Two geometry guards ran on one level out of nine for their entire lives; the first sweep against another level produced 32 findings.
+- **Every guard carries a live positive control** — the known-bad case injected into the scene under test and required to be caught, on every run — and **asserts its own sample size**. This project has shipped *"0 apparitions in 400 s"* and *"0 spawns checked … PASS"* as green results.
+- **Assert with physics queries, never object state**, and never reach a win condition by emitting the signal. One test drove `cleared.emit()` and passed for weeks on a level that was literally uncompletable.
+
 ## Asset Sources
 
 - **Textures:** PolyHaven, AmbientCG (CC0 PBR)
-- **Audio:** Freesound.org (CC0), MusicGen by Meta (HuggingFace)
+- **Audio:** Freesound.org (CC0), MusicGen by Meta (HuggingFace); most SFX are generated in-repo — see *Known Gotchas*
 - **3D models:** Blender, Mixamo (free characters/animations)
-- **Images:** Gemini via nano-banana-pro skill
+- **Images:** the skill pack at `~/Downloads/claude-image-generation-main` — Cloudflare `flux-1-schnell` for imagery, a Pillow/code generator for anything with legible words (flux cannot letter a sign). ⚠️ `nano-banana-pro` is dead; see `CLAUDE.md` → *Image Generation*
 
 ## Project Documentation
 
@@ -106,6 +128,7 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 | [`ISSUES_SOLUTIONS.md`](ISSUES_SOLUTIONS.md) | Hard-to-diagnose bugs with full root cause analysis. Each entry: symptom → root cause → fix → files changed. Covers the Godot input event double-fire, UI anchor footguns, raycasting geometry edge cases, and the Gemini API JPEG-as-PNG issue. |
 | [`CLAUDE.md`](CLAUDE.md) | The working spec — every level's mechanics, the panic system, the code architecture, and the ⚠️ notes that record why a thing is the way it is. The longest and most actively maintained document here. |
 | [`BACKLOG.md`](BACKLOG.md) | Reported issues and code-audit findings, with what was fixed and what is still open. |
+| [`backlogs/`](backlogs/) | **The level-by-level improvement run (opened 2026-08-16).** One `NN-<level>.md` per level holding what a human found by *playing* it — the screenshots, the log lines, the measurements, and the costed items that came out of them — plus `00-cross-level.md` (the whole-game parking lot, X1…X54) and `00-test-hardening.md`. This is the **evidence layer beneath `GAME_MECHANICS_IDEAS.md`**, not a rival to it: ideas from design reasoning live there, items from someone playing live here, and only the *verdicts* cross over. `captures/` holds downscaled screenshots so the evidence outlives the session it was captured in. |
 | [`BUG_FIX.md`](BUG_FIX.md) | A closed playtest triage plan from July. Superseded — kept because other docs cite its section numbers as provenance for design decisions. |
 | [`INTRO.md`](INTRO.md) · [`BACKROOMS.md`](BACKROOMS.md) | Per-level design notes. |
 | [`drafts/`](drafts/) | Superseded documents, annotated rather than deleted: `REPORT.md`, `IDEA_HISTORY.md`, and the KONTUR set (`KONTUR.md` plus `KONTUR/`) archived 2026-08-15. `KONTUR.md` is kept deliberately — other docs cite it as the cautionary tale about a stale design doc that contradicts the shipped level. |
@@ -116,10 +139,14 @@ The game opens on a **Main Menu** (`main_menu.tscn`). Pressing START loads the I
 
 ## Known Gotchas
 
-**nano-banana-pro outputs JPEG data with `.png` extension.** After generating any image, convert it to a real PNG or Godot will silently fail to import it:
+**A generated image is often JPEG data with a `.png` extension.** Convert it to a real PNG or Godot silently fails to import it — the `.import` gets `valid=false`, no `.ctex` is written, and `ResourceLoader.exists()` still returns **true**, so the guard passes and the prop renders blank:
 ```bash
 sips -s format png path/to/image.png --out path/to/image.png
+file path/to/image.png          # confirm it really is PNG before blaming the code
 ```
+⚠️ The image generator is now the pack at `~/Downloads/claude-image-generation-main` (Cloudflare flux for imagery, Pillow for anything with legible words) — `nano-banana-pro/` is **dead** and kept only so old references resolve. See `CLAUDE.md` → *Image Generation*.
+
+**A texture's background can be paint.** A supplied "cutout" that is not RGBA is carrying its background as opaque pixels — including the checkerboard an editor draws to *represent* transparency. In a renderer with no tonemapping that is the brightest thing in the level: it made a deliberately-hidden breaker panel the most visible object in a pitch-black room. Look at a new texture's alpha channel and histogram, not just at `file`.
 
 **Screamer images are loaded from `game/assets/textures/screamers/` at startup.** Any `.png` file dropped into that folder is picked up automatically via `DirAccess` scan in `screamer.gd` — no code change needed to add new screamer variants.
 
@@ -127,6 +154,8 @@ sips -s format png path/to/image.png --out path/to/image.png
 
 **Back doors keep your progress.** Every level has a blood-red back door to the previous one, and walking back now RESTORES what you had done there — breakers flipped, notes read, gates passed. Dying still wipes that level's progress; the no-checkpoint fail philosophy is deliberate.
 
-**Most SFX are procedurally generated, stdlib-only.** Nine generators live in `tools/`, one per area — `make_sfx.py` (Corridor), `make_sfx_house.py`, `make_sfx_backrooms.py`, `make_sfx_kontur.py`, `make_sfx_level6.py`, `make_sfx_dungeon.py`, `make_sfx_intro.py`, `make_sfx_atmos.py` and `make_sfx_extra.py`. Re-run any of them to regenerate its files, then `--import`; replace any output with a Freesound CC0 recording for higher fidelity.
+**Most SFX are procedurally generated, stdlib-only, and seeded.** **Fourteen** generators live in `tools/`, roughly one per area or feature — `make_sfx.py` (Corridor), `make_sfx_house.py`, `make_sfx_backrooms.py`, `make_sfx_kontur.py`, `make_sfx_level6.py`, `make_sfx_dungeon.py`, `make_sfx_intro.py`, `make_sfx_atmos.py`, `make_sfx_extra.py`, plus `make_sfx_mirror.py`, `make_sfx_seam.py`, `make_sfx_flood.py`, `make_sfx_false_door.py` and `make_sfx_backrooms_puzzle.py`. Re-run any of them to regenerate its files, then `--import`.
 
-Three more tools post-process supplied assets rather than synthesising: `make_loop.py` (trims a fade-out and crossfades the seam so a one-shot can loop — every `.wav.import` here is `loop_mode=0`, so loops are restarted in code and a mismatched seam ticks once per cycle), `cutout_alpha.py` (keys a generated image's background to real alpha) and `restencil_door.py` (crops a door to its leaf and repaints its sign). The last two need Pillow — run them with `nano-banana-pro/.venv/bin/python3`.
+⚠️ **Two rules that have each cost a real bug.** A generator that calls `random` without seeding silently rewrites its *other* outputs when you re-run it to add one sound — which is why the newer ones are seeded and byte-reproducible. And **set a gain from the file's measured level, and against the bed it plays over**, never from a plausible-looking number: one bed shipped 20 dB below everything else and was inaudible, and a positional cue that a whole zone's winnability depended on sat 3–13 dB *under* the score.
+
+**Post-processing tools** (these need Pillow — run them with the image pack's venv, not a bare `python3`): `make_loop.py` (trims a fade-out and crossfades the seam so a one-shot can loop — every `.wav.import` here is `loop_mode=0`, so loops are restarted in code and a mismatched seam ticks once per cycle), `cutout_alpha.py` (keys a generated image's background to real alpha), `restencil_door.py`, `flatten_alpha_checker.py` (flood-fills a baked transparency checkerboard dark), `crop_corridor_art.py`, `make_arrow_decal.py` (**draws** rather than generates — an arrow is a geometric primitive whose one job is being unambiguous at 15 m, and no diffusion model can be asked for an exact chevron), and the composed-document tools `make_vesper_note.py`, `make_backrooms_note.py`, `make_vesper_plate.py`, `make_false_door.py`, `make_false_door_screamer.py`, `make_lab_whiteboard.py`.

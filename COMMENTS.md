@@ -404,3 +404,224 @@ right — and no assertion I can write distinguishes attempt three from attempt 
 already says a clean screenshot is not evidence that geometry is sound. The converse is also true:
 for anything whose correctness is *appearance*, a passing test is not evidence either, and the only
 honest report is one that says which claims were measured and which were looked at.
+
+---
+
+## Sessions 17–18 — The level-by-level improvement run
+
+A different shape of session: instead of reading the design documents and deciding what to build,
+the user played one level at a time and marked what was wrong with the **J** debug key — a
+screenshot plus one line, in their own words, at the exact frame. An agent then turned each set of
+captures into a costed backlog, the user approved it, the agent built it, and the user replayed the
+level to confirm. Five levels closed this way: Intro, Lab, House, Corridor, Backrooms.
+
+The suite went from **49 tests to 77**. `ISSUES_SOLUTIONS.md` went from 54 issues to 91. Almost none
+of that came from new features.
+
+### The finding that shaped everything else: right about *what*, wrong about *why*
+
+Nearly every capture identified a real defect and misattributed its cause. Not occasionally —
+consistently, across five levels:
+
+| The note | The actual cause |
+|---|---|
+| *"Please double check that I will always see that doll"* | The doll spawned 3.20 m dead ahead, exactly to spec. The player was **pinned in a beartrap QTE** whose window swallowed the entire appearance. |
+| *"I am standing far away from the breaker and I see it"* | The panel's texture was an 8-bit RGB PNG whose background was **the checkerboard an image editor draws to represent transparency** — 20 % of its texels above 0.90 sRGB, in a game with no tonemapping. |
+| *"The fridge opens the wrong side"* | It rotated +105° about a hinge on its own −X edge, so the door finished **inside the carcass**. The capture contains no door at all. |
+| *"The reflection in the mirror looks weird"* | A planar mirror needs an asymmetric, off-axis frustum. It had a symmetric one, minifying by **3.34×** — a figure 7 m away rendered as if 23 m. |
+| *"These human shadows do not do anything"* | They relocate **633 times in 90 seconds**, 65 of those landing in the player's view. They read as nothing *because* nothing stays anywhere. |
+| *"Maybe we can make the wall shine"* | The wall was already **the brightest surface in the room by 2.3×**. The frame was taken at a different wall entirely. |
+
+**A player reports a symptom with perfect reliability and a cause with none.** That is not a
+criticism of the player — it is the entire argument for putting a measurement step between the
+capture and the fix. Four of those six would have been "fixed" wrongly by a faster pass, and two of
+the wrong fixes (brightening an already-bright wall, animating a figure that was already moving
+correctly) would have made the game worse while closing the ticket.
+
+### A passing test is evidence only if it is pointed, complete, and able to fail
+
+Every defect above was mechanically detectable. The suite was green throughout. Three reasons, and
+they are worth separating because they need different fixes:
+
+**Pointed.** `check_wall_overlap.gd` and `check_note_mounting.gd` were pinned to `level_1.tscn` for
+their entire lives — two guards for "is this prop on a wall" and "do two surfaces coincide",
+running on one level out of nine. First run against the Corridor: **32 findings**. Against the
+Backrooms: **23**. Enrolling a level meant remembering to add a wrapper, and that was forgotten
+every time it was possible to forget it.
+
+**Complete.** The guards were blind in specific, characteristic directions. They asserted a
+*minimum* clearance and never a maximum — so a door floating 0.275 m off its wall passed 27 checks,
+because the bug we had when we wrote it was z-fighting. The overlap collector saw `QuadMesh` only,
+so every solid prop in the game was invisible to it. A room-membership test compared world
+positions to a local table. A backing ray started *on* the collider face, so the same prop measured
+0.03 m one run and infinity the next, from float rounding alone. **You write the check for the bug
+you just had, and it inherits that bug's shape.**
+
+**Able to fail.** The worst category, because it looks like success. A check that could not fire,
+because the test bot satisfied it by construction — deleting the seal it guarded left the suite
+green. `count_apparitions` once reported *"0 apparitions in 400 s"* as a tidy pass. A `SCRIPT ERROR`
+sweep run as `2>&1 > file`, where the redirections apply left to right and stderr never reaches the
+grep. A luminance probe sampling viewport coordinates in a HiDPI image, measuring plain wall and
+reporting it as the panel. Debug screenshots that had **never once been written**, because
+`save_png` returns an error under `--headless` and nobody checked.
+
+The practice that came out of it: **inject the known-bad case into the scene under test and require
+it to be caught, every run.** Not once during development — permanently, as part of the check. Every
+guard that got one immediately proved something. Two proved themselves broken.
+
+### A fix can read worse than the bug
+
+The intro's sheeted body was "a pillow and a blanket": two boxes with a 6 cm head bump. It was
+rebuilt from eleven parts — head, shoulders, chest, hips, knees, feet — and the user's verdict was
+that it now looked like a stack of blocks. They were right. Axis-aligned boxes cannot make a draped
+organic mass; more parts made the *wrong* silhouette more detailed. The third version is a welded
+heightfield sampled from a soft union of ellipsoids: 264 vertices → 3,916, flat-shaded triangles
+100 % → 0 %.
+
+**The verification replay exists for exactly this**, and it is the step most likely to be skipped
+because the build is green and the numbers all improved. They did improve. It still looked worse.
+
+### Restoring content is not adding content
+
+The Sprawl's eight alcoves were sealed behind an unbroken perimeter wall — a ray from inside the
+hall blocked at exactly the 3.00 m mouth plane, on all eight. Behind that wall sat the zone's only
+readable note (the page that states its own tell), a phone, a mirror, two mirage doors and five
+props. **Ten objects, designed and then never connected**, for the life of the zone. Cutting the
+mouths open added 50.6 m² of standable floor and took reachable interactables from 8 of 12 to 12 of
+12.
+
+The durable half: `check_wall_overlap` asks *do surfaces coincide*, `check_note_mounting` asks *is
+it on a wall*, and **nothing anywhere asked whether the player can stand where an object is.** That
+guard now exists and sweeps all nine scenes. It found one more: two notes in the Void sitting in a
+pocket no route reaches.
+
+### Correctness can read as a regression
+
+*"It used to be that the reflection in the mirror moves, now it is static."* True, and the old
+behaviour was the bug: the reflection camera inherited the player's whole transform, so the image
+panned with the **mouse** at 0.022 U per degree and slid off the pane past ~26°. A real mirror does
+not do that. The fix takes the eye position only — and the camera sits on the axis the player yaws
+around, so looking about cannot move it at all.
+
+The complaint was still legitimate, because standing still and looking is what a player does at a
+mirror. The answer was geometric rather than a revert: the figure sat exactly on the mirror's
+normal, which is **a fixed point of the projection under axial motion** — walking half a metre moved
+it 0.73 px. Moved 0.45 m off-axis, the same walk moves it 89.8 px. **When a fix reads as a
+regression, the useful question is which true thing the old bug was accidentally providing.**
+
+### Waypoints spend a budget; distance does not
+
+The House minigame was "very random": the same puzzle took one session 134 seconds and another 13.
+Measured across 200 seeds, 40 % of mazes started the patroller **on the player's route**, and those
+won 28 % against 83–100 % elsewhere — a 3× swing decided by a placement nobody chose. That is not
+difficulty, it is a lottery, and it was fixable by banding one number.
+
+The second half is the more interesting design finding. Asked to make the run longer, the obvious
+move — collect two or three fragments before the exit opens — dropped the win rate to 21 % and 14 %
+while lengthening the run by only 60 %. The head start is **a one-off budget**: it buys ~600 px of
+lead once, after which the player nets 68 px/s *and only while running directly away*. Every
+waypoint forces a heading change, and a pursuer that never tires closes at full speed through it.
+So the run got longer by enlarging the board (10×8 → 16×9), which costs nothing, rather than by
+adding objectives, which costs a head start each. **9.8 s → 21.7 s at an unchanged 58 % win rate.**
+
+### Instrumentation decides what you can conclude
+
+Twice I read an absence in the log as evidence of absence in the game — that the player had not
+entered the cellar, and that a zone had never been played. Both wrong. `DebugLog` logs a position
+only on notable events, so a 112-second session produced two coordinates; and note reads were not
+logged at all. The fix was three lines of observation-only instrumentation, and the very next
+session produced `CELLAR child spawned at (…) player at (…)`, which turned "maybe I just spun the
+camera" into an arithmetic question.
+
+**Add the instrument before the session, not after the argument.**
+
+### Parallel agents in one worktree
+
+Three separate incidents: a full suite run against another agent's half-finished edits, two agents
+editing the same test file, and scripts rewritten mid-load producing red tests that were not real.
+The wall-clock saved was not worth it, because the scarce resource in this loop is the human's
+attention, not the agent's. **One agent at a time**, from the Backrooms onward.
+
+### The second half: Corridor and Backrooms, and what changed about how we worked
+
+The first five levels were played, backlogged, built and re-played in that order. The Corridor and
+the Backrooms were not: the user decided their existing notes were enough and told us to build from
+banked evidence instead. That worked — both levels passed their verification replay with zero
+captures — but it changed the shape of the work in a way worth recording. **Every item was either
+something a capture showed or something a query could prove.** Anything we merely suspected went to
+a deferred list marked *needs a playtest*, and the backlogs say so at the top. A pass built without
+a playtest that pretends otherwise is how a document starts lying.
+
+### Four complaints, four causes that inverted the complaint
+
+This kept happening, and it is the single most useful thing the run established:
+
+| The report | The cause |
+|---|---|
+| *"the reflection used to move, now it is static"* | The old mirror inherited the player's **heading**, so the image panned with the mouse at 0.022 U per degree and slid off the pane past 26°. The "movement" was the bug. The fix was geometric: the figure sat exactly on the mirror's normal — a fixed point of the projection — so walking half a metre moved it 0.73 px. Moved 0.45 m off-axis, the same walk moves it 89.8 px. |
+| *"make the wall shine"* | The wall was already the brightest surface in its room by 2.3×, and the frame was taken at a different wall entirely — a loop-back cap 5 m away, where no glow would have helped. |
+| *"these shadows do not do anything"* | They relocated **633 times in 90 seconds**, 65 of those landing in the player's view. They read as nothing *because* nothing ever stayed anywhere. |
+| *"the note looks boring"* (twice, two levels) | Both notes were untextured `BoxMesh`es with a flat albedo. There was no art to be bored by. |
+
+**When a fix reads as a regression, the useful question is which true thing the old bug was
+accidentally providing.** The mirror is the cleanest example in the project.
+
+### A safety net is only a safety net if you measure it
+
+The strongest design work in this half was the user's own: the Flood's six fragments, and the
+Sprawl's crate that gates the real wall. Both make a search *mandatory*, which is the unwinnable
+class this project has shipped six times — and both were safe because a permanent audio cue keeps
+the thing findable for ever.
+
+Except one of them wasn't. The Sprawl's whisper had its gains set from the files' own levels and
+**never against the score it plays over**: measured across 1,593 points on a one-metre grid, it sat
+**3.2 dB under the music at the crate and 13.2 dB under at the far corner.** The mitigation that made
+a hard gate acceptable was itself inaudible. Two lessons came out of it, and the second is the
+better one:
+
+- **Set a gain against the bed it plays over, not from the file.** The same mistake had already
+  shipped a water bed 20 dB below everything else in the game.
+- **One emitter cannot be audible across 45 m *and* carry a level gradient across it** — attenuation
+  is fixed by distance *ratio*, so spanning 3→48 m needs ~24 dB and would put the cue at +4 dBFS on
+  your head. The far cue now carries nearly flat and gives its bearing by **panning**; the near
+  confirm owns the gradient. That is a better answer than louder.
+
+### Guards measure relationships, and orientation is not a relationship
+
+A note lay on a table rotated 180°, its text facing back down the corridor — dot product against the
+player's approach of **−1.000**. Four separate flat-prop guards had passed it, and the reason is
+structural: they all measure a *relationship between two objects* — distance to a wall, aspect
+against artwork, clearance, overlap. **A roll about a prop's own normal changes none of those.** The
+screenshot harness could not see it either, because its camera aimed down the hall rather than at
+the prop. Both are fixed; the general shape is worth remembering, because the next blind spot will
+be another property that no pair of objects can express.
+
+### The measurement traps of this half
+
+- **A grep of the wrong stream is indistinguishable from a clean result.** `run_tests.sh 2>&1 > f`
+  duplicates the *terminal*, not the file; stderr never reaches the grep. An agent used this to prove
+  a sweep was clean, then caught itself and retracted.
+- **An MP3 can decode above full scale.** The shared screamer measures a peak of **+34.56 dBFS** with
+  30 % of samples over 1.0 in ffmpeg; CoreAudio clamps it to +0.00, and `volumedetect` on the raw
+  file reports "max_volume: 0.0 dB" and hides the whole thing. Decode and clamp the way the mixer
+  clamps, or you are measuring a number the player will never hear.
+- **`flash_scare()` takes no gain**, so the *choice of file* is the volume control. "Make it louder"
+  had a hard ceiling of +3.63 dB, and the honest answer to "louder still" was no.
+- **One ray is not a sweep.** A guard written the same day for that zone fired a single ray from each
+  recess centre; a mis-built 3.4 × 4.5 m blade sat exactly on that line, so four holes to the open sky
+  passed. Its replacement fires ~66,000.
+- **An allowlist entry can be vouched for by the bug it hides.** A coplanar floor pair was waived as
+  deliberate on the strength of a comment written inside the function that caused it.
+
+### Parallel agents: what it cost, and the one thing that made it safe
+
+Running two agents at once produced three collisions — a suite executing against another agent's
+half-finished edits, two agents editing the same test file, and scripts rewritten mid-load producing
+reds that were not real. The fixes were mechanical: disjoint file sets, reserved issue-number ranges
+per agent, and a rule that neither may touch the shared runner or scene list.
+
+What made all of it recoverable was a convention adopted for a different reason entirely: **agents
+report at the end and never commit.** Two were killed outright by transient server errors, one
+mid-sentence — and because nothing had been staged, the tree was verifiably untouched both times and
+the cost was the work, not the repository. The instruction that followed ("land each coherent piece
+rather than batching to the end") is the other half of the same lesson.

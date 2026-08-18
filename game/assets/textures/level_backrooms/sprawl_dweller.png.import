@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d4evva520uscs"
-path="res://.godot/imported/arrow_decal.png-cf424c5884b170e21f8c3b8859286f1c.ctex"
+uid="uid://caihb1cgmt4g2"
+path="res://.godot/imported/sprawl_dweller.png-44e0c1e87b3a5e3a0e8b41e50db6d662.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/level_backrooms/arrow_decal.png"
-dest_files=["res://.godot/imported/arrow_decal.png-cf424c5884b170e21f8c3b8859286f1c.ctex"]
+source_file="res://assets/textures/level_backrooms/sprawl_dweller.png"
+dest_files=["res://.godot/imported/sprawl_dweller.png-44e0c1e87b3a5e3a0e8b41e50db6d662.ctex"]
 
 [params]
 

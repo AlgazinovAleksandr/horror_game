@@ -87,5 +87,15 @@ func interact() -> void:
 	if not is_trap:
 		GameState.record_note(note_text, GameState.current_level)
 
+	# Playtest instrumentation only — no gameplay effect, and it strips cleanly with the
+	# autoload. Added 2026-08-16 because NOTHING recorded note reads: a playtest log could
+	# not distinguish "read all three notes" from "typed the code they already knew", and a
+	# session was misread on exactly that ambiguity. `name` rather than `note_text` so the
+	# log stays one line and never leaks a trap note's contents into a file the analyst reads
+	# before the player has met it.
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg:
+		dbg.note("NOTE READ %s%s" % [name, "  (TRAP)" if is_trap else ""])
+
 	read.emit()
 	NoteUI.show_note(note_text, TRAP_PANIC_RATE if is_trap else 0.0)

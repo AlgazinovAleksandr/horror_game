@@ -1,3 +1,22 @@
+> ## ⚠️ STATUS ANNOTATION — 2026-08-17
+>
+> This list was last edited **2026-07-27** and several items have shipped since. Nothing below has
+> been deleted — the items and their owners are left exactly as written; this block only records
+> what the code now does, so the list stops reading as if none of it exists.
+>
+> | # | State | Where it lives now |
+> |---|---|---|
+> | 1 Void difficulty | **open** — and the Void is one of four levels the improvement run has not reached. See `backlogs/08-void.md` (not started). ⚠️ A reachability sweep on 2026-08-17 found two notes there in a pocket no route reaches (`00-cross-level.md` X44), and **nothing has ever walked that level** — no autoplay route exists |
+> | 2 Panic scale | **shipped** — `player.gd`, `PANIC_MAX 50`, base 20/s vs decay 3.5/s. The "objects that reduce panic" half became `CalmZone` (decay ×2.5) rather than pickups |
+> | 3 Other ways to shed panic | **partial** — `CalmZone`s (torches, lit islands, the dungeon's sconces). No consumable exists; still open as designed |
+> | 4 Random noises / half-screamers | **shipped** — the `RandomAmbient` autoload (floor creak / painting fall / half scream, 5/8/12 panic). ⚠️ Retuned 5–10 s → 18–35 s after two playtests read it as a creature following them, and given an opt-in once-per-type cap for the Corridor |
+> | 5 TTS audio notes | **open** |
+> | 7 Checkpoints | **decided against** — the no-checkpoint fail philosophy is deliberate; see `COMMENTS.md` "Fail state design". Level *progress* across back-doors was built instead (`GameState.level_progress`), but a death still wipes the level |
+> | 8 Maze on the wall, solved with the mouse | **shipped and since rebuilt twice** — the House's folded map opens `maze_chase_ui.gd`. Now a 16×9 braided maze with a hunter, a patroller, snares and a collect-then-escape objective; 58 % win rate, ~21.7 s median. See `backlogs/02-house.md` §9 |
+>
+> Items 3 and 5 are the only ones that are simply still open. For what to build next, the live
+> entry point is `GAME_MECHANICS_IDEAS.md`; for what a human found by playing, `backlogs/`.
+
 1) Fix Void level, currently the difficulty level is impossible there
 
 **Responsible: Sasha**

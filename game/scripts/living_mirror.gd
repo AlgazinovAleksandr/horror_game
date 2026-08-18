@@ -13,6 +13,58 @@ const FIG_BASE := "res://assets/textures/screamers/shared_screamer_figure"
 const GLASS_TEX := "res://assets/textures/level_1_lab/lab_oneway_mirror.png"
 const GAZE_INTENSITY := 0.7
 
+# ⚠️ BOTH QUADS ARE SIZED FROM THEIR OWN ARTWORK (2026-08-17, backlog 04 B-A9, X2/X23).
+# Measured in the Sprawl, where this prop is reused:
+#
+#   glass  QuadMesh(1.2, 1.8) = 0.667 aspect · lab_oneway_mirror.png 1402x1122 = 1.250
+#                                                                     -> 1.874x STRETCH
+#   figure QuadMesh(1.0, 1.7) = 0.588 aspect · shared_screamer_figure.png 1696x2528 = 0.671
+#                                                                     -> 1.141x stretch
+#
+# The glass art is a LANDSCAPE framed observation window, squashed onto a portrait quad —
+# the frame it draws was visibly out of square, and the "figure behind the glass" was 5 %
+# wider than it should be. Sized here rather than hard-coded, so a re-cut texture cannot
+# silently reintroduce the stretch.
+#
+# ⚠️ OPT-IN, AND DEFAULTED OFF. `fit_to_art` is false, so every existing caller — the Lab's
+# Observation mirror and the House's two — renders at the historical 1.2 x 1.8 glass and
+# 1.0 x 1.7 figure, BYTE-IDENTICALLY. Only the Backrooms Sprawl, which is the level this was
+# measured in and the level whose pass this is, sets it true.
+#
+# It is opt-in rather than global because turning it on is a VISIBLE change: the glass turns
+# from portrait to landscape (1.7994 x 1.4400, the same diagonal) and the figure loses 0.21 m
+# of height. The Lab and the House are verified and closed, and a shared prop is not the place
+# to alter two finished levels as a side effect of fixing a third. Their halves are recorded
+# as a cross-level item with these measurements; each is one line in its own pass.
+#
+# ⚠️ Do NOT "just make it the default". The distortion is real in all three levels and the fix
+# is correct in all three — the argument is about WHEN, not whether.
+@export var fit_to_art: bool = false
+
+# The historical sizes, used when fit_to_art is false. Do not change these; change the flag.
+const LEGACY_GLASS := Vector2(1.2, 1.8)
+const LEGACY_FIGURE := Vector2(1.0, 1.7)
+
+# ⚠️ THE LARGEST DIMENSION IS PRESERVED (1.8 m) when the flag IS set, so the pane's diagonal is
+# the size it always was — it turns from portrait to landscape rather than shrinking.
+# Letterboxing it inside the old box would have been the low-risk choice and would have made
+# the mirror 47 % smaller. The figure's HEIGHT is what shrinks (1.70 -> 1.49), keeping its
+# width at 1.0 so it still sits inside the glass exactly as it did.
+const GLASS_H := 1.44       # 1.2 x 1.8 legacy; 1.80 x 1.44 at the art's own aspect
+const GLASS_W_FALLBACK := 1.8
+const FIG_H := 1.49         # 1.7 legacy; the width stays 1.0 at the source's own aspect
+const GLASS_DEPTH := 0.12
+
+
+# Width for `height` at this texture's own pixel aspect, or `fallback` if it is missing.
+static func _fit_width(tex_path: String, height: float, fallback: float) -> float:
+	if not ResourceLoader.exists(tex_path):
+		return fallback
+	var tex: Texture2D = load(tex_path)
+	if not tex or tex.get_height() <= 0:
+		return fallback
+	return height * (float(tex.get_width()) / float(tex.get_height()))
+
 var _player: CharacterBody3D
 var _camera: Camera3D
 var _figure: MeshInstance3D
@@ -37,9 +89,15 @@ func _build() -> void:
 	# level). Seed it with this mirror's world transform — same fix as creature_stalker.
 	body.global_transform = global_transform
 
+	var glass := LEGACY_GLASS
+	var figure := LEGACY_FIGURE
+	if fit_to_art:
+		glass = Vector2(_fit_width(GLASS_TEX, GLASS_H, GLASS_W_FALLBACK), GLASS_H)
+		figure = Vector2(_fit_width(Apparition._resolve_tex(FIG_BASE), FIG_H, 1.0), FIG_H)
 	var mirror := MeshInstance3D.new()
+	mirror.name = "MirrorGlass"
 	var mm := QuadMesh.new()
-	mm.size = Vector2(1.2, 1.8)
+	mm.size = glass
 	mirror.mesh = mm
 	var mmat := StandardMaterial3D.new()
 	mmat.albedo_color = Color(0.06, 0.07, 0.09)
@@ -57,13 +115,15 @@ func _build() -> void:
 
 	var col := CollisionShape3D.new()
 	var cs := BoxShape3D.new()
-	cs.size = Vector3(1.2, 1.8, 0.12)
+	# The collider is the gaze target, so it must track the glass it represents.
+	cs.size = Vector3(glass.x, glass.y, GLASS_DEPTH)
 	col.shape = cs
 	body.add_child(col)
 
 	_figure = MeshInstance3D.new()
+	_figure.name = "MirrorFigure"
 	var fq := QuadMesh.new()
-	fq.size = Vector2(1.0, 1.7)
+	fq.size = figure
 	_figure.mesh = fq
 	_fmat = StandardMaterial3D.new()
 	_fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

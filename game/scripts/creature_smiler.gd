@@ -14,6 +14,7 @@ const DISENGAGE_DIST := 21.0   # walk this far (without sprinting) and it lets g
 const FADE_TIME := 5.0         # seconds of light-off calm before it fades
 const LOOK_DOT := 0.55         # camera-forward·to-smile that counts as "lit"
 const DREAD_RATE := 2.5        # panic/s while engaged — the climb you must endure
+const TEX_PATH := "res://assets/textures/level_backrooms/screamer_smiler.png"
 
 var _player: CharacterBody3D
 var _camera: Camera3D
@@ -28,14 +29,25 @@ func _ready() -> void:
 
 func _build_face() -> void:
 	var quad := MeshInstance3D.new()
+	quad.name = "SmilerFace"
 	var mesh := QuadMesh.new()
-	mesh.size = Vector2(1.5, 1.1)
+	# ⚠️ SIZED FROM THE ARTWORK (2026-08-17, backlog 04 B-A9 / X2). `screamer_smiler.png` is
+	# 1024x1024, i.e. square, and this was a 1.5 x 1.1 quad — the face was squashed 36 %
+	# vertically, on the only object in the level that kills you for looking at it with a
+	# light on. Width is the fixed dimension, so the face does not get smaller.
+	const FACE_W := 1.5
+	var aspect := 1.0
+	if ResourceLoader.exists(TEX_PATH):
+		var t: Texture2D = load(TEX_PATH)
+		if t and t.get_width() > 0:
+			aspect = float(t.get_width()) / float(t.get_height())
+	mesh.size = Vector2(FACE_W, FACE_W / aspect)
 	quad.mesh = mesh
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	var tex_path := "res://assets/textures/level_backrooms/screamer_smiler.png"
+	var tex_path := TEX_PATH
 	if ResourceLoader.exists(tex_path):
 		mat.albedo_texture = load(tex_path)
 		mat.emission_enabled = true

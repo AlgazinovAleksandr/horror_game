@@ -51,6 +51,46 @@ func _checks_run() -> void:
 	_ok("PA line loadable", gs != null and gs.load_audio("pa_trial4") != null)
 	_ok("PA speaker in scene", _scene.get_node_or_null("PASpeaker") != null)
 
+	# ── the spoken hint has to be RECOVERABLE ────────────────────────────────────────
+	#
+	# The PA line is the clearest statement of the Backrooms glitch-wall rule anywhere in
+	# the game, and until 2026-08-16 it existed only as 13 seconds of caption fired once,
+	# 1.4 s after the power came back, on top of the "Power restored" objective — and, in
+	# the session that produced this item, under a second toast as well. It is not a Note,
+	# so it never reached the journal either. Two recoveries now exist and both are checked:
+	# a printed copy pinned beside the whiteboard, and an archive entry written the moment
+	# the tannoy speaks.
+	var pa_text: String = _scene.get_script().get_script_constant_map().get("PA_NOTE_TEXT", "")
+	_ok("the level defines a printed PA transcript", pa_text != "")
+	var note_script: GDScript = load("res://scripts/note.gd")
+	var printed: Node3D = null
+	var notes := 0
+	for n in _scene.get_children():
+		if n.get_script() == note_script:
+			notes += 1
+			if String(n.note_text) == pa_text:
+				printed = n as Node3D
+	_ok("found notes to search at all (%d)" % notes, notes >= 5)
+	_ok("a printed copy of the PA line hangs in the level", printed != null)
+	if printed:
+		# Beside the whiteboard, not across the room from it: same wall, within 2.5 m.
+		_ok("the printed copy is on Observation's north wall, beside the board",
+			printed.global_position.z > 18.5 and absf(printed.global_position.x - 3.75) < 2.5)
+	if gs:
+		gs.journal.clear()
+		_scene._announce_trial_four()
+		var archived := false
+		for e in gs.journal:
+			if String(e.get("text", "")) == pa_text:
+				archived = true
+		_ok("speaking the PA line archives it for TAB", archived)
+		# Reading the printed copy must not then produce a SECOND, identical entry.
+		var before: int = gs.journal.size()
+		gs.record_note(pa_text, 1)
+		print("      journal: %d entries before, %d after re-recording" % [before, gs.journal.size()])
+		_ok("the printed copy and the tannoy are one journal entry, not two",
+			gs.journal.size() == before)
+
 	# THE DOORWAY CHECK. Observation's only entrance is its WEST wall at (1.5, 17).
 	# Sweep a player-sized capsule through that doorway; anything blocking it means
 	# the whiteboard (or a lamp) has sealed the room.
@@ -139,13 +179,26 @@ func _shot(shot_name: String) -> void:
 
 	await process_frame
 	await process_frame
-	var img := root.get_viewport().get_texture().get_image()
+	# ⚠️ `--headless` HAS NO RENDER TARGET, so `get_texture()` returns null here and this
+	# "screenshot" has never once been written when the suite runs it. It threw
+	# `Cannot call method 'save_png' on a null value` every time and nobody saw it, because a
+	# GDScript runtime error aborts the call and leaves the exit code alone (Issue 78). The
+	# shot is a debugging convenience, not an assertion, so the fix is to say so out loud
+	# rather than to pretend: run this file WITHOUT `--headless` if you want the image.
+	var tex := root.get_viewport().get_texture()
+	var img: Image = tex.get_image() if tex != null else null
+	if img == null:
+		print("shot: %s SKIPPED (no render target — run this without --headless)" % shot_name)
+		return
 	img.save_png(OUT + shot_name + ".png")
 	print("shot: ", shot_name)
 
 
 func _find_board(n: Node) -> MeshInstance3D:
-	if n is MeshInstance3D:
+	# ⚠️ Guard the surface count first. A MeshInstance3D that dresses itself with
+	# `material_override` (the new LabCabinet parts, and most flat-tinted props) has ZERO
+	# surface override slots, and asking for slot 0 spams an engine error per node per frame.
+	if n is MeshInstance3D and (n as MeshInstance3D).get_surface_override_material_count() > 0:
 		var mat := (n as MeshInstance3D).get_surface_override_material(0)
 		if mat is StandardMaterial3D and mat.albedo_texture:
 			if mat.albedo_texture.resource_path.contains("lab_whiteboard"):

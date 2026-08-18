@@ -20,7 +20,8 @@ extends SceneTree
 #   * a PLAYER camera that KEEPS that layer shows the figure standing in the corridor,
 #     which deletes the scare the other way round and is much worse: the player sees a
 #     creature that has no rules and cannot be interacted with
-#   * a viewport left at UPDATE_ALWAYS renders three extra scene passes for a 320 m walk
+#   * a viewport left at UPDATE_ALWAYS renders an extra full scene pass, per mirror, for
+#     the whole 320 m walk
 #
 # None of those would fail a smoke test, and two of them look plausible on a screenshot.
 
@@ -54,8 +55,15 @@ func _process(delta: float) -> bool:
 	var watchers: Array = []
 	_collect(scene, mirrors, watchers)
 
-	# corridor.gd builds three turn mirrors, at 90 / 230 / 275 m.
-	_ok("every turn mirror is a real mirror", mirrors.size() == 3, "%d found" % mirrors.size())
+	# ⚠️ COUNTED FROM THE LEVEL'S OWN TABLE, not from a literal. corridor.gd built three
+	# (90 / 230 / 275 m) until 2026-08-16, when the user asked for the first corner and the
+	# last one only. A hard-coded 3 here would have been the sole thing that objected — and
+	# a hard-coded 2 would go quietly green if the mirrors stopped being built at all.
+	var declared_v: Variant = scene.get_script().get("TURN_MIRRORS")
+	var declared: Array = declared_v if declared_v is Array else []
+	_ok("the level declares its turn mirrors", declared.size() >= 1, "%s" % str(declared))
+	_ok("every declared turn mirror is a real mirror", mirrors.size() == declared.size(),
+		"%d built, %d declared" % [mirrors.size(), declared.size()])
 	if mirrors.is_empty():
 		return _report()
 

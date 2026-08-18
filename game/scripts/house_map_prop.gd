@@ -4,11 +4,20 @@ class_name HouseMap
 # The House's cellar-key quest (new feature, replacing last session's Landing
 # 2-drawer search): a folded paper map, currently on a stand in the Bathroom.
 # interact() opens the 2D maze-chase minigame (maze_chase_ui.gd) as a paused
-# full-screen overlay. Winning it pops a "Collect the key." toast, frees this
+# full-screen overlay. ⚠️ Since 2026-08-16 that minigame is TWO-STAGE — collect every torn
+# fragment of the map, THEN escape to the mark — so a single attempt is roughly three times
+# longer than it was, and this prop's `caught` handler is the only thing standing between the
+# player and a much longer exposure to the hunter. Nothing here needed to change for it: a
+# catch still costs CATCH_PANIC once, still ejects to 3D, and still leaves the map
+# interactable for a retry with a brand-new maze. Fragments already collected are lost with
+# the attempt — there is deliberately no partial-progress carry-over.
+# Winning it pops a "Collect the key." toast, frees this
 # prop, and emits `won` — the level (level_2.gd) reacts by spawning the real 3D
 # key at this exact spot. Getting caught by the maze's monster is handled
 # entirely here — a jolt + a one-time panic hit, then the map is interactable
-# again for a retry (a fresh maze is generated every attempt).
+# again for a retry (a fresh maze is generated for every genuine attempt — a win or a
+# catch. Putting the map DOWN and picking it up again resumes the same maze; see
+# `maze_chase_ui.gd:_instance_live` for why ESC used to be a free re-roll).
 
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
