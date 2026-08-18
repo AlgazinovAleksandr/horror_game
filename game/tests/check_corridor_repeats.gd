@@ -110,6 +110,16 @@ func _process(delta: float) -> bool:
 		_ok("each ambient event fires at most once", seen.size() <= 3,
 			"%d distinct events after 12 rolls" % seen.size())
 
+	# 6. The mirror-appearance cue (2026-08-16). One per turn mirror, one-shot each, so the
+	#    ceiling is the number of mirrors — the same shape as the telegraph's cap of two.
+	#    `check_mirror_wake.gd` owns the behaviour; this owns the COUNT, which is the thing a
+	#    future "let's put one at every corner" would quietly change.
+	var declared_v: Variant = s.get("TURN_MIRRORS")
+	var declared: Array = declared_v if declared_v is Array else []
+	_ok("the mirror-wake cue cannot fire more than twice in a walk", declared.size() <= 2,
+		"%d turn mirrors: %s" % [declared.size(), str(declared)])
+	_ok("and it still fires at least once", declared.size() >= 1)
+
 	print("  %d checks, %d failed" % [_checks, _fails.size()])
 	if _fails.is_empty():
 		print("RESULT: PASS")

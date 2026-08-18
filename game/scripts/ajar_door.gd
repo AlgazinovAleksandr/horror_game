@@ -27,8 +27,15 @@ class_name AjarDoor
 
 signal slammed
 
-const WIDTH := 1.3
+# ⚠️ WIDTH IS DERIVED FROM THE ARTWORK, not chosen (2026-08-16). `hotel_door_leaf.png` is
+# 616 x 1334 = 0.4618, so a 2.1 m leaf is 0.970 m wide — a door-shaped door. It was 1.3 x 2.1
+# (0.619) wearing `ordinary_hotel_door.png` (0.800), i.e. squashed 1.29x, and that source was
+# a picture of a door PLUS its casing PLUS the wallpaper either side (Issue 35). The casing
+# is real geometry now: `corridor.gd:_spawn_door_frame()`.
+#
+# ⚠️ If the crop changes, this changes with it or `check_art_aspect.gd` goes red.
 const HEIGHT := 2.1
+const WIDTH := 0.97
 const THICK := 0.10
 const AJAR_MAX_DEG := 40.0     # keep the swept panel out of the walkable corridor width
 const SLAM_TIME := 0.12        # fast enough to read as violent
@@ -50,12 +57,18 @@ func _ready() -> void:
 	edge_mat.albedo_color = Color(0.08, 0.08, 0.09)
 	edge_mat.roughness = 0.85
 
+	# ⚠️ THE HINGE IS ON THE LEAF'S BACK FACE, not through its centre (2026-08-16). The panel
+	# is pushed forward by THICK/2 so every part of it lives at local z >= 0, which means
+	# swinging it can only move wood INTO the corridor and never backwards through the wall.
+	# With the old centre hinge the rear corner swept `THICK * sin(40°)` = 6.4 cm behind the
+	# hinge plane, which is why `corridor.gd` had to hold the whole door 14 cm off the wall
+	# to make room — and 14 cm off the wall is what the player photographed.
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(WIDTH, HEIGHT, THICK)
 	mesh.mesh = box
 	mesh.material_override = edge_mat
-	mesh.position = Vector3(WIDTH / 2.0, HEIGHT / 2.0, 0.0)
+	mesh.position = Vector3(WIDTH / 2.0, HEIGHT / 2.0, THICK / 2.0)
 	add_child(mesh)
 
 	var col := CollisionShape3D.new()
@@ -81,7 +94,7 @@ func _ready() -> void:
 		face.mesh = qm
 		face.material_override = face_mat
 		face.position = Vector3(WIDTH / 2.0, HEIGHT / 2.0,
-			z_sign * (THICK / 2.0 + 0.004))
+			THICK / 2.0 + z_sign * (THICK / 2.0 + 0.004))
 		if z_sign < 0.0:
 			face.rotation.y = PI
 		add_child(face)

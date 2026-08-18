@@ -10,6 +10,8 @@ extends SceneTree
 #   Godot --headless --path game --script res://tests/walk_backrooms.gd
 
 var _frame := 0
+var _zone3_stage := 0
+var _seat_t := 0.0
 var _scene: Node
 var _player: CharacterBody3D
 var _fails: Array[String] = []
@@ -53,7 +55,14 @@ func _process(_delta: float) -> bool:
 		_flood_baseline()
 	elif _frame == 156:
 		_flood_measure()
-	elif _frame > 200:
+	# ⚠️ TIME, NOT FRAMES (D20's family, third recurrence in this project). The plate's
+	# completion runs on a 1.67 s tween and a headless run reaches ~145 fps, so "check it
+	# 20 frames later" measured an assembly that had not finished — and an `await` inside
+	# a frame-scheduled `_process` simply never resumed before the quit, silently dropping
+	# five assertions and still printing PASS.
+	if _zone3_stage == 1 and Time.get_ticks_msec() / 1000.0 - _seat_t > 2.4:
+		_zone3_finish()
+	elif _frame > 200 and _zone3_stage >= 2:
 		print("\n%d checks, %d failed" % [_checks, _fails.size()])
 		for f in _fails:
 			print("   ! ", f)
@@ -115,6 +124,24 @@ func _zone2_logic() -> void:
 			bad_counts += 1
 	_ok("exactly one real wall over 40 rerolls", bad_counts == 0)
 
+	# ⚠️ THE GATE FOLLOWS EVERY REROLL (2026-08-18, B-S2). The real wall is SEALED until the
+	# crate's runner goes through it, so a reroll has to carry the seal to the new answer and
+	# take it off the old one — otherwise a wrong wall would leave two sealed walls (one of
+	# them a fake the player can no longer out) or none.
+	var gate_bad := 0
+	for i in range(40):
+		z2._randomise_real_wall()
+		var sealed := 0
+		var real_sealed := false
+		for c in z2.get_children():
+			if c is GlitchWall and c.is_sealed():
+				sealed += 1
+				real_sealed = real_sealed or c.is_real
+		if sealed != 1 or not real_sealed:
+			gate_bad += 1
+	_ok("the seal is on exactly the real wall over 40 rerolls (%d misplaced)" % gate_bad,
+		gate_bad == 0)
+
 	# Out every wall, then reroll: the zone must rescue itself rather than soft-lock.
 	for c in z2.get_children():
 		if c is GlitchWall:
@@ -125,37 +152,77 @@ func _zone2_logic() -> void:
 		if c is GlitchWall and c.is_real and not c.is_solid():
 			reachable += 1
 	_ok("all-walls-outed still leaves a reachable exit", reachable == 1)
+	# ...and the rescued wall comes back GATED, not open. `revive()` rebuilds the trigger
+	# from scratch, so this is the one path where the seal could silently be dropped.
+	var rescued_sealed := 0
+	for c in z2.get_children():
+		if c is GlitchWall and c.is_real and c.is_sealed():
+			rescued_sealed += 1
+	_ok("...and the rescued wall is still gated on the crate (%d sealed)" % rescued_sealed,
+		rescued_sealed == 1)
 
 
 func _zone3_logic() -> void:
-	print("\n--- zone 3: seam visibility inverts with the flashlight ---")
+	print("\n--- zone 3: the seam is earned, then inverts with the flashlight ---")
 	var z3 = _scene.get_node_or_null("ZoneFlood")
 	if not z3 or not _player:
+		_zone3_stage = 2
 		return
 	var seam: GlitchWall = z3.get_node_or_null("FloodSeam")
 	if not seam:
+		_zone3_stage = 2
 		return
+
+	# ⚠️ THE SEAM IS EARNED NOW (2026-08-17, B-R1). Before the six fragments are in the
+	# plate it is DORMANT — hidden AND not monitoring — so a player who wanders into the
+	# Sump early cannot clear the zone without meeting the puzzle. Assert that first, then
+	# complete the plate through the prop's own `seat()` (the call its interact path makes;
+	# `check_flood_puzzle.gd` drives the whole thing from a cold start with `ai_interact()`)
+	# and re-assert the darkness rule, which is unchanged.
+	_ok("real seam is dormant before the plate is assembled", not seam.is_armed())
+	var plate = z3.get_node_or_null("FloodPlate")
+	_ok("the Flood has a plate table", plate != null)
+	if not plate:
+		_zone3_stage = 2
+		return
+	# ⚠️ 6 as a literal, never `FloodPlate.SLOTS`. A SceneTree script that names a
+	# class_name statically forces that script to COMPILE AT PARSE TIME, before the
+	# autoloads exist — and `flood_plate.gd` calls `GameState.load_audio()`, so the
+	# reference alone fails the whole test with "Identifier not found: GameState".
+	plate.seat(6)
+	_ok("six fragments fill the frame", plate.pieces_set() == 6)
+	_seat_t = Time.get_ticks_msec() / 1000.0
+	_zone3_stage = 1
+
+
+func _zone3_finish() -> void:
+	_zone3_stage = 2
+	var z3 = _scene.get_node_or_null("ZoneFlood")
+	var seam: GlitchWall = z3.get_node_or_null("FloodSeam") if z3 else null
+	if not seam or not _player:
+		return
+	_ok("assembling the plate arms the real seam", seam.is_armed())
 
 	# Drive the zone's own per-frame logic with the light forced each way.
 	_player.global_position = z3.spawn_point
 	var flash: SpotLight3D = _player.get_node_or_null("Camera3D/Flashlight")
+	if not flash:
+		return
+	flash.visible = true
+	z3._process(0.016)
+	var real_hidden_when_lit := not seam.visible
+	flash.visible = false
+	z3._process(0.016)
+	var real_shown_when_dark := seam.visible
+	_ok("real seam hidden with flashlight ON", real_hidden_when_lit)
+	_ok("real seam visible with flashlight OFF", real_shown_when_dark)
 
-	if flash:
-		flash.visible = true
-		z3._process(0.016)
-		var real_hidden_when_lit := not seam.visible
-		flash.visible = false
-		z3._process(0.016)
-		var real_shown_when_dark := seam.visible
-		_ok("real seam hidden with flashlight ON", real_hidden_when_lit)
-		_ok("real seam visible with flashlight OFF", real_shown_when_dark)
-
-		# And the decoys must do the exact opposite, or the inversion isn't a rule.
-		var decoy_ok := true
-		for c in z3.get_children():
-			if c is GlitchWall and not c.is_real and c.visible:
-				decoy_ok = false
-		_ok("decoys hidden while real seam shows", decoy_ok)
+	# And the decoys must do the exact opposite, or the inversion isn't a rule.
+	var decoy_ok := true
+	for c in z3.get_children():
+		if c is GlitchWall and not c.is_real and c.visible:
+			decoy_ok = false
+	_ok("decoys hidden while real seam shows", decoy_ok)
 
 
 func _progression() -> void:

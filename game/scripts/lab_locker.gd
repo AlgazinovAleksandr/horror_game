@@ -29,9 +29,15 @@ signal moved   # the locker has finished sliding; the breaker is now reachable
 
 const TEX := "res://assets/textures/level_1_lab/lab_locker.png"
 
-const SIZE := Vector3(1.0, 2.0, 0.5)
-const ART_INSET := 0.04          # art quad is this much smaller than the front face
-const ART_PROUD := 0.01          # and this far proud of it
+# ⚠️ 1.4 m wide, not 1.0 — see SHOVE_DIST. The breaker's visible panel is 0.7 m wide and
+# centred behind this, so the carcass overhangs it by 0.35 m on each side, and THAT overhang
+# is the budget the two intermediate lurches spend. At 1.0 m wide the budget was 0.15 m and
+# there was no lurch distance that both moved visibly and kept the panel covered.
+const SIZE := Vector3(1.4, 2.0, 0.5)
+# The door art keeps the source PNG's own 1:2 aspect (887x1774) instead of being stretched
+# across the wider carcass — the extra width reads as the stiles of a double-width locker.
+const ART_SIZE := Vector2(0.96, 1.92)
+const ART_PROUD := 0.01          # how far the art quad stands proud of the front face
 
 const PUSH_PER_PRESS := 0.10     # bar gain per SPACE press
 const PUSH_DECAY := 0.18         # bar loss per second
@@ -48,11 +54,39 @@ const PUSH_START := 0.15         # bar starts here, so one missed beat isn't fat
 # and decay rates are UNCHANGED — the difficulty is length, not a steeper curve, so
 # the mash rate that works still works.
 const SHOVES_NEEDED := 3
-const SHOVE_DIST := 0.45         # metres per lurch, along the locker's local +X
+# ⚠️ THE TRAVEL IS FRONT-LOADED ONTO THE LAST SHOVE, and that is the whole point of this
+# profile (playtest 2026-08-16, second replay): *"I did 2 out of 3 rounds. Even though I
+# cannot flip the breaker, I can see it very well. I should not see it fully once I do all
+# 3 out of 3"*. The functional gate (`Breaker.blocked`) worked — they could not throw it —
+# but a panel in plain sight that refuses to answer E reads as a BUG, not as a locked door.
+#
+# Uniform 0.45 m lurches uncovered 43 % of the panel after one bar and 100 % after two. So
+# the intermediate lurches now move the locker just far enough to be seen and heard moving
+# (0.14 m, inside the 0.35 m the carcass overhangs the panel by), and the third bar does the
+# remaining 0.82 m in one long shove that actually reveals the thing.
+#
+# ⚠️ NONE of the difficulty constants moved. SHOVES_NEEDED, PUSH_PER_PRESS, PUSH_DECAY and
+# PUSH_PANIC are the user's call and are untouched: the same three bars at the same mash
+# rate cost the same panic. Only what you can SEE at each stage changed.
+const SHOVE_DIST := 0.14         # metres per intermediate lurch, along the locker's local +X
+# Total travel from rest. Derived requirement: the breaker's collider spans 0.8 m centred on
+# the panel, so the locker's near edge must end up clear of +0.40 m from the breaker centre —
+# 0.70 (half the carcass) + 0.40 = 1.10.
+const TOTAL_TRAVEL := 1.10
 const SHOVE_TIME := 0.35         # the lurch itself; input is ignored during it
 const SLIDE_TIME := 1.1
 const BRACE_DIST := 0.9          # how far in front of the face the player is planted
 const BRACE_TIME := 0.25
+
+# ⚠️ This message used to read "You let go. The locker settles back." — which was FALSE.
+# _abort() has never moved the locker back: completed shoves are kept, and only the bar
+# resets. The maintenance note said the same untrue thing ("it slides back the moment you
+# stop"), so a player who stopped after one shove was told the cover had closed while the
+# panel behind it was 44 % exposed. That is how the first playtest ended up throwing the
+# breaker without finishing the push. The locker keeping its ground is the DESIGN — three
+# short bars beat one ten-second bar precisely because the progress is visible and kept —
+# so the text is what changes, not the behaviour.
+const ABORT_MESSAGE := "You let go. It holds where it is."
 
 # ⚠️ Load-bearing. The push is STARTED by an `interact` press, and _process polls
 # `Input.is_action_just_pressed("interact")` to cancel — without this the very press
@@ -103,8 +137,9 @@ func _build() -> void:
 	# per face (Issue 24; door.gd:build_visual is the reference pattern).
 	if ResourceLoader.exists(TEX):
 		var quad := MeshInstance3D.new()
+		quad.name = "LockerDoor"
 		var qm := QuadMesh.new()
-		qm.size = Vector2(SIZE.x - ART_INSET, SIZE.y - ART_INSET)
+		qm.size = ART_SIZE
 		quad.mesh = qm
 		var qmat := StandardMaterial3D.new()
 		qmat.albedo_texture = load(TEX)
@@ -155,7 +190,7 @@ func interact() -> void:
 	if _pushing:
 		# The QTE is open and ARM_DELAY has passed — this is the give-up press.
 		if _armed >= ARM_DELAY:
-			_abort("You let go. The locker settles back.")
+			_abort(ABORT_MESSAGE)
 		return
 	_start_push()
 
@@ -225,7 +260,7 @@ func _process(delta: float) -> void:
 			_shove_player.play()
 
 	if _armed >= ARM_DELAY and Input.is_action_just_pressed("interact"):
-		_abort("You let go. The locker settles back.")
+		_abort(ABORT_MESSAGE)
 		return
 
 	if _effort >= 1.0:
@@ -259,8 +294,11 @@ func _lurch() -> void:
 	if _shove_player.stream:
 		_shove_player.pitch_scale = randf_range(0.86, 0.96)   # heavier than a single press
 		_shove_player.play()
+	# ⚠️ The jolt is doing more work now than it used to. A 0.14 m lurch is a smaller
+	# picture than a 0.45 m one, and the player is braced 0.9 m away with the camera pinned,
+	# so the shove has to be FELT as well as seen or a stage reads as a no-op.
 	if _player and _player.has_method("jolt_camera"):
-		_player.jolt_camera(0.045, SHOVE_TIME)
+		_player.jolt_camera(0.075, SHOVE_TIME)
 
 	var target: Vector3 = global_position + global_transform.basis.x.normalized() * SHOVE_DIST
 	var t := create_tween()
@@ -281,7 +319,10 @@ func _slide() -> void:
 	if _settle_player.stream:
 		_settle_player.play()
 
-	var target: Vector3 = global_position + global_transform.basis.x.normalized() * SHOVE_DIST
+	# Whatever is LEFT of the total travel — the last bar is the one that uncovers the panel,
+	# so this is deliberately much longer than a lurch (0.82 m against 0.14).
+	var remaining: float = TOTAL_TRAVEL - SHOVE_DIST * float(SHOVES_NEEDED - 1)
+	var target: Vector3 = global_position + global_transform.basis.x.normalized() * remaining
 	var t := create_tween()
 	t.tween_property(self, "global_position", target, SLIDE_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -303,7 +344,7 @@ func move_aside_instantly() -> void:
 	if _done:
 		return
 	_done = true
-	global_position += global_transform.basis.x.normalized() * SHOVE_DIST * float(SHOVES_NEEDED)
+	global_position += global_transform.basis.x.normalized() * TOTAL_TRAVEL
 
 
 func _find_player() -> CharacterBody3D:

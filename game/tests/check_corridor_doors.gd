@@ -1,7 +1,7 @@
 extends SceneTree
 
 # The Corridor's new beats: doors that open behind you, the false-ceiling telegraphs, and
-# the one corner that no longer flashes.
+# the silent-mirror rule.
 #
 # The load-bearing assertion is the FIRST one. The six decor doors used to be flat quads
 # with no depth and no collider; they are real hinged bodies now, in a hall that is 3.0 m
@@ -13,7 +13,8 @@ extends SceneTree
 #   * a door must NOT open while it is being looked at (an anomaly, not a visible effect)
 #   * it must open once the player is well past it and facing elsewhere
 #   * a non-payoff telegraph costs NOTHING — that is the whole anti-habituation trick
-#   * exactly one of the three turn mirrors is silent this run
+#   * the silent-mirror RULE holds: one muted while there are >= SILENT_MIRROR_MIN of
+#     them, none at the current two (2026-08-16) — the flash budget is 24/run either way
 #
 #   Godot --headless --path game --script res://tests/check_corridor_doors.gd
 
@@ -120,9 +121,21 @@ func _process(delta: float) -> bool:
 		for m in mirrors:
 			if not bool(m.get("flashes", true)):
 				silent += 1
-		_ok("three turn mirrors exist", mirrors.size() == 3, "found %d" % mirrors.size())
-		_ok("exactly one of them is silent this run", silent == 1,
-			"%d silent" % silent)
+		var declared_v: Variant = _scene.get_script().get("TURN_MIRRORS")
+		var declared: Array = declared_v if declared_v is Array else []
+		var min_silent: int = int(_scene.get_script().get("SILENT_MIRROR_MIN"))
+		_ok("as many turn mirrors as the level declares",
+			mirrors.size() == declared.size(),
+			"found %d, declared %s" % [mirrors.size(), str(declared)])
+		# ⚠️ THE ANTI-HABITUATION MUTE IS CONDITIONAL ON THE COUNT (2026-08-16). At three
+		# mirrors exactly one was muted per run — a third of them. At the current two that
+		# same roll would mute HALF, and could leave the run with a single mirror beat, so
+		# `SILENT_MIRROR_MIN` gates it off. The flash budget is identical either way:
+		# 3 mirrors - 1 mute = 2 flashes; 2 mirrors - 0 mutes = 2 flashes. This asserts the
+		# RULE, so restoring a third mirror brings the mute back and this still holds.
+		var want_silent: int = 1 if mirrors.size() >= min_silent else 0
+		_ok("the right number of mirrors is silent this run", silent == want_silent,
+			"%d silent, wanted %d at %d mirrors" % [silent, want_silent, mirrors.size()])
 
 		# --- a door must not open while watched --------------------------------------
 		# Reset the doors, stand the player well past one, and look straight at it.

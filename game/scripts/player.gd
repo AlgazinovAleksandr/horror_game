@@ -82,6 +82,8 @@ var _echo_trail_stream: AudioStream = null      # `footstep_trail`, if present
 var _default_footstep_stream: AudioStream = null  # what restore_footstep_stream() goes back to
 var _was_moving: bool = false                   # for the moving -> stopped transition
 var _dead_click_player: AudioStreamPlayer = null
+var _locked_click_player: AudioStreamPlayer = null   # locked != dead — see _play_locked_click
+var _scripted_turn: Tween = null                     # turn_to_face()'s camera tween
 const FOOTSTEP_INTERVAL := 0.5
 # Visual layer for objects that must appear in a MIRROR but never in the world. Kept in
 # step with mirror_surface.gd's constant of the same name; the mirror's camera keeps this
@@ -196,6 +198,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			flashlight.visible = false
 		elif _battery > 0.0 and not _flashlight_dead and not _flashlight_locked:
 			flashlight.visible = true
+		elif _flashlight_locked and not _flashlight_dead and _battery > 0.0:
+			# ⚠️ A LOCKED torch is not a DEAD torch, and until 2026-08-16 they made exactly
+			# the same sound. The Lab's dark wing locks the light for ~100 s; the playtester
+			# pressed F once on the way in, heard the dead-battery pop, and then walked the
+			# remaining 306 s of the level — including the DarkZone morgue, at +3 panic/s —
+			# without ever trying again. They died in it. A reversible condition must not
+			# sound like a permanent one.
+			_play_locked_click()
 		else:
 			_play_dead_click()  # dead battery — only a useless click answers
 
@@ -340,6 +350,56 @@ func _play_echo_step(trail: bool) -> void:
 func _play_dead_click() -> void:
 	if _dead_click_player and _dead_click_player.stream:
 		_dead_click_player.play()
+
+
+# The switch answers, the lamp does not. A different sample from _play_dead_click()'s pop
+# on purpose (see the toggle branch): this one is a working switch being thrown, so it says
+# "the torch is fine, something else is stopping it" rather than "your battery is gone".
+func _play_locked_click() -> void:
+	if not _locked_click_player:
+		_locked_click_player = AudioStreamPlayer.new()
+		var clunk := GameState.load_audio("switch_clunk")
+		if clunk:
+			_locked_click_player.stream = clunk
+		_locked_click_player.volume_db = -10.0
+		add_child(_locked_click_player)
+	if _locked_click_player.stream:
+		_locked_click_player.play()
+
+
+# Aim the camera at a world point over `time` seconds, and KEEP it there.
+#
+# ⚠️ This writes `_pitch`, which is the whole reason it exists rather than a caller tweening
+# `camera.rotation.x` directly: `_rotate_camera()` re-applies `_pitch` on the very next
+# mouse motion, so a scripted turn that only touched the camera node would snap back the
+# instant the player twitched. `ai_look_at()` has that bug and is test-only for that reason.
+#
+# Movement/look freezing is the CALLER's business — pair with freeze_input()/unfreeze_input()
+# if the beat needs the player pinned. Used by level_1.gd's BreakerNook reveal, where the
+# player asked for exactly this: "it must appear at the place the player is looking at".
+func turn_to_face(target: Vector3, time: float = 0.55) -> void:
+	var to := target - global_position
+	var flat := Vector2(to.x, to.z)
+	if flat.length() < 0.001:
+		return
+	var target_yaw: float = atan2(-to.x, -to.z)          # player forward is -Z
+	# Shortest way round, so a 190-degree turn never becomes a 170-degree turn the wrong way.
+	var yaw: float = rotation.y + angle_difference(rotation.y, target_yaw)
+	var eye_y: float = camera.position.y if camera else 1.6
+	var target_pitch: float = clampf(atan2(to.y - eye_y, flat.length()),
+		-PITCH_LIMIT, PITCH_LIMIT)
+	if _scripted_turn and _scripted_turn.is_valid():
+		_scripted_turn.kill()
+	_scripted_turn = create_tween().set_parallel(true)
+	_scripted_turn.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	_scripted_turn.tween_property(self, "rotation:y", yaw, time)
+	_scripted_turn.tween_method(_set_pitch, _pitch, target_pitch, time)
+
+
+func _set_pitch(value: float) -> void:
+	_pitch = clampf(value, -PITCH_LIMIT, PITCH_LIMIT)
+	if camera:
+		camera.rotation.x = _pitch
 
 
 func _get_raycast_target(range: float = INTERACT_RANGE) -> Node:

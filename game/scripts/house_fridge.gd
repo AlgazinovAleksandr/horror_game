@@ -41,6 +41,18 @@ const HUM_UNIT_SIZE := 4.0
 # Very loud, by request. `fridge_scream.wav` is user-supplied.
 const SCREAM_VOLUME_DB := 10.0
 
+# The two wire shelves, as fractions of SIZE.y.
+# ⚠️ The lower one was 0.40 and it SLICED THE FACE (playtest capture B1, 2026-08-16). The
+# head is centred at the shelf line + a clearance, is HEAD_HEIGHT tall, and sits at the same
+# depth as the shelves (z 0.06..0.32) — so at 0.40 the shelf plane passed through the bottom
+# 7 cm of the face and the head read as a decal cut off at the chin. It is now 0.34, and the
+# head RESTS ON that shelf rather than floating between the two, which also reads better.
+# Asserted by tests/check_house_guest.gd — the face AABB must miss both shelf AABBs.
+const SHELF_LOW_FRAC := 0.34
+const SHELF_HIGH_FRAC := 0.68
+const SHELF_T := 0.015
+const THING_CLEARANCE := 0.01
+
 var _used: bool = false
 var _hinge: Node3D = null
 var _hum: AudioStreamPlayer3D = null
@@ -113,10 +125,13 @@ func _build() -> void:
 	shelf_mat.albedo_color = Color(0.62, 0.62, 0.64)
 	shelf_mat.metallic = 0.6
 	shelf_mat.roughness = 0.45
-	for sy in [SIZE.y * 0.40, SIZE.y * 0.68]:
+	var shelf_i := 0
+	for sy in [SIZE.y * SHELF_LOW_FRAC, SIZE.y * SHELF_HIGH_FRAC]:
 		var sh := MeshInstance3D.new()
+		sh.name = "FridgeShelf%d" % shelf_i
+		shelf_i += 1
 		var shm := BoxMesh.new()
-		shm.size = Vector3(SIZE.x - 0.16, 0.015, CAVITY_DEPTH - 0.04)
+		shm.size = Vector3(SIZE.x - 0.16, SHELF_T, CAVITY_DEPTH - 0.04)
 		sh.mesh = shm
 		sh.material_override = shelf_mat
 		sh.position = Vector3(0, sy, SIZE.z / 2.0 - CAVITY_DEPTH / 2.0 - 0.02)
@@ -154,7 +169,11 @@ func _build() -> void:
 	# you read a head-sized mass. That is as far as a single generated image can honestly go.
 	_thing = Node3D.new()
 	_thing.name = "FridgeThing"
-	_thing.position = Vector3(0, SIZE.y * 0.40 + 0.16,
+	# Sitting ON the lower shelf, clear of it. See SHELF_LOW_FRAC's note: the old
+	# `SIZE.y * 0.40 + 0.16` put the face's bottom edge 7 cm BELOW the shelf it was meant
+	# to be standing on, and the shelf drew straight across the chin.
+	_thing.position = Vector3(0,
+		SIZE.y * SHELF_LOW_FRAC + SHELF_T / 2.0 + THING_CLEARANCE + HEAD_HEIGHT / 2.0,
 		SIZE.z / 2.0 - CAVITY_DEPTH / 2.0 - 0.02)
 	_thing.visible = false
 	add_child(_thing)
@@ -187,11 +206,29 @@ func _build() -> void:
 	face.position = Vector3(0, 0, 0.055)
 	_thing.add_child(face)
 
-	# Hinge on the LEFT edge so the door swings out of the way of a player standing in
-	# front of it, rather than into their face.
+	# ⚠️ THE DOOR USED TO SWING INTO ITS OWN CARCASS (fixed 2026-08-16, playtest capture B1:
+	# *"The fridge opens the wrong side"* — and the frame contained no door and no handle at
+	# all, because both were inside the box).
+	#
+	# The hinge sat on the fridge's −X edge at local (−0.39, 0, +0.37) with the panel hung at
+	# hinge-local (+SIZE.x/2, …, 0), and `interact()` tweens `rotation:y` to **+**105°.
+	# Rotating the free-edge vector (0.39, 0, 0) by +105° about +Y gives (−0.101, 0, −0.377):
+	# the leading edge travels toward local −Z, i.e. BACKWARDS through the shell, ending at
+	# local (−0.49, 0, −0.007) — behind the front plane, inside the carcass.
+	#
+	# Two fixes were possible: negate the angle, or move the hinge to the other edge. The
+	# hinge moved, on the user's call, because it fixes the swing AND flips the door away
+	# from the side they were standing on. The fridge is rotated −90° about Y, so its local
+	# +X is world +Z; hinging there is the edge FURTHEST along the approach from the Hallway
+	# doorway, and the opening door now clears the cavity toward the player instead of
+	# sweeping across the kitchen table.
+	#
+	# The angle is UNCHANGED at +DOOR_OPEN_DEG — with the hinge on +X the free edge sweeps to
+	# local (+0.101, 0, +0.377), i.e. out through the front face into open air.
+	# tests/check_house_guest.gd asserts the door mesh ends up outside the carcass AABB.
 	_hinge = Node3D.new()
 	_hinge.name = "DoorHinge"
-	_hinge.position = Vector3(-SIZE.x / 2.0, 0, SIZE.z / 2.0 + 0.01)
+	_hinge.position = Vector3(SIZE.x / 2.0, 0, SIZE.z / 2.0 + 0.01)
 	add_child(_hinge)
 
 	# Art on a QuadMesh, never on the BoxMesh face — a textured box renders a magnified
@@ -210,7 +247,9 @@ func _build() -> void:
 		door_mat.roughness = 0.5
 		door_mat.metallic = 0.2
 	door.material_override = door_mat
-	door.position = Vector3(SIZE.x / 2.0, SIZE.y / 2.0, 0)
+	door.name = "FridgeDoor"
+	# Hinge-local −X: the panel hangs back across the front face from the +X hinge.
+	door.position = Vector3(-SIZE.x / 2.0, SIZE.y / 2.0, 0)
 	_hinge.add_child(door)
 
 	var handle := MeshInstance3D.new()
@@ -222,7 +261,9 @@ func _build() -> void:
 	hmat.metallic = 0.7
 	hmat.roughness = 0.35
 	handle.material_override = hmat
-	handle.position = Vector3(SIZE.x - 0.10, SIZE.y / 2.0, 0.03)
+	handle.name = "FridgeHandle"
+	# On the FREE edge, i.e. the far side of the panel from the hinge.
+	handle.position = Vector3(-SIZE.x + 0.10, SIZE.y / 2.0, 0.03)
 	_hinge.add_child(handle)
 
 

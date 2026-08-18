@@ -73,6 +73,33 @@ func _load(s: int) -> void:
 func _audit(s: int) -> void:
 	var gen = _level.call("get_gen")
 
+	# ⚠️ EVERY ASSERTION IN THIS FILE IS AN ABSENCE — "no DarkZone", "no DreadZone", "no
+	# ApparitionDirector" — and an absence is trivially TRUE of a level that failed to build.
+	# So the first thing asserted is that there IS a level: chambers, sconces and the entity
+	# roster. Without this, a dungeon.gd that threw on the first line would print eleven
+	# comfortable OKs per seed (workstream H2, 2026-08-17).
+	# ⚠️ `rooms` is the generator's own emitted room list; `_chambers` is private. Reading a
+	# property that does not exist returns null, and `null as Array` THROWS — which aborts
+	# `_audit()` before every ban in this file, and a thrown test still exits 0 (Issue 45).
+	var rooms: Variant = gen.get("rooms") if gen != null else null
+	var chambers: int = (rooms as Array).size() if rooms is Array else 0
+	var sconce_list: Variant = _level.call("get_sconces")
+	var sconces: int = (sconce_list as Array).size() if sconce_list is Array else 0
+	_ok("seed %d: the dungeon actually built" % s, chambers >= 9 and sconces == 7,
+		"%d rooms, %d sconces" % [chambers, sconces])
+
+	# ⚠️ ...AND A LIVE CONTROL, because an absence check can also stop looking. Add a real
+	# `DarkZone` to the scene and require the same counter to see it: if `_count_script()`
+	# ever stops matching — a moved script path, a renamed file, a subclass — every ban in
+	# this file goes quietly green forever.
+	var planted: Node = (load("res://scripts/dark_zone.gd") as GDScript).new()
+	planted.name = "DarkZoneControl"
+	_level.add_child(planted)
+	var seen := _count_script(_level, load("res://scripts/dark_zone.gd"))
+	_ok("seed %d CONTROL: a planted DarkZone IS counted" % s, seen == 1, "%d found" % seen)
+	_level.remove_child(planted)
+	planted.queue_free()
+
 	# ── The banned zones, by TYPE not by name ──────────────────────────────────
 	# Counted by script identity so a renamed node cannot hide one.
 	var dark := _count_script(_level, load("res://scripts/dark_zone.gd"))

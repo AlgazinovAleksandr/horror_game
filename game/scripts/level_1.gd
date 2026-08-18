@@ -75,6 +75,7 @@ var _pa_speaker: AudioStreamPlayer3D
 # Do not re-add an ambient tell to this breaker.
 var _locker: LabLocker
 var _locker_moved: bool = false
+var _records_breaker: Breaker
 
 # BreakerNook: sound-only tell for its breaker, and a flag the debug-apparition
 # tick reads to suppress itself while the player is inside.
@@ -97,6 +98,9 @@ var _nook_breath: AudioStreamPlayer3D = null
 var _nook_figure: Node3D = null
 var _nook_figure_mat: StandardMaterial3D = null
 var _nook_zone: Area3D = null
+var _nook_watch: bool = false          # armed after the breathing; see _tick_nook_watch
+var _nook_watch_elapsed: float = 0.0
+var _wing_meter: LabWingMeter = null
 
 
 func _ready() -> void:
@@ -301,6 +305,20 @@ func _place_player() -> void:
 # does not replay a one-time beat as if it were new.
 
 func save_progress() -> Dictionary:
+	# ⚠️ The Records bank's randomised hint slot goes in here WITH the drawers that have been
+	# opened. Restoring "you already searched these five" against a re-rolled placement would
+	# mark a search solved on a bank that had moved the answer — KONTUR's `_dark_x` rule.
+	# ⚠️ ONE list, not two. There used to be a `drawers_searched` companion, so a drawer the
+	# player had opened and shut again would not re-print its flavour line on the way back.
+	# The flavour lines are gone (2026-08-16 verification replay: *"they are not needed, the
+	# player will see there is nothing in there"*), and with them the only consumer of
+	# searched-state — so the key was removed rather than left as a snapshot of nothing.
+	var opened: Array = []
+	for i in range(_cabinets.size()):
+		if not is_instance_valid(_cabinets[i]):
+			continue
+		for slot in _cabinets[i].open_slots():
+			opened.append([i, slot])
 	return {
 		"breakers": _flipped_breakers.keys(),
 		"power_on": _power_on,
@@ -308,6 +326,11 @@ func save_progress() -> Dictionary:
 		"locker_moved": _locker_moved,
 		"apparition_fired": _apparition_fired,
 		"nook_scare_done": _nook_scare_done,
+		"hint_cab": _hint_cab,
+		"hint_slot": _hint_slot,
+		"hint_taken": _hint_cab >= 0 and _hint_cab < _cabinets.size()
+			and is_instance_valid(_cabinets[_hint_cab]) and _cabinets[_hint_cab].is_note_taken(),
+		"drawers_opened": opened,
 	}
 
 
@@ -326,8 +349,29 @@ func _restore_progress() -> void:
 	if bool(data.get("locker_moved", false)) and is_instance_valid(_locker):
 		_locker.unlocked = true
 		_locker.move_aside_instantly()
+		# move_aside_instantly() deliberately does NOT emit `moved` (see lab_locker.gd), so
+		# the breaker has to be un-blocked here too. Miss this and a player who shoved the
+		# locker, walked back a level and returned finds a breaker they earned and cannot
+		# touch — a snapshot that restores the geometry but not the permission.
+		if is_instance_valid(_records_breaker):
+			_records_breaker.unblock()
 	_apparition_fired = bool(data.get("apparition_fired", false))
 	_nook_scare_done = bool(data.get("nook_scare_done", false))
+	# The Records bank: put the page back in the drawer it was in, re-open the ones that were
+	# still hanging open, and take the page away if it was already taken. (A `drawers_searched`
+	# list used to be restored here too; nothing behaves differently for a searched drawer any
+	# more — see save_progress().)
+	var saved_cab := int(data.get("hint_cab", -1))
+	var saved_slot := int(data.get("hint_slot", -1))
+	if saved_cab >= 0 and saved_slot >= 0:
+		_place_flood_hint(saved_cab, saved_slot)
+	for entry in data.get("drawers_opened", []):
+		if entry is Array and entry.size() == 2:
+			var ci := int(entry[0])
+			if ci >= 0 and ci < _cabinets.size() and is_instance_valid(_cabinets[ci]):
+				_cabinets[ci].open_slot_instantly(int(entry[1]))
+	if bool(data.get("hint_taken", false)) and _hint_cab >= 0 and _hint_cab < _cabinets.size():
+		_cabinets[_hint_cab].mark_note_taken()
 	# Power last: it reads _breakers_flipped and opens the morgue shutter.
 	if bool(data.get("power_on", false)):
 		_restore_power()
@@ -432,8 +476,33 @@ func _add_fixture(lamp: OmniLight3D) -> StandardMaterial3D:
 
 # ---------------------------------------------------------------- notes
 
+# Where TRIAL 7 sits along the morgue's NORTH wall, measured off that wall's centre.
+#
+# ⚠️ This used to be MORGUE_NOTE_SPACING = 1.6 along the SOUTH wall, i.e. 1.6 m from the
+# KONTUR circular, and the playtester photographed both pages in one frame: *"These two notes
+# at the morgue are at the same place. Let's at least put them into different parts of the
+# room"* — two NOTE READ events 1.7 s apart in the log. That was a bad fix for a good bug: the
+# note had been hanging in the morgue's DOORWAY and the only rule applied to moving it was
+# "not the doorway wall". Two pages 1.6 m apart on one wall are one prop with two halves.
+#
+# The morgue is x 6..13, z 9.5..15.5, and its only door is the shutter at (6, 12.5) — so the
+# WEST wall is forbidden and the other three are free. The circular keeps the south wall
+# centre; TRIAL 7 goes to the north wall, offset east so it clears the cursed poster on that
+# wall's centre (which spans x 9.05..9.95) with 1.75 m to spare and still stands 0.8 m clear
+# of the east wall's inner face. Measured separation: 6.19 m, and on a different wall plane —
+# asserted by tests/check_note_mounting.gd, which now refuses any two notes in one room that
+# are closer than MIN_NOTE_SEPARATION or share a plane.
+const MORGUE_TRIAL7_OFFSET := 2.4
+
 func _spawn_notes() -> void:
-	_make_note(Vector3(2.4, 1.4, -2.6), -PI / 2.0,
+	# ⚠️ On the wall via wall_point(), like every other note in the level. This one was
+	# hand-typed at (2.4, 1.4, -2.6) — Reception's east wall face is at x = 2.90, so the
+	# first note the player meets after the intro floated half a metre out in mid-air
+	# (playtest capture #7 reports the same class of fault on the morgue note). Never
+	# hand-compute a wall-prop position; the rule is in CLAUDE.md and it has now been
+	# broken twice in this one file. Reception's only doorway is north (0, 3) and the back
+	# door owns the south wall centre, so the east wall is free.
+	_make_note(_builder.wall_point("Reception", Vector2(1, 0), 1.4, 0.16), -PI / 2.0,
 		"Subject 47.\n\nThe power is down. Three breakers will bring it back — one in each lab room, one in records. The morgue door stays sealed until all three are thrown.\n\nThe keycard is inside the morgue. You will need it for the exit.\n\nAnd if the figure comes — DO NOT RUN. Do not turn and flee. Stand still until it fades. Running is how it reaches you.")
 	_make_note(_builder.wall_point("Exam2", Vector2(0, -1), 1.4, 0.1), 0.0,
 		"Do not look at the tray. Do not look at the monitor.\n\nThey are not what they appear. When you take the card, keep your eyes on the floor.")
@@ -453,7 +522,7 @@ func _spawn_notes() -> void:
 	# power. That is deliberate and was confirmed with the user. Do not soften it into
 	# a hint toast without asking first.
 	var maint := _make_note(_builder.wall_point("Observation", Vector2(0, -1), 1.4, 0.16), 0.0,
-		"MAINTENANCE — SUB-PANEL B (RECORDS)\n\nRecords is a mess. When they re-shelved it, the steel locker went flat against the sub-panel and nobody has touched it since.\n\nIf the mains ever go, you are not getting that breaker back without shifting the locker. Two of us could not do it quickly. Brace against it and PUSH — keep pushing. It moves in fits, and it slides back the moment you stop.\n\n— R. Volkov, facilities")
+		"MAINTENANCE — SUB-PANEL B (RECORDS)\n\nRecords is a mess. When they re-shelved it, the steel locker went flat against the sub-panel and nobody has touched it since.\n\nIf the mains ever go, you are not getting that breaker back without shifting the locker. Two of us could not do it quickly. Brace against it and PUSH — keep pushing. It moves in fits: a hand's width at a time, and three good shoves before the panel is clear.\n\nStop and it stays where you left it. You just have to find your strength again from nothing.\n\n— R. Volkov, facilities")
 	maint.read.connect(_on_maintenance_note_read)
 	# KONTUR HINT 1/4 — the answer to KONTUR's Gate 1 (the two doors). Deliberately
 	# filed in the morgue: you only find it if you look around a room that is
@@ -466,8 +535,32 @@ func _spawn_notes() -> void:
 	# one room that is actively trying to kill you. It is meaningless here and
 	# load-bearing later — that is the KONTUR pattern, and it is why the notes
 	# journal (TAB) exists.
-	_make_note(_builder.wall_point("Morgue", Vector2(-1, 0), 1.4, 0.16), -PI / 2.0,
-		"TRIAL 7 — OBSERVER LOG, NIGHT 3\n(Filed in error. Not this facility.)\n\nThe still ones do not move while you are looking at them. Everyone works that out in the first minute and it does not help, because you cannot look at all of them.\n\nWhat nobody works out in time: THE LIGHT ATTRACTS THEM. Every flash brings each one a step closer, and a flash struck close to one that has already woken is the last thing the subject does.\n\nHold your breath and hold your ground. Do not strike a light in the rooms.")
+	#
+	# ⚠️ It hung IN THE DOORWAY for the life of this feature. wall_point("Morgue", (-1,0))
+	# returns the WEST wall's centre — and the morgue's one and only door is the shutter at
+	# (6, 12.5). The note was at z = 12.50, the exact centre of an opening spanning
+	# 11.80..13.20, with nothing behind it (playtest capture #7: "the note is floating in
+	# the air"). It did not seal the room only because note.gd sits on collision_layer 2.
+	# This is the documented "never hang a prop on a room's only doorway wall" class, and
+	# the Records warning sign already did it once in Session 11.
+	#
+	# ⚠️ It then went to the SOUTH wall 1.6 m from the KONTUR circular, which fixed the
+	# doorway and created a second complaint on the next replay: *"These two notes at the
+	# morgue are at the same place"*. Filing them as a visible PAIR was the intent and it was
+	# wrong — two pages within one glance of each other are one prop, and the log shows both
+	# read 1.7 s apart. They are now on OPPOSITE walls of the room: the circular keeps the
+	# south wall centre, this goes on the north wall east of the poster. Still wall_point()
+	# plus a lateral offset, never hand-computed. See MORGUE_TRIAL7_OFFSET.
+	var trial7_pos: Vector3 = _builder.wall_point("Morgue", Vector2(0, 1), 1.4, 0.16)
+	trial7_pos.x += MORGUE_TRIAL7_OFFSET
+	# ⚠️ Trimmed 97 words -> 50 (playtest capture #8: "can we make it more concise? Too
+	# much text"). Both load-bearing facts survive verbatim in meaning — they hold while
+	# watched, and THE LIGHT ATTRACTS THEM — because THE NIGHTMARE's Still Ones are
+	# unsurvivable without the second one and this is hint 1 of 3.
+	# PI: the note faces -z, into the room, off the north wall (the same rotation the Records
+	# and Observation north-wall notes use).
+	_make_note(trial7_pos, PI,
+		"TRIAL 7 — OBSERVER LOG, NIGHT 3\n(Filed in error. Not this facility.)\n\nThe still ones hold while you watch them. You cannot watch all of them.\n\nAnd THE LIGHT ATTRACTS THEM. Every flash brings each one a step closer, and a flash struck beside a woken one is the last thing the subject does.\n\nHold your ground. Do not strike a light.")
 
 
 func _on_maintenance_note_read() -> void:
@@ -526,6 +619,15 @@ func _spawn_power_quest() -> void:
 	hidden.name = "Breaker_Records"
 	hidden.position = hidden_pos
 	hidden.rotation.y = 0.0
+	# ⚠️ The locker is a COVER, and a cover is not a gate. Measured on the shipped build:
+	# one completed shove of three slid it 0.45 m and left 0.35 m of the breaker's collider
+	# exposed and reachable from the whole west half of the room; two shoves cleared it
+	# outright. The playtester found it immediately ("Even though I did not pull the case
+	# till the end, I still could flip the breaker") — the three-stage gate opened at stage
+	# one. Occlusion still decides what you can SEE; `blocked` decides what you can DO, and
+	# only LabLocker.moved (all three shoves + the settle tween) clears it.
+	hidden.blocked = true
+	_records_breaker = hidden
 	hidden.flipped.connect(_on_breaker_flipped.bind("Breaker_Records"))
 	add_child(hidden)
 	_spawn_records_locker(hidden_pos)
@@ -546,6 +648,7 @@ func _spawn_power_quest() -> void:
 	dark.flipped.connect(_on_nook_breaker_flipped)
 	add_child(dark)
 	_spawn_dark_beacon(dark_pos)
+	_spawn_wing_meter(dark_pos)
 	_spawn_breaker_nook_zone()
 
 	# Morgue shutter: fills the CrossHall<->Morgue doorway at x=6, z=12.5.
@@ -584,6 +687,15 @@ func _spawn_power_quest() -> void:
 # z-fight, close enough that an interaction ray from the room always hits the locker
 # first. It slides along +X into the empty east half of Records; the filing-cabinet
 # bank in _spawn_room_props() was trimmed to two units to clear its start position.
+#
+# ⚠️ Lateral budget, re-derived 2026-08-16 when the locker went 1.0 m -> 1.4 m wide:
+#   at rest      x -9.70 .. -8.30   (panel -9.35 .. -8.65, so 0.35 m of overhang a side)
+#   1 shove      x -9.56 .. -8.16   panel still fully covered
+#   2 shoves     x -9.42 .. -8.02   panel still fully covered, 0.07 m to spare
+#   3 (the slide) x -8.60 .. -7.20  the whole 0.8 m collider is clear
+# The cabinet bank ends at x -9.95, so the resting carcass clears it by 0.25 m. If either
+# the locker's width or the bank's position ever changes, redo this table — it is what
+# check_lab_breaker_gate.gd measures with rays.
 const LOCKER_GAP := 0.15         # breaker collider half-depth — the locker sits on it
 const LOCKER_LIFT := 1.0         # locker origin height (half of LabLocker.SIZE.y)
 
@@ -596,6 +708,9 @@ func _spawn_records_locker(breaker_pos: Vector3) -> void:
 		breaker_pos.z + LOCKER_GAP + LabLocker.SIZE.z / 2.0)
 	_locker.moved.connect(func() -> void:
 		_locker_moved = true
+		# The breaker becomes usable HERE and nowhere else — see `blocked` above.
+		if is_instance_valid(_records_breaker):
+			_records_breaker.unblock()
 		ScreenText.toast(get_tree(), "A breaker panel. Behind the locker all along.",
 			Color(0.55, 0.95, 0.6), 2.6)
 	)
@@ -651,7 +766,23 @@ func _restore_power() -> void:
 # tools/make_pa_voice.py.
 const PA_CAPTION := "PA: \"...the way out is the surface that will not hold still.\nThrough. Not around. Subject forty-seven is not to be—\""
 
+# ⚠️ The spoken half is UNRECOVERABLE by design of the medium: it fires once, 1.4 s after
+# the power comes back, on top of the "Power restored" objective — and in the 2026-08-16
+# session it also landed under the wing's "lights come up" toast, two captions in one
+# frame. It is the clearest statement of the Backrooms glitch-wall rule anywhere in the
+# game and it is spoken four minutes after the whiteboard it pairs with.
+#
+# So the same words now exist as a PAGE: pinned beside the whiteboard (found by anyone who
+# searches Observation, at any time) and archived through GameState.record_note() the
+# moment the tannoy speaks (recoverable with TAB by anyone who only heard it). The text is
+# byte-identical in both paths, so record_note()'s dedupe collapses them into one entry.
+const PA_NOTE_TEXT := "RELAY LOG — TANNOY CHANNEL 2 (TRANSCRIBED)\n\n\"...the way out is the surface that will not hold still. Through. Not around. Subject forty-seven is not to be—\"\n\nCut at the same word every time. The relay has never been repaired. Whatever the rest of that sentence was, nobody down here has heard it."
+
 func _announce_trial_four() -> void:
+	# Archived immediately, not on a delay: this is the one hint in the level that is
+	# delivered as sound and nothing else, and a player who dies before the tannoy finishes
+	# should still find it under TAB.
+	GameState.record_note(PA_NOTE_TEXT, 1)
 	# A beat after the lights settle, so it doesn't collide with the breaker clunk.
 	var delay := get_tree().create_timer(1.4)
 	delay.timeout.connect(func() -> void:
@@ -967,6 +1098,49 @@ func _accent_lamp(pos: Vector3, color: Color, energy: float, lrange := 6.0) -> v
 	add_child(lamp)
 
 
+# Lateral offset of the printed PA transcript from the whiteboard's own wall_point.
+const WHITEBOARD_NOTE_OFFSET := 1.55
+
+# BACKROOMS HINT 2/2 — and the only cross-level hint the Backrooms FLOOD has ever had.
+# Every other tell in the game is answered from an earlier level (KONTUR's eight gates are
+# hinted in levels 1-4, THE NIGHTMARE's Still Ones in the morgue); the Flood's "the real
+# seam is visible only with the flashlight OFF" was hinted by nobody, and a player who has
+# spent five levels being taught that the torch is how you see is being asked to invert
+# that with no warning.
+#
+# ⚠️ It states the RULE and never a place — kitchen_drawer.gd's rule, for the same reason.
+# The second paragraph also covers the Backrooms SMILER, where the answer is identical
+# (light off, hold still) and the player's instinct is identical (light it up and run).
+# That is the user's own framing from capture #4: "sometimes it is useful to turn off the
+# flashlight - especially if you feel something wants to hurt you without the reason".
+const FLOOD_HINT_TEXT := "SITE MEMO — LAMP DISCIPLINE\n\nStanding order for the lower levels. Nobody signs it until they have been down there.\n\nSOME THINGS ARE ONLY THERE WHEN THE LIGHT IS OFF. A beam does not just show you the room, it decides how much of the room you are allowed to see. If a wall gives you no way through, put the lamp out and look again.\n\nAnd if something down there wants you, for no reason you can name — the lamp is the reason. Put it out. Do not run."
+
+# WHICH of the eight drawers in the Records bank holds the Flood hint. Randomised per run
+# (playtest 2026-08-16: *"Maybe we can do it in a way I could open all the boxes and only one
+# would contain the note?"*) rather than fixed, because a fixed slot turns the search into a
+# straight walk the second time the level is played — and this level IS replayed: a death
+# wipes the snapshot and restarts it.
+#
+# ⚠️ Captured in save_progress() and restored, never re-rolled on a back-door return. The
+# player who opened five drawers and found it must not come back to a bank that has moved it
+# — the same rule KONTUR's `_dark_x` follows for its blackout gate.
+var _cabinets: Array[LabCabinet] = []
+var _hint_cab: int = -1
+var _hint_slot: int = -1
+
+func _place_flood_hint(cab_index: int = -1, slot: int = -1) -> void:
+	if _cabinets.is_empty():
+		return
+	if cab_index < 0 or slot < 0:
+		cab_index = randi() % _cabinets.size()
+		slot = randi() % _cabinets[cab_index].drawer_count()
+	_hint_cab = clampi(cab_index, 0, _cabinets.size() - 1)
+	_hint_slot = slot
+	for i in range(_cabinets.size()):
+		_cabinets[i].assign_note(FLOOD_HINT_TEXT if i == _hint_cab else "",
+			_hint_slot if i == _hint_cab else -1)
+
+
 func _spawn_room_props() -> void:
 	# Exam rooms: a surgical table each.
 	for room in ["Exam1", "Exam2"]:
@@ -974,19 +1148,32 @@ func _spawn_room_props() -> void:
 		_make_prop(Vector3(c.x, 0.45, c.z), Vector3(0.9, 0.9, 2.0), Color(0.6, 0.62, 0.64))
 	# Records: a bank of filing cabinets along the back wall + a warning sign.
 	# ⚠️ TWO cabinets, not three, and shifted west. The bank used to span x -11.35..-9.05
-	# at z 9.8..10.4, which is exactly where the RecordsLocker now stands (x -9.5..-8.5,
-	# z 9.8..10.3) — the third unit intersected it. At x -11.1 / -10.3 the bank spans
-	# -11.45..-9.95, leaving 0.45 m clear of both the west wall's inner face and the
-	# locker. If the locker ever moves, re-derive this.
+	# at z 9.8..10.4, which is exactly where the RecordsLocker now stands — the third unit
+	# intersected it. At x -11.1 / -10.3 the bank spans -11.45..-9.95, leaving 0.45 m clear
+	# of the west wall's inner face and 0.25 m clear of the (now 1.4 m wide) locker's resting
+	# carcass at -9.70. If the locker ever moves or widens, re-derive this.
 	var rc: Vector3 = _builder.room_center("Records")
+	# ⚠️ Same two footprints, same two positions — LabCabinet's SIZE is deliberately the
+	# 0.7 x 1.3 x 0.6 of the boxes it replaces, so the clearance arithmetic above still
+	# holds. Its origin is on the FLOOR, not at the box's centre, so y is 0 rather than 0.65.
+	_cabinets.clear()
 	for i in range(2):
-		_make_prop(Vector3(rc.x - 2.1 + i * 0.8, 0.65, rc.z - 2.4),
-			Vector3(0.7, 1.3, 0.6), Color(0.28, 0.3, 0.27))
+		var cab := LabCabinet.new()
+		cab.name = "RecordsCabinet%d" % i
+		cab.position = Vector3(rc.x - 2.1 + i * 0.8, 0.0, rc.z - 2.4)
+		add_child(cab)
+		_cabinets.append(cab)
+	_place_flood_hint()
 	# Warning sign, on the NORTH wall (moved off the west wall alongside the note
 	# above — west now carries the BreakerNook doorway, new feature).
 	# Same burial bug as the whiteboard: at inset 0.06 this sign was inside the wall
 	# and had never actually been visible in game.
-	_make_cursed_panel(_builder.wall_point("Records", Vector2(0, 1), 1.8, 0.16),
+	# ⚠️ y = 2.05, not 1.8. The night-log note hangs on this same wall centre (y 1.4, so
+	# 1.19..1.61) and the sign at 1.8 spanned 1.50..2.10 — an 11 cm overlap with the sign's
+	# layer-1 body sitting 3 cm IN FRONT of the note's top edge, which is both a coincident
+	# -surface fault and a page you cannot read the top line of. At 2.05 it spans
+	# 1.75..2.35 and clears the note by 0.14 m.
+	_make_cursed_panel(_builder.wall_point("Records", Vector2(0, 1), 2.05, 0.16),
 		Vector2(0.8, 0.6), PI, 0.0, TEX + "lab_warning_sign.png")
 	_accent_lamp(Vector3(rc.x, 1.9, rc.z), Color(0.7, 0.85, 0.6), 0.5)
 	# Observation: a monitoring desk in front of the one-way mirror (east wall), with a
@@ -1008,6 +1195,15 @@ func _spawn_room_props() -> void:
 	_make_cursed_panel(_builder.wall_point("Observation", Vector2(0, 1), 1.7, 0.16),
 		Vector2(2.0, 1.25), PI, 0.0, TEX + "lab_whiteboard.png")
 	_accent_lamp(Vector3(oc.x, 2.2, oc.z + 1.6), Color(0.85, 0.88, 0.8), 0.5, 4.0)
+	# The tannoy line, in print, pinned beside the board it explains (playtest capture #2:
+	# "shall we put another note next to this image, and this image remains untouched?").
+	# The artwork IS untouched — the board is a diagram and the diagram was legible; what
+	# it lacked was a sentence. Offset laterally off the same wall_point, never
+	# hand-computed: the board spans x 2.75..4.75 and the wall's inner face is at x = 5.90,
+	# so +1.55 drops the page in the 1.15 m of clear wall between them.
+	var pa_note_pos: Vector3 = _builder.wall_point("Observation", Vector2(0, 1), 1.4, 0.16)
+	pa_note_pos.x += WHITEBOARD_NOTE_OFFSET
+	_make_note(pa_note_pos, PI, PA_NOTE_TEXT)
 
 
 # ---------------------------------------------------------------- observation
@@ -1128,6 +1324,8 @@ func _process(delta: float) -> void:
 	_drive_lights(delta)
 	_tick_dark_breaker_tell(delta)
 	_tick_nook_breath()
+	_tick_nook_watch(delta)
+	_tick_wing_meter(delta)
 
 
 func _spawn_apparition_director() -> void:
@@ -1216,6 +1414,29 @@ func _add_beacon_layer(base_name: String, pos: Vector3, unit: float, vol: float)
 	_beacons.append(pl)
 
 
+# ⚠️ DELIBERATE (2026-08-16) — see lab_wing_meter.gd's header for the full note. A signal
+# meter for the dark wing, added on the user's explicit call over `GAME_MECHANICS_IDEAS`
+# §5.2(2) and ISSUES_SOLUTIONS Issue 34, which name this widget as a thing we do not build.
+# The decision is theirs and it is made; what is engineered here is the objection that was
+# NOT about taste. The deleted widget measured straight-line distance and therefore lied
+# from inside a dead end; this one measures PATH distance through the wing's own doorway
+# graph, so a dead end reads cold even standing 3 m from the breaker through a wall.
+#
+# It is shown only inside the wing, and it dies with the beacon the moment the breaker is
+# thrown — it measures the hum, and after the flip there is no hum to measure.
+func _spawn_wing_meter(target: Vector3) -> void:
+	_wing_meter = LabWingMeter.new()
+	_wing_meter.name = "WingMeter"
+	add_child(_wing_meter)
+	_wing_meter.setup(ROOMS, DOORS, WING_ROOMS, target, "BreakerNook")
+	_wing_meter.set_player(_player())
+
+
+func _tick_wing_meter(delta: float) -> void:
+	if is_instance_valid(_wing_meter):
+		_wing_meter.tick(delta)
+
+
 # The old spark transient stays on top of the beacon as flavour — an occasional
 # arc pop over a steady hum reads as failing equipment rather than as a locator
 # tone. It is no longer load-bearing for navigation.
@@ -1250,8 +1471,15 @@ const NOOK_REVEAL_TIME := 0.15   # how long the arc-flare holds the figure visib
 # lunge at the figure (nook_scream, 1.2 s, in-world so it carries a direction), then the
 # fullscreen sting. 0.15 s apart put one scream directly under the other; 0.30 s lets
 # the first land as "it moved" before the second lands as "it's on you".
-const NOOK_SNARL_AT := 0.25      # after the reveal starts
-const NOOK_FLASH_AT := 0.55
+#
+# ⚠️ The scream now LEADS the picture instead of trailing it. It fires at t=0, the camera
+# turns, and the figure's alpha only starts once the turn has landed — so the ear points
+# first, the head follows, and the thing is already standing there when you arrive. The
+# documented 0.30 s "it moved" -> "it's on you" gap is preserved; it is now measured from
+# the moment the figure becomes VISIBLE (NOOK_REVEAL_AT) rather than from the scream.
+const NOOK_TURN_TIME := 0.45     # the scripted camera turn
+const NOOK_REVEAL_AT := 0.45     # alpha starts as the turn lands
+const NOOK_FLASH_AT := 0.75      # = NOOK_REVEAL_AT + 0.30
 # The headline jumpscare sound (user-supplied, 3.5 s .mp3). The hold is the time the
 # fullscreen image stays up, NOT the clip length — flash_scare() never stops the audio,
 # so the tail deliberately keeps ringing over the dark room after the picture drops.
@@ -1259,8 +1487,38 @@ const NOOK_FLASH_AUDIO := "dark_jumpscare"
 const NOOK_FLASH_HOLD := 1.6
 const NOOK_SCARE_PANIC := 20.0
 const NOOK_BREATH_BEHIND := 1.1  # metres behind the player's head
-const NOOK_FAN_DEG := [0.0, 90.0, -90.0, 180.0]
-const NOOK_MIN_CLEAR := 1.8
+
+# ── Where the figure stands, and when ────────────────────────────────────────────────
+#
+# Playtest 2026-08-16, capture #6: *"After I turn on the light switcher which is in the
+# complete dark - sometimes I cannot see the creature which gives the jumpscare. We should
+# guarantee the player will see this creature - it must appear at the place the player is
+# looking at."* Their own proposed fix is what is built here: *"once you reach a certain
+# position in terms of the room geometry (for example, you need to pass 3 metres away from
+# the breaker - the camera turns exactly at the needed position and then this creature
+# followed by the jumpscare appears)"*.
+#
+# So the beat is no longer "fan four headings from wherever the player happens to be and
+# take the first with clearance". That version had a measured failure mode: with none of
+# the four headings clear it fell through to `best_dir = -fwd, best_dist = 1.5` — directly
+# behind the player, at a distance NOTHING had checked. The player was 0.50 m from
+# SouthHall's north wall when it fired.
+#
+# Now: one KNOWN spot in BreakerNook, on the room's centre line between the breaker and the
+# way out; the beat waits until the player is far enough from it to frame it; and the camera
+# is TURNED to it, so "did they happen to be looking that way" stops being a coin flip.
+# Clearance is still proven by RAYS ONLY (Issue 40 — a shape query against CSG reports
+# nothing at all when it is wholly inside a slab, i.e. it approves the exact case being
+# rejected), and if no candidate passes, the figure is SKIPPED rather than buried: the
+# scream and the fullscreen sting still land, so the beat degrades instead of breaking.
+const NOOK_ANCHOR_FROM_CENTRE := -1.6   # metres along -x from BreakerNook's centre
+const NOOK_TRIGGER_DIST := 3.0          # the user's own number: "3 metres away from the breaker"
+const NOOK_WATCH_TIMEOUT := 6.0         # if they never walk away, fire anyway
+const NOOK_MIN_FRAMING := 2.2           # never materialise closer than this to the player
+const NOOK_FIG_CLEAR := 0.85            # half the billboard's width, plus a margin
+const NOOK_FAN_RAYS := 16               # ⚠️ 16, not 8: at 45 degrees every ray flies clean
+                                        # through a DOORWAY while the billboard's edges are
+                                        # buried in the jambs (apparition.gd's lesson)
 
 
 func _on_nook_breaker_flipped() -> void:
@@ -1277,6 +1535,11 @@ func _on_nook_breaker_flipped() -> void:
 			b.stop()
 			b.queue_free()
 	_beacons.clear()
+	# The meter reads the hum. There is no hum now.
+	if is_instance_valid(_wing_meter):
+		_wing_meter.set_active(false)
+		_wing_meter.queue_free()
+		_wing_meter = null
 
 	_nook_breath = AudioStreamPlayer3D.new()
 	_nook_breath.name = "NookBreath"
@@ -1292,7 +1555,15 @@ func _on_nook_breaker_flipped() -> void:
 	if _nook_breath.stream:
 		_nook_breath.play()
 
-	get_tree().create_timer(NOOK_SCARE_DELAY).timeout.connect(_nook_reveal)
+	# The 5 s of breathing is unchanged — it is the dread, and it is what the beat is
+	# actually made of. What follows it is now a WATCH rather than a second timer: once the
+	# breathing has had its 5 s, the reveal waits for the player to be far enough from the
+	# figure's mark to frame it (they leave the breaker to walk out; that is the moment),
+	# with NOOK_WATCH_TIMEOUT as the backstop for a player who never moves at all.
+	get_tree().create_timer(NOOK_SCARE_DELAY).timeout.connect(func() -> void:
+		_nook_watch = true
+		_nook_watch_elapsed = 0.0
+	)
 
 
 # Keeps the breathing pinned just behind the player's head, so it follows if they
@@ -1314,6 +1585,27 @@ func _tick_nook_breath() -> void:
 		+ back.normalized() * NOOK_BREATH_BEHIND + Vector3(0, 1.5, 0)
 
 
+# The armed half of the beat: fire as soon as the player has put NOOK_TRIGGER_DIST between
+# themselves and the figure's mark, or when the backstop expires.
+func _tick_nook_watch(delta: float) -> void:
+	if not _nook_watch:
+		return
+	var p := _player()
+	if not p:
+		return
+	_nook_watch_elapsed += delta
+	var far_enough: bool = p.global_position.distance_to(_nook_anchor()) >= NOOK_TRIGGER_DIST
+	if far_enough or _nook_watch_elapsed >= NOOK_WATCH_TIMEOUT:
+		_nook_watch = false
+		_nook_reveal()
+
+
+# BreakerNook's centre line, between the breaker (west wall) and the doorway out (east).
+func _nook_anchor() -> Vector3:
+	var c: Vector3 = _builder.room_center("BreakerNook")
+	return Vector3(c.x + NOOK_ANCHOR_FROM_CENTRE, 0.0, c.z)
+
+
 func _nook_reveal() -> void:
 	if not is_inside_tree():
 		return
@@ -1322,39 +1614,59 @@ func _nook_reveal() -> void:
 		return
 
 	var spot := _place_nook_figure(p)
-	_build_nook_figure(spot)
+	var have_figure: bool = spot.is_finite()
+	if have_figure:
+		_build_nook_figure(spot)
+	else:
+		# Nothing fitted. Keep the sting, drop the picture — a skipped figure beats one
+		# embedded in a wall (apparition.gd:appear() reaches the same conclusion). Aim the
+		# sound and the turn at the mark anyway, so the beat still has a direction.
+		spot = _nook_anchor()
+
+	# ⚠️ Zero the horizontal velocity BEFORE freezing. `_apply_movement()` early-returns on
+	# `_input_frozen` but `_physics_process` still calls `move_and_slide()`, so a frozen
+	# player carries the last un-frozen frame's velocity and coasts — Issue 49, measured at
+	# 9.16 m of travel in a beartrap that read "TRAPPED". At a 4 m/s walk this freeze would
+	# have slid them ~3 m through the figure they are being turned to look at.
+	p.velocity.x = 0.0
+	p.velocity.z = 0.0
+	p.freeze_input()
+	p.turn_to_face(spot + Vector3(0, 1.35, 0), NOOK_TURN_TIME)
+	# The scream LEADS: the ear gets the bearing before the head arrives.
+	_play_at("nook_scream", spot + Vector3(0, 1.5, 0), -2.0)
+	p.jolt_camera(0.08, 0.4)
 
 	# A single arc-flare. The figure is UNSHADED, so it cannot be lit by this light —
-	# unshaded materials ignore lights entirely, and nothing in this project casts
-	# shadows anyway. Its alpha is driven instead, and the flare exists to throw the
-	# surrounding walls into relief so the moment reads as a burst, not a fade-in.
-	var flare := OmniLight3D.new()
-	flare.position = spot + Vector3(0, 1.6, 0)
-	flare.light_color = Color(0.8, 0.88, 1.0)
-	flare.light_energy = 0.0
-	flare.omni_range = 6.0
-	add_child(flare)
-
-	var ft := create_tween()
-	ft.tween_property(flare, "light_energy", 4.0, 0.02)
-	ft.tween_property(flare, "light_energy", 1.2, 0.05)
-	ft.tween_property(flare, "light_energy", 3.0, 0.02)
-	ft.tween_property(flare, "light_energy", 0.0, NOOK_REVEAL_TIME)
-	ft.finished.connect(flare.queue_free)
-
-	if _nook_figure_mat:
-		var at := create_tween()
-		at.tween_property(_nook_figure_mat, "albedo_color:a", 1.0, 0.06)
-		at.tween_interval(NOOK_REVEAL_TIME)
-		at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.12)
-
-	get_tree().create_timer(NOOK_SNARL_AT).timeout.connect(func() -> void:
+	# unshaded materials ignore lights entirely, and the static room lamps here cast no
+	# shadows. Its alpha is driven instead, and the flare exists to throw the surrounding
+	# walls into relief so the moment reads as a burst, not a fade-in.
+	#
+	# ⚠️ The flare and the alpha both start at NOOK_REVEAL_AT, i.e. when the camera turn
+	# LANDS. The reveal window is only ~0.33 s end to end (0.06 in, NOOK_REVEAL_TIME held,
+	# 0.12 out) and NOOK_REVEAL_TIME is deliberately unchanged, so the window has to be
+	# spent pointing the right way rather than widened.
+	get_tree().create_timer(NOOK_REVEAL_AT).timeout.connect(func() -> void:
 		if not is_inside_tree():
 			return
-		_play_at("nook_scream", spot + Vector3(0, 1.5, 0), -2.0)
-		var pl := _player()
-		if pl:
-			pl.jolt_camera(0.12, 0.45)
+		var flare := OmniLight3D.new()
+		flare.position = spot + Vector3(0, 1.6, 0)
+		flare.light_color = Color(0.8, 0.88, 1.0)
+		flare.light_energy = 0.0
+		flare.omni_range = 6.0
+		add_child(flare)
+
+		var ft := create_tween()
+		ft.tween_property(flare, "light_energy", 4.0, 0.02)
+		ft.tween_property(flare, "light_energy", 1.2, 0.05)
+		ft.tween_property(flare, "light_energy", 3.0, 0.02)
+		ft.tween_property(flare, "light_energy", 0.0, NOOK_REVEAL_TIME)
+		ft.finished.connect(flare.queue_free)
+
+		if _nook_figure_mat:
+			var at := create_tween()
+			at.tween_property(_nook_figure_mat, "albedo_color:a", 1.0, 0.06)
+			at.tween_interval(NOOK_REVEAL_TIME)
+			at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.12)
 	)
 
 	get_tree().create_timer(NOOK_FLASH_AT).timeout.connect(func() -> void:
@@ -1364,6 +1676,9 @@ func _nook_reveal() -> void:
 		var pl := _player()
 		if pl:
 			pl.add_panic(NOOK_SCARE_PANIC)
+			# Control comes back with the picture, never later. A scripted turn that
+			# outlives its own beat is a player standing in the dark pressing keys.
+			pl.unfreeze_input()
 	)
 
 	# The lights come up as soon as the picture drops — the sting's tail is still going,
@@ -1371,38 +1686,102 @@ func _nook_reveal() -> void:
 	get_tree().create_timer(NOOK_FLASH_AT + NOOK_FLASH_HOLD).timeout.connect(_nook_cleanup)
 
 
-# Where the figure stands. The player has just thrown a breaker on BreakerNook's WEST
-# wall, so there is barely a metre of clearance dead ahead and a naive forward spawn
-# lands inside the wall (the bug apparition.gd:appear() raycast-clamps around). Fan
-# out — ahead, either side, then behind — and take the first direction with real room.
-# In practice that puts it BEHIND them, between them and the way out, which is the
-# right read anyway.
+# Where the figure stands. A short list of KNOWN marks in BreakerNook, best first, each one
+# proven by rays before it is used — never a heading fanned off wherever the player's nose
+# happens to be pointing, and never an unvalidated fallback.
+#
+# Returns a non-finite Vector3 when nothing fits, which _nook_reveal() reads as "skip the
+# picture, keep the sting". That is the only honest failure mode: the previous version's
+# fallback put a 1.5 m-wide billboard 1.5 m directly behind the player's head with no check
+# of any kind, which is how you end up inside a wall in a corridor 2.2 m wide.
 func _place_nook_figure(p: CharacterBody3D) -> Vector3:
 	var cam := p.get_node_or_null("Camera3D") as Camera3D
 	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
-	var fwd := -(cam.global_transform.basis.z if cam else p.global_transform.basis.z)
-	fwd.y = 0.0
-	if fwd.length() < 0.001:
-		fwd = Vector3(0, 0, -1)
-	fwd = fwd.normalized()
+	var anchor := _nook_anchor()
+	var c: Vector3 = _builder.room_center("BreakerNook")
+	# The way they CAME, derived from the geometry (player -> breaker) and never from the
+	# camera. A player who walked out during the 5 s of breathing is somewhere along
+	# SouthHall; the mark in BreakerNook is then behind a wall and no longer usable, and the
+	# honest substitute is the same idea one room along — standing in the route they just
+	# walked, between them and the dark they came out of.
+	var back := _nook_anchor() - p.global_position
+	back.y = 0.0
+	back = back.normalized() if back.length() > 0.001 else Vector3(-1, 0, 0)
 
+	var candidates: Array[Vector3] = [
+		anchor,                                              # the designed mark
+		Vector3(c.x, 0.0, c.z),                              # mid-room
+		p.global_position + back * 2.6,
+		p.global_position + back * 3.4,
+		p.global_position + back.rotated(Vector3.UP, deg_to_rad(25.0)) * 2.8,
+		p.global_position + back.rotated(Vector3.UP, deg_to_rad(-25.0)) * 2.8,
+	]
+	for raw in candidates:
+		# Pull it off the walls before testing, rather than testing and failing: a 1.5 m
+		# billboard on the axis a player happens to be walking can sit 0.4 m from the side
+		# of a 2.4 m corridor, and the fan below would (correctly) reject a perfectly good
+		# spot that just needed centring.
+		var spot := _clamp_into_room(raw)
+		if p.global_position.distance_to(spot) < NOOK_MIN_FRAMING:
+			continue
+		if _figure_fits(spot, eye, p):
+			return spot
+	return Vector3(INF, INF, INF)
+
+
+# Pull a point far enough inside whichever ROOMS cell contains it that a NOOK_FIG_CLEAR
+# billboard fits either side of it. Returns the point unchanged when it is in no room (the
+# ray fan then rejects it, which is the correct outcome).
+func _clamp_into_room(p: Vector3) -> Vector3:
+	var margin := NOOK_FIG_CLEAR + 0.15
+	for r in ROOMS:
+		var pos: Vector2 = r["pos"]
+		var half: Vector2 = r["size"] * 0.5
+		if absf(p.x - pos.x) > half.x or absf(p.z - pos.y) > half.y:
+			continue
+		var out := p
+		if half.x > margin:
+			out.x = clampf(p.x, pos.x - half.x + margin, pos.x + half.x - margin)
+		else:
+			out.x = pos.x
+		if half.y > margin:
+			out.z = clampf(p.z, pos.y - half.y + margin, pos.y + half.y - margin)
+		else:
+			out.z = pos.y
+		return out
+	return p
+
+
+# Rays only (Issue 40 — an intersect_shape query against CSG reports NOTHING when it lies
+# wholly inside the slab, so it silently approves exactly the case this rejects).
+#
+#   1. line of sight from the player's eye to the figure's chest. This also catches "the
+#      point is inside a wall", because the segment must cross the slab's near face.
+#   2. head room above the mark.
+#   3. a NOOK_FAN_RAYS horizontal fan at chest height, each ray NOOK_FIG_CLEAR long.
+func _figure_fits(spot: Vector3, eye: Vector3, p: CharacterBody3D) -> bool:
 	var space := get_world_3d().direct_space_state
-	var best_dir := -fwd
-	var best_dist := 1.5
-	for deg in NOOK_FAN_DEG:
-		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
-		var q := PhysicsRayQueryParameters3D.create(eye, eye + dir * 3.2)
-		q.exclude = [p.get_rid()]
-		var hit := space.intersect_ray(q)
-		var clear: float = 3.2 if hit.is_empty() else eye.distance_to(hit.position)
-		if clear >= NOOK_MIN_CLEAR:
-			best_dir = dir
-			best_dist = clampf(clear - 0.6, 1.2, 2.5)
-			break
+	var chest := spot + Vector3(0, 1.35, 0)
+	var exclude := [p.get_rid()]
 
-	var spot := p.global_position + best_dir * best_dist
-	spot.y = 0.0   # the whole Lab floor is y=0; the quad carries its own height
-	return spot
+	var los := PhysicsRayQueryParameters3D.create(eye, chest)
+	los.exclude = exclude
+	if not space.intersect_ray(los).is_empty():
+		return false
+
+	var head := PhysicsRayQueryParameters3D.create(chest, spot + Vector3(0, 2.45, 0))
+	head.exclude = exclude
+	if not space.intersect_ray(head).is_empty():
+		return false
+
+	for i in range(NOOK_FAN_RAYS):
+		var a := TAU * float(i) / float(NOOK_FAN_RAYS)
+		var dir := Vector3(cos(a), 0.0, sin(a))
+		var q := PhysicsRayQueryParameters3D.create(chest, chest + dir * NOOK_FIG_CLEAR)
+		q.exclude = exclude
+		if not space.intersect_ray(q).is_empty():
+			return false
+	return true
 
 
 func _build_nook_figure(spot: Vector3) -> void:
@@ -1499,8 +1878,13 @@ func _light_the_wing() -> void:
 		var t := create_tween()
 		t.tween_property(lamp, "light_energy", WING_LIT_ENERGY, WING_LIGHT_FADE)
 
-	ScreenText.toast(get_tree(), "The wing's lights come up. Get out.",
-		Color(0.7, 0.85, 1.0), 3.0)
+	# ⚠️ Say that the torch works again, in as many words. unlock_flashlight() only clears
+	# the flag — the player still has to press F, and while the lock was on, F answered with
+	# the SAME dead-battery click a flat battery gives (fixed in player.gd this pass). The
+	# 2026-08-16 session pressed F once on the way into the wing and never again: 306 s
+	# afterwards, including the whole DarkZone morgue at +3 panic/s, and a death in it.
+	ScreenText.toast(get_tree(), "The wing's lights come up. Your torch answers again [F]. Get out.",
+		Color(0.7, 0.85, 1.0), 3.6)
 
 
 # Flashlight lock/unlock for the DarkCorridor+BreakerNook pair, symmetric on
@@ -1537,6 +1921,8 @@ func _spawn_breaker_nook_zone() -> void:
 			var p := b as CharacterBody3D
 			if p and p.has_method("lock_flashlight"):
 				p.lock_flashlight()
+			if is_instance_valid(_wing_meter):
+				_wing_meter.set_active(true)
 	)
 	zone.body_exited.connect(func(b: Node3D) -> void:
 		if b.is_in_group("player"):
@@ -1544,6 +1930,8 @@ func _spawn_breaker_nook_zone() -> void:
 			var p := b as CharacterBody3D
 			if p and p.has_method("unlock_flashlight"):
 				p.unlock_flashlight()
+			if is_instance_valid(_wing_meter):
+				_wing_meter.set_active(false)
 	)
 
 

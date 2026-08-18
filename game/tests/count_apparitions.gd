@@ -62,6 +62,17 @@ func _process(delta: float) -> bool:
 		return false
 	if _scene == null:
 		_scene = current_scene
+	# ⚠️ AND IT CAN GO NULL AGAIN. `current_scene` is null for a frame or two on every
+	# `change_scene_to_file`, and this test deliberately watches across scene RELOADS (a death
+	# reloads the level), so the cached reference is stale exactly when the reload lands. It
+	# threw `Cannot call method 'get_children' on a null value` on the line below, once per
+	# reload, for as long as this test has existed — invisible because a GDScript runtime error
+	# does not change the exit code (Issue 78; surfaced by `run_tests.sh`'s new SCRIPT ERROR
+	# grep, which is exactly the class of bug it was added for).
+	if not is_instance_valid(_scene):
+		_scene = current_scene
+	if _scene == null:
+		return false
 		print("--- watching for %.0f s ---" % RUN_SECONDS)
 
 	# An Apparition is the node carrying both of these signals; duck-typed, because

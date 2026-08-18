@@ -162,12 +162,20 @@ the bigger footprint — check in-editor and tune.
   Player spawns here, lying down.
 - **Note table + Note + CandleLight** — keep exactly as they are today, just relocated near
   `WallBack`/the exit, e.g. table at `(0, 0.4, -7.6)`, so reaching them means crossing the
-  whole room after the lights come on.
+  whole room after the lights come on. ⚠️ **AS BUILT: the table is at the ORIGIN**, and
+  "CandleLight" is now an actual candle (collar/stub/wick/flame) with its light at the flame —
+  the procedural rebuild had kept the light and lost the emitter entirely.
 - **ExitDoor** — same script/material convention, centered on `WallBack`, e.g.
   `(0, 1.1, -8.5)`.
+  ⚠️ **DO NOT USE A LITERAL z HERE.** That `-8.5` was taken at its word and the leaf ended up
+  **0.275 m clear of the wall's inner face** (which is at −8.85), full height and full width, with
+  open air behind it — the 2026-08-16 playtest photographed it. It is derived from
+  `WALL_BACK_FACE_Z` + `DOOR_SIZE` now, and wears a jamb/lintel casing. ISSUES_SOLUTIONS Issue 56.
 - **LightSwitch** — mounted on `WallLeft`, off to the side rather than straight ahead, e.g.
   `(-5.6, 1.3, -1.0)`. Putting it off-axis (not a straight line from the gurney) is
   deliberate — the path-glow points (below) are what make it findable, not room geometry.
+  ⚠️ Same as the door: derived from `WALL_LEFT_FACE_X`, not written down. The hand-written value
+  stood the plate 0.060 m off the wall.
 - **2-3 rusted cabinets / a medical cart** along the side walls (`CSGBox3D` primitives, dark
   metal material) — background dressing only, no interaction, no new texture required.
 
@@ -177,7 +185,13 @@ class, but the rule still applies to any prop box placed flush against a wall pa
 
 **Darkness / reveal sequencing** — `_ready()`:
 1. `GameState.current_level = 0` (unchanged).
-2. Set all room lights to zero: no `CandleLight` energy, no ceiling fixtures lit. The shared
+2. Set all room lights to zero: no `CandleLight` energy, no ceiling fixtures lit. ⚠️ **AS BUILT
+   (2026-08-16): zeroing the energy is not enough and never was.** `_darken_scene()` also sets
+   `candle_light.visible = false`, and the reveal must set it back — a hidden `Node3D` light
+   emits nothing regardless of its energy, so for the life of the procedural room the candle
+   tweened up to 1.97 on an invisible node and the note table was lit by nothing at all
+   (ISSUES_SOLUTIONS Issue 55). The candle's **flame mesh** is hidden alongside it, because it is
+   the room's only emissive surface and would otherwise glow in a blacked-out room. The shared
    `Environment` needs its ambient near-zero for this scene specifically — duplicate it as
    `level_1.gd`'s `_boost_ambient()` already does for a *different* direction (that one raises
    ambient; here it should be lowered close to 0 for the opening beat, then raised back to the

@@ -77,6 +77,13 @@ const FLASH_AUDIO := "kontur_flash"
 # and a playtester who knew the old answer still failed it twice. The lock sizes itself
 # from this string.
 const ROSTER_CODE := "63"
+
+# How long gate 6's opening scrawl waits before it speaks. Not a difficulty constant — it is
+# the gap that keeps two pieces of text off each other. `NoticeBriefing` is meant to be read
+# from the spawn in the first seconds; the scrawl used to be drawn straight across it. 7 s is
+# the shortest delay that clears the notice's own reading time with room to spare, and it is
+# still a level-opening beat — you are in the Landing for far longer than this.
+const SCRAWL_DELAY := 7.0
 const VOID_Y := -4.0              # same threshold the Void uses (level_3.gd)
 # Gate 8 was a 9s stillness hold ("stand here and wait") — measured as boring in
 # playtest. Replaced with a catch minigame: a marker sweeps the track; press E while
@@ -118,6 +125,13 @@ var _exit_door: StaticBody3D
 # x offsets, and the Airlock/Escort/Terminus spine is BUILT at that offset — so the
 # answer is genuinely different each time rather than a memorised doorway.
 var _dark_x: float = 0.0
+# Which side of the Vestibule the BLACK (correct) door is on. Randomised per run for
+# the same reason: the answer is the colour, never the position.
+var _gate1_black_east: bool = true
+# True once _preload_snapshot() has re-seeded BOTH of the above from a saved run. It
+# is what stops _build_geometry()/_spawn_gate1_doors() re-rolling them — see the
+# ⚠️ block on _preload_snapshot().
+var _randomisation_restored: bool = false
 var _rooms_cache: Array = []
 
 # Gate ledger. The exit stays sealed until every one of these is true; the four
@@ -140,9 +154,26 @@ var _airlock_marker: MeshInstance3D  # the moving catch target
 var _airlock_streak: int = 0
 var _airlock_seal: CSGBox3D
 
+# Which prop the Perëkozhnik is wearing this run — see _spawn_creature(). Restored,
+# never re-rolled, on a back-door return.
+var _mimic_site: String = "kitchen"
+var _mimic_mark: Vector3 = Vector3.ZERO
+# Derived from the generated file's measured level (tools/make_sfx_kontur_extra.py
+# prints it), not from a plausible number.
+# Derived: `perekozhnik_shed.wav` measures -21.88 dBFS RMS against `door_seal.wav`'s
+# -11.67, and `door_seal` is what this level plays at 0.0 dB. +10.2 puts the two at the
+# same perceived level (tools/make_sfx_kontur_extra.py prints both).
+const MIMIC_SHED_DB := 10.2
+
 # Gate 6 state.
 var _phone: RotaryPhone
 var _has_hammer: bool = false
+
+# Everything a resumed run has to be able to UNSEAL again. Held as references rather
+# than looked up by name because Godot renames colliding siblings (Issue 17) and three
+# of these are built inside the same _ready().
+var _black_door: ChoiceDoor
+var _roster_seal: CSGBox3D
 
 
 
@@ -151,6 +182,7 @@ func _ready() -> void:
 	GameState.current_level = 5
 
 	_clear_old_scene()
+	_preload_snapshot()      # FIRST — it decides what the geometry is allowed to roll
 	_build_geometry()
 	_place_player()
 	_spawn_lights()
@@ -164,6 +196,7 @@ func _ready() -> void:
 	_spawn_gate8_airlock()
 	_spawn_gate4_escort()
 	_spawn_creature()
+	_spawn_containment_cell()
 	_spawn_apparition_director()
 	_restore_progress()      # last — it re-applies the gate ledger and the exit lock
 	_spawn_signs()
@@ -177,12 +210,24 @@ func _ready() -> void:
 
 	# Gate 6's diegetic nudge, moved off a physical note (it was clipping into the
 	# Switchboard desk, and playtest asked for it as a level-opening beat instead of
-	# something to find and read later). Deferred a frame — calling ScreenText here
-	# directly (which add_child()s to the tree root) while this very _ready() is
-	# still running fails with "Parent node is busy setting up children."
-	get_tree().process_frame.connect(func() -> void:
+	# something to find and read later). It stays a level-opening beat — you are still
+	# in the Landing when it lands.
+	#
+	# ⚠️ DELAYED BY `SCRAWL_DELAY` (2026-08-18), and the delay is load-bearing. It used to
+	# fire on the first process frame for 5 s, which put it **directly across the hero line
+	# of `NoticeBriefing`** — photographed: "IF ONLY I COULD BREAK ONE" sat on top of the
+	# word BRIEFED. Two pieces of text competing for the one moment the notice exists for,
+	# and both harder to read for it. Backlog D12/D13.
+	#
+	# ⚠️ `process_always` is **false** on purpose (the 2nd arg). `SceneTreeTimer` defaults it
+	# to TRUE, so a bare `create_timer()` counts down through a paused tree — and `NoteUI`
+	# pauses the tree. A player who walks up and reads the notice would otherwise have the
+	# scrawl fire behind the page and be gone before they closed it. With it false the beat
+	# waits for them. This is cross-level X16: every set-piece built on a bare
+	# `create_timer(...).timeout` plays to someone who is reading or pinned.
+	get_tree().create_timer(SCRAWL_DELAY, false).timeout.connect(func() -> void:
 		ScreenText.scrawl(get_tree(), "I HATE THOSE PHONES.\nIF ONLY I COULD BREAK ONE.", 5.0, 40)
-	, CONNECT_ONE_SHOT)
+	)
 
 
 func _player() -> CharacterBody3D:
@@ -273,7 +318,8 @@ func _tail_doors() -> Array:
 
 
 func _build_geometry() -> void:
-	_dark_x = DARK_CANDIDATES[randi() % DARK_CANDIDATES.size()]
+	if not _randomisation_restored:
+		_dark_x = DARK_CANDIDATES[randi() % DARK_CANDIDATES.size()]
 	_builder = RoomBuilder.new()
 	_builder.wall_mat = _mat(TEX + "kontur_wallpaper_soviet.png", 0.35, Color(0.36, 0.34, 0.22))
 	_builder.floor_mat = _mat(TEX + "kontur_floor_tile.png", 0.4, Color(0.24, 0.22, 0.19))
@@ -358,7 +404,36 @@ func save_progress() -> Dictionary:
 		"gate3_scored": _gate3_scored,
 		"gate1_done": _gate1_done,
 		"dark_x": _dark_x,
+		"gate1_black_east": _gate1_black_east,
+		"mimic_site": _mimic_site,
 	}
+
+
+# ⚠️ THE RANDOMISATIONS ARE RESTORED BEFORE ANYTHING IS BUILT (2026-08-18, K-T6 / X48).
+#
+# `save_progress()` had written "dark_x" since the day the snapshot was added and
+# NOTHING EVER READ IT BACK, and the gate-1 colour was not saved at all. So a back-door
+# return re-rolled both answers while restoring the ledger earned against the old ones:
+# gate 7 came back marked passed with the real seam moved to a different wall, and gate
+# 1 came back marked passed with the black door possibly on the other side and the hole
+# in the floor under whichever antechamber drew red THIS time.
+#
+# It has to run before _build_geometry() and _spawn_gate1_doors(), because those two are
+# what consume the dice. _restore_progress() (which runs last, on purpose, so it can
+# re-apply the ledger over finished props) is far too late for this half.
+func _preload_snapshot() -> void:
+	var data := GameState.get_level_progress(5)
+	if data.is_empty():
+		return
+	if not (data.has("dark_x") and data.has("gate1_black_east")):
+		# A snapshot written by an older build. Re-rolling is still wrong, but there is
+		# nothing to restore FROM — say so rather than silently doing the old thing.
+		push_warning("KONTUR: snapshot has no randomisation; gate 1/7 answers will be re-rolled")
+		return
+	_dark_x = float(data["dark_x"])
+	_gate1_black_east = bool(data["gate1_black_east"])
+	_mimic_site = String(data.get("mimic_site", _mimic_site))
+	_randomisation_restored = true
 
 
 func _restore_progress() -> void:
@@ -387,7 +462,45 @@ func _restore_progress() -> void:
 			hammer.queue_free()
 		if is_instance_valid(_phone):
 			_phone.smashable = true
+	_reopen_passed_gates()
 	_refresh_exit()
+
+
+# ⚠️ A PASSED GATE MUST NOT COME BACK AS A WALL (2026-08-18, found while fixing K-T6).
+#
+# `_restore_progress()` restored the eight-gate LEDGER and nothing else, while `_ready()`
+# had just rebuilt every physical seal from scratch. Three of those seals stand across
+# the spine, and one of them is unrecoverable:
+#
+#   AirlockSeal  z=66, Airlock -> Escort.  `_tick_airlock()` opens with
+#                `if _gates["airlock"] ... return`, so on a resumed run the marker never
+#                moves and E does nothing — the seal can never be removed again. A player
+#                who cleared gate 8, walked back to the Backrooms for a note and returned
+#                was WALLED IN at z=66 with the exit 32 m behind it. Measured, not argued:
+#                `check_kontur_resume.gd` drives the real `ai_interact()` path and probes
+#                the doorway by ray.
+#   RosterSeal   z=35, Records -> Archive. Recoverable only by re-entering a code the
+#                player has already spent, which reads as the level forgetting.
+#   FungalBarrier z=27. Recoverable (the shelf restocks), but it costs a bottle walk for
+#                a gate the ledger says is done.
+#   ChoiceDoor   the black leaf swings shut again on a gate that cannot be re-taken.
+#
+# The rule this encodes: **restoring a ledger without restoring the world it describes is
+# worse than not restoring it at all** — the world and the ledger then disagree, and the
+# ledger is the half the exit door reads.
+func _reopen_passed_gates() -> void:
+	if _gates["doors"] and is_instance_valid(_black_door):
+		_black_door.open_instantly()
+	if _gates["shelf"] and is_instance_valid(_barrier):
+		_barrier.dissolve()
+	if _gates["roster"] and is_instance_valid(_roster_seal):
+		_roster_seal.queue_free()
+	if _gates["airlock"]:
+		for widget in [_airlock_seal, _airlock_track, _airlock_meter, _airlock_marker]:
+			if is_instance_valid(widget):
+				widget.queue_free()
+	if _gates["phone"] and is_instance_valid(_phone):
+		_phone.mark_smashed()
 
 
 # ---------------------------------------------------------------- lighting
@@ -529,8 +642,11 @@ func _forfeit(reason: String) -> void:
 
 func _spawn_gate1_doors() -> void:
 	# Which side is black is randomised per run, so the answer is the COLOUR (from
-	# the L1 note), never a memorised position.
-	var black_on_east := randf() < 0.5
+	# the L1 note), never a memorised position — and it is RESTORED, never re-rolled,
+	# on a back-door return (see _preload_snapshot()).
+	if not _randomisation_restored:
+		_gate1_black_east = randf() < 0.5
+	var black_on_east := _gate1_black_east
 	_make_choice_door(GATE1_X, black_on_east)
 	_make_choice_door(-GATE1_X, not black_on_east)
 	var red_x: float = -GATE1_X if black_on_east else GATE1_X
@@ -582,11 +698,16 @@ func _make_choice_door(x: float, is_black: bool) -> void:
 	var d := ChoiceDoor.new()
 	d.name = "ChoiceDoor_%s" % ("Black" if is_black else "Red")
 	d.is_correct = is_black
-	d.texture_path = TEX + ("door_black.png" if is_black else "door_red.png")
+	# ⚠️ `_leaf` is the CROPPED artwork. The originals are a door plus the concrete wall
+	# and reveal around it — Issue 35 / X24 on the one prop the level's first gate is
+	# about telling apart (tools/crop_kontur_art.py).
+	d.texture_path = TEX + ("door_black_leaf.png" if is_black else "door_red_leaf.png")
 	# The node is the hinge; the panel extends +x from it, so start half a width left.
 	d.position = Vector3(x - ChoiceDoor.WIDTH / 2.0, 0.0, 10.0)
 	d.chosen.connect(_on_gate1_chosen)
 	add_child(d)
+	if is_black:
+		_black_door = d
 
 	# RoomBuilder cuts doorways FULL HEIGHT, so a 2.2 m door leaves an open transom
 	# you can see straight over. Fill the gap above the frame.
@@ -678,6 +799,14 @@ const BOTTLE_SLOTS := {
 	"water": 24.7,
 }
 
+# One silhouette per agent (see bottle_item.gd's PROFILES). Legibility only — the shape
+# says nothing at all about which one dissolves O-41.
+const BOTTLE_PROFILES := {
+	"bleach": "jug",
+	"vinegar": "flask",
+	"water": "carboy",
+}
+
 func _spawn_bottle(kind: String) -> void:
 	if not BOTTLE_SLOTS.has(kind):
 		return
@@ -693,7 +822,11 @@ func _spawn_bottle(kind: String) -> void:
 	var b := BottleItem.new()
 	b.name = "Bottle_" + kind          # unique, so it can be found again (Issue 17)
 	b.kind = kind
-	b.label_path = TEX + "label_%s.png" % kind
+	b.profile = BOTTLE_PROFILES.get(kind, "flask")
+	# ⚠️ `_paper` is the CROPPED, alpha-keyed label (tools/crop_kontur_art.py). The raw
+	# `label_%s.png` is the generator's original — a label photographed on a saturated
+	# backdrop, kept as the crop's only input, never hung on a bottle again.
+	b.label_path = TEX + "label_%s_paper.png" % kind
 	b.position = Vector3(3.4, 0.99, BOTTLE_SLOTS[kind])
 	b.rotation.y = -PI / 2.0    # label faces into the room (-x)
 	b.taken.connect(_on_bottle_taken)
@@ -894,6 +1027,7 @@ func _spawn_gate5_roster() -> void:
 	seal.use_collision = true
 	seal.material = _mat(TEX + "kontur_facility_wall.png", 0.4, Color(0.45, 0.48, 0.45))
 	add_child(seal)
+	_roster_seal = seal
 
 	lock.unlocked.connect(func() -> void:
 		_pass_gate("roster")
@@ -1177,23 +1311,27 @@ func _tick_airlock(delta: float) -> void:
 	if absf(u - 0.5) <= half_target:
 		_airlock_streak += 1
 		if _airlock_streak >= AIRLOCK_CATCHES_NEEDED:
-			_pass_gate("airlock")
-			if is_instance_valid(_airlock_seal):
-				_airlock_seal.queue_free()
-			# Playtest: the track/target/marker stayed on screen after the gate
-			# was already solved, reading as unfinished business. Cycle's done —
-			# clear the whole widget, not just the seal it unlocks.
-			if is_instance_valid(_airlock_track):
-				_airlock_track.queue_free()
-			if is_instance_valid(_airlock_meter):
-				_airlock_meter.queue_free()
-			if is_instance_valid(_airlock_marker):
-				_airlock_marker.queue_free()
-			_play_at("door_seal", Vector3(_dark_x, 1.5, 66), 0.0)
-			GameState.set_objective("PROCEED TO TERMINUS. AN ESCORT HAS BEEN ASSIGNED.")
+			_pass_airlock()
 	else:
 		_airlock_streak = 0
 		_strike("MISTIMED")
+
+
+# The cycle completes. Extracted from _tick_airlock() so a headless test can drive the
+# SHIPPING success path — Input.is_action_just_pressed() cannot be faked headless, so a
+# test that re-implemented "free the seal" would have been asserting its own code.
+func _pass_airlock() -> void:
+	_pass_gate("airlock")
+	if is_instance_valid(_airlock_seal):
+		_airlock_seal.queue_free()
+	# Playtest: the track/target/marker stayed on screen after the gate was already
+	# solved, reading as unfinished business. Cycle's done — clear the whole widget,
+	# not just the seal it unlocks.
+	for widget in [_airlock_track, _airlock_meter, _airlock_marker]:
+		if is_instance_valid(widget):
+			widget.queue_free()
+	_play_at("door_seal", Vector3(_dark_x, 1.5, 66), 0.0)
+	GameState.set_objective("PROCEED TO TERMINUS. AN ESCORT HAS BEEN ASSIGNED.")
 
 
 # ---------------------------------------------------------------- gate 4: the escort
@@ -1278,13 +1416,158 @@ func _on_escort_broken() -> void:
 
 # ---------------------------------------------------------------- creature
 
+# ⭐ THE PERËKOZHNIK CHANGES SHAPE (2026-08-18). ⚠️ ITS RULES DID NOT.
+#
+# Its name means *shapechanger*; for its whole life it was a static billboard in a corner
+# of the Passage, and a player who never swept a torch across that corner never met the
+# level's only creature. It now stands somewhere on the spine WEARING SOMETHING the
+# player has already learned to read — and the tell is a COUNT, which is the one thing
+# this level's design rewards anyway:
+#
+#   "kitchen"      a FOURTH bottle on a shelf with three slots, and it wears a duplicate
+#                  of a label already on that shelf. Two BLEACHes.
+#   "switchboard"  a SECOND phone on the desk. Only one of them is ringing, and the
+#                  ringing one is the gate.
+#
+# ⚠️ Neither disguise can cost a gate. The shell is a `MimicShell`, not a `BottleItem` and
+# not a `RotaryPhone` — E on it consumes no bottle, spends no strike, answers nothing and
+# smashes nothing. See the four fairness rules at the top of `creature_shapechanger.gd`.
+#
+# ⚠️ Which site is drawn is RESTORED, never re-rolled, on a back-door return (K-T6's rule
+# applied to the third randomisation in this level).
+const MIMIC_SITES := ["kitchen", "switchboard"]
+
 func _spawn_creature() -> void:
-	# The Perëkozhnik, planted in the passage's far west corner — off the walking
-	# line, so only curiosity brings you inside its 2 m kill radius.
+	if not _randomisation_restored:
+		_mimic_site = MIMIC_SITES[randi() % MIMIC_SITES.size()]
 	var c := CreatureShapechanger.new()
 	c.name = "Shapechanger"
-	c.position = Vector3(-3.2, 0, 18.0)
+
+	var shell := MimicShell.new()
+	shell.name = "MimicShell"
+	if _mimic_site == "kitchen":
+		# ⚠️ z = 21.9, deliberately off the three-slot rhythm (22.3 / 23.5 / 24.7). The
+		# spacing is the second tell, and it costs nothing to look at.
+		c.position = Vector3(3.4, 0.99, 21.9)
+		c.rotation.y = -PI / 2.0
+		BottleItem.build_visual(shell, BOTTLE_PROFILES["bleach"],
+			TEX + "label_bleach_paper.png")
+		_mimic_mark = Vector3(-2.6, 0.0, 22.4)
+	else:
+		# The desk runs x -2.9 .. -1.5; the real phone is at -2.2. Two phones, one desk.
+		c.position = Vector3(-1.75, 0.75, 47.5)
+		RotaryPhone.build_visual(shell)
+		_mimic_mark = Vector3(2.4, 0.0, 49.6)
+	# ⚠️ POSITION BEFORE add_child. `ScaryObject` is a plain `Node` and breaks the Node3D
+	# transform chain, so `creature_shapechanger.gd:_build()` seeds the BODY's world
+	# transform from this node's — at `_ready()` time. Adding first and moving after left
+	# the gaze collider at the world origin (Issue 10).
 	add_child(c)
+
+	# A generous interact volume, the same reason bottle_item.gd and light_switch.gd
+	# oversize theirs (Issue 2) — and layer 2 / mask 0, note.gd's convention, so a
+	# disguise standing on a shelf or a desk can never be walked into.
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.34, 0.36, 0.34)
+	col.shape = shape
+	col.position = Vector3(0, 0.16, 0)
+	shell.add_child(col)
+	shell.collision_layer = 2
+	shell.collision_mask = 0
+
+	c.set_disguise(shell)
+	c.revealed.connect(_on_mimic_revealed)
+
+	# ⚠️ VALIDATED BY RAYS, LATER. CSG colliders are not registered during `_ready()`
+	# (Issue 52), so a ray fired here hits nothing and every candidate would be approved
+	# for the wrong reason — a validation that cannot fail is worse than none. 0.6 s is
+	# 25 m short of the nearest disguise at a walk.
+	get_tree().create_timer(0.6).timeout.connect(_validate_mimic_mark)
+
+
+# Is this a place a 1.78 m figure can stand, in sight of where the disguise was? Rays
+# only: a head-height ray down the column, a 16-ray horizontal fan at the figure's own
+# half-width (8 would fly through a doorway and report clear), and the line of sight from
+# the disguise, which is the member of the set that catches "inside a wall" — CSG
+# backfaces do not collide (Issue 59).
+func _validate_mimic_mark() -> void:
+	var c := get_node_or_null("Shapechanger") as CreatureShapechanger
+	if c == null:
+		return
+	c.reveal_mark = _validate_reveal_mark(_mimic_mark, c.global_position)
+
+
+func _validate_reveal_mark(mark: Vector3, from: Vector3) -> Vector3:
+	var space := get_world_3d().direct_space_state
+	var eye := from + Vector3(0, 0.4, 0)
+	var chest := mark + Vector3(0, 1.0, 0)
+
+	var down := PhysicsRayQueryParameters3D.create(mark + Vector3(0, 2.6, 0),
+		mark + Vector3(0, 0.05, 0))
+	if not space.intersect_ray(down).is_empty():
+		push_warning("KONTUR: mimic reveal mark has something overhead; no figure")
+		return Vector3.ZERO
+	var floor_q := PhysicsRayQueryParameters3D.create(mark + Vector3(0, 1.0, 0),
+		mark - Vector3(0, 1.0, 0))
+	if space.intersect_ray(floor_q).is_empty():
+		push_warning("KONTUR: mimic reveal mark has no floor; no figure")
+		return Vector3.ZERO
+	for i in range(16):
+		var a: float = TAU * float(i) / 16.0
+		var dir := Vector3(cos(a), 0, sin(a))
+		var fan := PhysicsRayQueryParameters3D.create(chest, chest + dir * 0.45)
+		if not space.intersect_ray(fan).is_empty():
+			push_warning("KONTUR: mimic reveal mark is not clear; no figure")
+			return Vector3.ZERO
+	var los := PhysicsRayQueryParameters3D.create(eye, chest)
+	if not space.intersect_ray(los).is_empty():
+		push_warning("KONTUR: mimic reveal mark is not in sight of the disguise; no figure")
+		return Vector3.ZERO
+	if mark.distance_to(from) < CreatureShapechanger.REVEAL_MIN_DIST:
+		push_warning("KONTUR: mimic reveal mark is inside KILL_DIST; no figure")
+		return Vector3.ZERO
+	return mark
+
+
+# ⚠️ ZERO PANIC. The reveal itself adds nothing to the bar — no `add_panic`, no
+# `flash_scare`, no strike. What it costs is that from now on there is something in the
+# room that charges 16/s to look at, and the player chose to find that out.
+func _on_mimic_revealed() -> void:
+	var c := get_node_or_null("Shapechanger") as CreatureShapechanger
+	if c:
+		_play_at("perekozhnik_shed", c.global_position + Vector3(0, 1.0, 0), MIMIC_SHED_DB)
+	var p := _player()
+	if p:
+		p.jolt_camera(0.08, 0.4)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("PEREKOZHNIK REVEALED — disguise site '%s'" % _mimic_site)
+
+
+# ⭐ OBJECT 12, CONTAINED (2026-08-18). See `containment_cell.gd` for the contract; the
+# short version is that it has NO RULES — zero panic, no collider on the occupant, no kill
+# radius, no trigger volume, nothing to interact with. It turns its head. That is all.
+#
+# ⚠️ IN THE PASSAGE, WHICH IS THE THINNEST ROOM ON THE SPINE. Gate 1 is at z=10 and gate 2
+# at z=27, so the seven metres between them were the longest stretch of the level with
+# nothing in it at all — and it is now the stretch where the player meets the thing the
+# facility is named after. Deliberately NOT in a gate room: it must be something you come
+# upon, never something a puzzle points at.
+#
+# ⚠️ The Perëkozhnik used to stand in this room's west corner and now wears a disguise
+# somewhere else on the spine (see _spawn_creature), so the Passage is not gaining an
+# occupant on top of one it already had — it is exchanging a billboard nobody reliably saw
+# for something standing on the walking line.
+const CELL_POS := Vector3(2.75, 0.0, 16.9)
+
+func _spawn_containment_cell() -> void:
+	var cell := ContainmentCell.new()
+	cell.name = "ContainmentCell"
+	cell.position = CELL_POS
+	# Faces -z, i.e. the door and the placard look back down the spine at someone walking
+	# in from the antechambers; the three glazed faces are the ones they pass.
+	add_child(cell)
 
 
 # Hold still and it fades; sprint or back away and it rushes -> the real screamer +
@@ -1304,79 +1587,92 @@ func _spawn_signs() -> void:
 	# Each gate's rule, with the operative word censored. A player who found the
 	# earlier-level hints reads straight through these; one who didn't gets the
 	# shape of the question but not the answer.
-	_make_sign(Vector3(0, 1.7, 9.85), PI,
-		"K.O.N.T.U.R. — PROTOCOL 4-B", "EVACUATION ROUTE IS MARKED IN:")
+	#
+	# ⚠️ REAL PRINTED DOCUMENTS SINCE 2026-08-18. Each is a generated Soviet notice
+	# (`tools/make_kontur_signs.py`) with the head band, the form number, the rule set in
+	# type and the redaction STRUCK INTO THE IMAGE. They used to be a `Label3D` of engine
+	# text floating in front of a blank plate with a separate black quad for the bar —
+	# the level's only documentation, rendered as UI.
+	_make_sign(Vector3(0, 1.7, 9.85), PI, "gate1_doors")
 	_make_sign(_builder.wall_point("Kitchen", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		"DECONTAMINATION — CLASS II", "APPROVED AGENT: DOMESTIC")
+		"gate2_shelf")
 	_make_sign(_builder.wall_point("Records", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		"PERSONNEL GATE — OBJECT 12", "THIS SUBJECT IS NUMBER:")
-	_make_sign(_builder.wall_point("Archive", Vector2(1, 0), 1.7, 0.16), -PI / 2.0,
-		"RECOVERY LOG — OBJECT 12", "ITEMS RECOVERED FROM AN OBJECT ARE:")
+		"gate5_roster")
+	# ⚠️ Offset 3.3 m SOUTH of the Archive's wall centre. The recovery racks run z 37..42
+	# a metre and a half in front of that wall, so a sign on the centre point is read
+	# through open shelving — and this is the sign for the gate the player is standing in
+	# the room to pass.
+	_make_sign(_builder.wall_point("Archive", Vector2(1, 0), 1.7, 0.16)
+		+ Vector3(0, 0, -3.3), -PI / 2.0, "gate3_offering")
 	_make_sign(_builder.wall_point("Switchboard", Vector2(1, 0), 1.7, 0.16), -PI / 2.0,
-		"INTERNAL LINE — WING 4", "AN INCOMING CALL MUST BE:")
+		"gate6_phone")
 	_make_sign(_builder.wall_point("Blackout", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		"LIGHTING FAULT — SECTOR 9", "THE TRUE DOOR IS SEEN WHEN:")
+		"gate7_dark")
 	# Gate 8's sign is the one that must nearly give the game away: it inverts a rule
 	# the Backrooms spent a whole level teaching, and no earlier level hints at it.
 	_make_sign(_builder.wall_point("Airlock", Vector2(1, 0), 1.7, 0.16), -PI / 2.0,
-		"DECONTAMINATION CYCLE", "TO CYCLE, THE SUBJECT MUST REMAIN:")
+		"gate8_airlock")
 	# ⚠️ The escort's rule hangs in the AIRLOCK, not in the corridor it governs. It used
 	# to sit at the corridor's midpoint — 13 m past the point where breaking it voids
 	# the run, so a playtester forfeited before ever reading it. Here the player is
 	# already standing still for gate 8's cycle, with nothing to do but read.
 	_make_sign(_builder.wall_point("Airlock", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		"TRANSIT PROTOCOL 7", "DO NOT ___ THE ESCORT")
+		"gate4_escort")
 
 
-# A plate + two text lines + a censor bar on its own line, so the redaction needs no
-# text measurement to place (and reads exactly like a real censored form).
-func _make_sign(pos: Vector3, y_rot: float, title: String, body: String) -> void:
+# One printed notice, mounted flat on a wall.
+#
+# ⚠️ The quad is SIZED FROM THE ARTWORK (1500x1000 -> 1.5 x 1.0 m), never chosen to suit
+# the wall — that is the mistake this level's poster and chute panel were both making
+# until this pass (K-T3), and `check_art_aspect.gd` sweeps every scene for it.
+#
+# ⚠️ Emission 0.40, down from 0.55. These are the only in-level help there is and they
+# have to stay readable in rooms this dark, but the card is now a mid-tone printed sheet
+# rather than a near-blank plate, so it needs less lift — and emission is most of a
+# surface's colour here (Issue 21). `check_kontur_signs.gd` measures the ink-vs-card
+# contrast and the on-screen size from the walking line rather than trusting either.
+# ⚠️ 1.2 m, not 1.0. `check_kontur_signs.gd` measures the rule's ink on the imported
+# texture and converts it to screen pixels at each sign's own reading distance; at 1.0 m
+# with the old layout six of the eight came out at 5-9 px of cap height. The plate grew
+# and the artwork's hierarchy inverted (the RULE is the hero now, not the title). 1.2 was
+# still 13.1 px on the gate-1 sign — the one read from the far side of a 6 m room — so
+# the plate is 1.4 m tall and 2.1 m wide, which is what an institutional wall notice
+# actually is. Worst sign on the shipped build: 15.3 px.
+const SIGN_H := 1.4
+const SIGN_EMISSION := 0.40
+
+func _make_sign(pos: Vector3, y_rot: float, key: String) -> void:
+	var tex_path := TEX + "kontur_sign_%s.png" % key
 	var root := Node3D.new()
+	root.name = "Sign_" + key
 	root.position = pos
 	root.rotation.y = y_rot
 	add_child(root)
 
 	var plate := MeshInstance3D.new()
+	plate.name = "SignPlate"
 	var quad := QuadMesh.new()
-	quad.size = Vector2(1.5, 0.95)
-	plate.mesh = quad
 	var pmat := StandardMaterial3D.new()
-	if ResourceLoader.exists(TEX + "kontur_sign_blank.png"):
-		var ptex := load(TEX + "kontur_sign_blank.png")
+	if ResourceLoader.exists(tex_path):
+		var ptex: Texture2D = load(tex_path)
+		quad.size = Vector2(SIGN_H * float(ptex.get_width()) / float(ptex.get_height()),
+			SIGN_H)
 		pmat.albedo_texture = ptex
-		# Faintly backlit, so the rules stay readable in rooms this dark — these are
-		# the only in-level help there is, and an unreadable sign is no help at all.
 		pmat.emission_enabled = true
 		pmat.emission_texture = ptex
-		pmat.emission_energy_multiplier = 0.55
+		# ⚠️ MULTIPLY, not Godot's default ADD. An emission COLOUR beside an emission
+		# TEXTURE lays a flat wash over the whole surface instead of modulating the
+		# artwork — it turned a near-black brass plate into a pale cream slab in the
+		# Corridor (Issue 81, cross-level X30).
+		pmat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+		pmat.emission_energy_multiplier = SIGN_EMISSION
 	else:
+		quad.size = Vector2(1.5, SIGN_H)
 		pmat.albedo_color = Color(0.62, 0.65, 0.6)
+	plate.mesh = quad
 	pmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	plate.set_surface_override_material(0, pmat)
 	root.add_child(plate)
-
-	var lbl := Label3D.new()
-	lbl.text = "%s\n\n%s" % [title, body]
-	lbl.font_size = 44
-	# Sized so the longest line stays inside the plate's engraved inner frame.
-	lbl.pixel_size = 0.0014
-	lbl.modulate = Color(0.1, 0.1, 0.1)
-	lbl.outline_size = 0
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.position = Vector3(0, 0.13, 0.012)
-	root.add_child(lbl)
-
-	var bar := MeshInstance3D.new()
-	var bq := QuadMesh.new()
-	bq.size = Vector2(0.85, 0.11)
-	bar.mesh = bq
-	var bmat := StandardMaterial3D.new()
-	bmat.albedo_color = Color(0.04, 0.04, 0.04)
-	bmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bmat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	bar.set_surface_override_material(0, bmat)
-	bar.position = Vector3(0, -0.24, 0.014)
-	root.add_child(bar)
 
 
 # A plain readable note (not a redacted sign) — same pattern as level_1.gd/level_2.gd's
@@ -1413,15 +1709,247 @@ func _spawn_props() -> void:
 	# "something hangs behind it" clearance (CLAUDE.md) or it clips the wall.
 	_spawn_mailbox(_builder.wall_point("Landing", Vector2(-1, 0), 1.5, 0.22), PI / 2.0)
 	_wall_panel(_builder.wall_point("Landing", Vector2(1, 0), 1.3, 0.16), -PI / 2.0,
-		Vector2(1.1, 1.1), TEX + "kontur_panel_chute.png")
+		1.10, TEX + "kontur_chute_hatch.png")
 	# The safety poster, on the Archive's west wall.
 	# ⚠️ inset 0.16, not 0.08: wall_point measures from the room's NOMINAL boundary and
 	# the wall is 0.2 m thick centred on it, so anything under ~0.11 is buried inside
 	# the wall and invisible in game (ISSUES_SOLUTIONS Issue 11).
 	_wall_panel(_builder.wall_point("Archive", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		Vector2(1.0, 1.4), TEX + "kontur_poster.png")
+		1.40, TEX + "kontur_poster_sheet.png")
 
+	_spawn_briefing_notice()
 	_spawn_gate6_hammer()
+	_spawn_recovery_archive()
+	_spawn_stencils()
+	_spawn_floor_markings()
+
+
+# ---------------------------------------------------------------- the one unredacted notice
+#
+# ⭐ KONTUR STATES ITS OWN RULE, ONCE, AS A PRINCIPLE (2026-08-18, the user's call).
+#
+# Six of this level's eight gates are answerable only from a hint planted in an EARLIER
+# level, and nothing anywhere in the game said so. The only place the principle was ever
+# stated is the banishment scrawl — which fires AFTER a wrong door, i.e. only to the
+# players who have already lost a level to it.
+#
+# Nothing here gets easier. This notice contains no answer to anything, and it is asserted
+# to contain none (`check_kontur_signs.gd` scans its text for every gate's operative word,
+# every earlier level's name and every room name in this one). What changes is a stuck
+# player's READING: "I am missing something in this room" becomes "I should have read
+# more", and those two produce completely different behaviour in a level with no decay.
+#
+# ⚠️ A PRINCIPLE, NEVER A PLACE. `kitchen_drawer.gd` states Gate 1's rule the same way and
+# for the same reason (the colours are randomised per run, so a position would be a lie).
+# "Elsewhere" is the negation of a place; "briefed" is a claim about WHEN the information
+# was issued, not about where it now is.
+#
+# ⚠️ IT IS BOTH A WALL NOTICE AND A NOTE, and both halves are load-bearing. The ART states
+# the principle in three words legible from the player's very first frame 7.1 m away — the
+# target reader is the one who RUSHED, and a statement they have to walk up to and press E
+# on is a statement they will skip. The `note.gd` body carries the full memo and archives
+# it to the TAB journal, because the principle is worth re-reading two gates later when it
+# has become relevant. `corridor.gd:_spawn_nightmare_plate()` is the same pairing.
+#
+# ⚠️ NOT A NINTH GATE SIGN. It carries NO censor bar, it is a different form series and a
+# different shape, and it is not named `Sign_*` — `check_kontur_signs.gd` still asserts
+# there are exactly EIGHT redacted signs, so this cannot quietly join them.
+#
+# ⚠️ ZERO PANIC, no rule, no gate, no trigger volume. It is a sentence on a wall.
+#
+# Geometry: the Landing's north wall, east of the doorway (which occupies x -0.9..0.9;
+# `wall_point()` returns the wall CENTRE, which is exactly where a doorway sits, so the
+# lateral offset is mandatory rather than stylistic). 1.70 m wide centred at x = 1.90
+# leaves 0.15 m to the doorway edge and 0.15 m to the east wall's inner face.
+const NOTICE_X := 1.90
+const NOTICE_W := 1.70
+const NOTICE_Y := 1.55
+# The backing plate's own thickness, and how far the art stands proud of it.
+const NOTICE_BACK_T := 0.03
+const NOTICE_ART_PROUD := 0.02
+
+const NOTICE_TEXT := """K.O.N.T.U.R. — FORM 1-А
+NOTICE TO TRANSFERRED SUBJECTS
+
+YOU WERE BRIEFED ELSEWHERE.
+
+No copy of that briefing is held on these premises. This facility posts its procedures \
+and nothing more. What a procedure is FOR, and what it costs to get one wrong, was \
+issued to you before you were admitted, and is not reproduced inside the perimeter.
+
+Staff will not repeat it. Staff are not permitted to repeat it.
+
+A subject who cannot satisfy a posted procedure is to be filed as UNPREPARED. The file \
+does not distinguish between a subject who was never told and a subject who did not \
+attend.
+
+СЕКТОР 1 · ЛЕСТНИЦА · ЭКЗ. 1 · НЕ ВЫНОСИТЬ"""
+
+
+func _spawn_briefing_notice() -> void:
+	var art_path := TEX + "kontur_notice_briefing.png"
+	# Height from the ARTWORK's own aspect (1500x1300), never chosen to suit the wall.
+	var art_h := NOTICE_W * 1300.0 / 1500.0
+	var art_tex: Texture2D = null
+	if ResourceLoader.exists(art_path):
+		art_tex = load(art_path)
+		art_h = NOTICE_W * float(art_tex.get_height()) / float(art_tex.get_width())
+
+	var body := StaticBody3D.new()
+	body.name = "NoticeBriefing"
+	body.set_script(_NOTE_SCRIPT)
+	body.note_text = NOTICE_TEXT
+	body.position = _builder.wall_point("Landing", Vector2(0, 1), NOTICE_Y, 0.16) \
+		+ Vector3(NOTICE_X, 0.0, 0.0)
+	# Local +Z becomes world -Z: the plate faces back down the room at the player, who
+	# spawns at z = -3 looking this way.
+	body.rotation.y = PI
+	add_child(body)
+
+	var back_mat := StandardMaterial3D.new()
+	back_mat.albedo_color = Color(0.075, 0.068, 0.055)
+	back_mat.metallic = 0.4
+	back_mat.roughness = 0.6
+
+	var back := MeshInstance3D.new()
+	back.name = "NoticeBack"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(NOTICE_W + 0.06, art_h + 0.06, NOTICE_BACK_T)
+	back.mesh = bm
+	back.material_override = back_mat
+	back.position = Vector3(0, 0, NOTICE_BACK_T / 2.0)
+	body.add_child(back)
+
+	# THE ART, on a QuadMesh — a textured BoxMesh face renders a magnified crop of its own
+	# artwork (Issue 24). ⚠️ Emission lives on the ART and not on the body (the Issue 27/33
+	# split), and it is MULTIPLY rather than Godot's default ADD, which lays a flat wash
+	# over the whole surface instead of modulating the print (Issue 81 / X30). Matched to
+	# the eight signs' `SIGN_EMISSION` so the level's documents read as one stationery set.
+	if art_tex != null:
+		var art := MeshInstance3D.new()
+		art.name = "NoticeArt"
+		var quad := QuadMesh.new()
+		quad.size = Vector2(NOTICE_W, art_h)
+		art.mesh = quad
+		var amat := StandardMaterial3D.new()
+		amat.albedo_texture = art_tex
+		amat.emission_enabled = true
+		amat.emission_texture = art_tex
+		amat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+		amat.emission_energy_multiplier = SIGN_EMISSION
+		amat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		art.set_surface_override_material(0, amat)
+		art.position = Vector3(0, 0, NOTICE_BACK_T + NOTICE_ART_PROUD)
+		body.add_child(art)
+
+	# ⚠️ Layer 2 / mask 0 is `note.gd`'s own `_ready()`, so the collider is ray-hittable and
+	# movement-invisible: a 1.7 m board standing in the spawn room can never block a lane.
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(NOTICE_W, art_h, 0.16)
+	col.shape = shape
+	col.position = Vector3(0, 0, 0.06)
+	body.add_child(col)
+
+
+# ---------------------------------------------------------------- Cyrillic signage
+#
+# ⭐ THE FACILITY IS LABELLED (2026-08-18). Every room on the spine now carries a
+# stencilled Russian designation high on a wall, and the three thresholds where the
+# facility changes its mind about you carry painted floor hazard bands. It is the
+# cheapest thing in this pass and it is what makes the difference between "a sealed
+# Soviet facility" and "grey rooms with props in them".
+#
+# ⚠️ PAINT, NOT SIGNS. The stencils are `Label3D`s tinted dark and set flat against the
+# wall — no mesh, no plate, no emission. They cannot be confused with the eight redacted
+# NOTICES, which are the level's only actual help, and they are invisible to
+# `check_art_aspect.gd` because there is no textured quad to distort.
+#
+# ⚠️ Room designations only. Not one of them says anything about a gate: a stencil that
+# hinted would put an answer inside a level whose whole premise is that the answers are
+# somewhere else.
+const STENCILS := [
+	["Landing", Vector2(1, 0), -PI / 2.0, "Л-1\nЛЕСТНИЦА"],
+	["Vestibule", Vector2(-1, 0), PI / 2.0, "В-2\nВЕСТИБЮЛЬ"],
+	["Passage", Vector2(-1, 0), PI / 2.0, "П-3\nПЕРЕХОД"],
+	["Kitchen", Vector2(1, 0), -PI / 2.0, "К-4\nБЫТОВАЯ"],
+	["Records", Vector2(1, 0), -PI / 2.0, "У-5\nУЧЁТ"],
+	["Archive", Vector2(-1, 0), PI / 2.0, "А-6\nАРХИВ"],
+	["Switchboard", Vector2(-1, 0), PI / 2.0, "С-7\nКОММУТАТОР"],
+	["Blackout", Vector2(1, 0), -PI / 2.0, "Э-8\nЭЛЕКТРО"],
+]
+
+const STENCIL_Y := 2.45
+const STENCIL_TINT := Color(0.30, 0.28, 0.23)
+
+func _spawn_stencils() -> void:
+	for row in STENCILS:
+		var lbl := Label3D.new()
+		lbl.name = "Stencil_%s" % row[0]
+		lbl.text = row[3]
+		lbl.font_size = 64
+		lbl.pixel_size = 0.0042
+		lbl.modulate = STENCIL_TINT
+		lbl.outline_size = 0
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# Same 0.16 inset as every other wall prop here: wall_point() measures from the
+		# room's NOMINAL boundary and the wall face is T/2 in from that (Issue 11).
+		lbl.position = _builder.wall_point(row[0], row[1], STENCIL_Y, 0.16)
+		lbl.rotation.y = row[2]
+		add_child(lbl)
+
+	# The tail spine moves per run, so its rooms are stencilled from _dark_x.
+	for row2 in [["Ш-9\nШЛЮЗ", Vector3(_dark_x - 1.84, STENCIL_Y, 63.0), PI / 2.0],
+			["Т-11\nТЕРМИНАЛ", Vector3(_dark_x - 2.84, STENCIL_Y, 95.0), PI / 2.0]]:
+		var l2 := Label3D.new()
+		l2.name = "Stencil_%s" % String(row2[0]).split("\n")[0]
+		l2.text = row2[0]
+		l2.font_size = 64
+		l2.pixel_size = 0.0042
+		l2.modulate = STENCIL_TINT
+		l2.outline_size = 0
+		l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l2.position = row2[1]
+		l2.rotation.y = row2[2]
+		add_child(l2)
+
+
+# Painted hazard bands across the floor at the three thresholds where the protocol
+# changes: the decontamination line, the personnel gate and the airlock.
+#
+# ⚠️ y = 0.03, which is `corridor.gd`'s own `FLOOR_DECAL_Y`. A decal at 0.02 sits exactly
+# on `check_wall_overlap.gd`'s 2 cm minimum and `AABB.has_point()` includes its boundary —
+# that is how every flat decal in the Corridor got reported the first time that guard was
+# pointed at it. ⚠️ And they are unlit dark ochre, never emissive: paint on a floor is the
+# darkest thing in the room, not the brightest (anti-pattern §5.2(8)).
+const FLOOR_MARK_Y := 0.03
+const FLOOR_MARKS := [
+	[0.0, 26.4, 2.6],     # decontamination line, in front of the fungal barrier
+	[0.0, 34.4, 2.6],     # personnel gate
+]
+
+func _spawn_floor_markings() -> void:
+	var marks: Array = FLOOR_MARKS.duplicate(true)
+	marks.append([_dark_x, 65.3, 2.4])     # the airlock threshold, on the drawn spine
+	var ochre := StandardMaterial3D.new()
+	ochre.albedo_color = Color(0.30, 0.25, 0.07)
+	ochre.roughness = 0.95
+	var slate := StandardMaterial3D.new()
+	slate.albedo_color = Color(0.07, 0.07, 0.065)
+	slate.roughness = 0.95
+	for m in marks:
+		var n := int(float(m[2]) / 0.30)
+		for i in range(n):
+			var q := MeshInstance3D.new()
+			q.name = "FloorHazard"
+			var qm := QuadMesh.new()
+			qm.size = Vector2(0.22, 0.55)
+			q.mesh = qm
+			q.material_override = ochre if i % 2 == 0 else slate
+			q.position = Vector3(float(m[0]) - float(m[2]) / 2.0 + 0.15 + i * 0.30,
+				FLOOR_MARK_Y, float(m[1]))
+			q.rotation = Vector3(-PI / 2.0, 0, deg_to_rad(24.0))
+			add_child(q)
 
 
 # The mailbox: a shallow real object (not a flat decal), opening on a hint note for
@@ -1511,6 +2039,235 @@ func _spawn_mailbox(pos: Vector3, y_rot: float) -> void:
 	box.add_child(col)
 
 
+# ---------------------------------------------------------------- the recovery archive
+#
+# ⭐ THE ARCHIVE HAD NOTHING IN IT (2026-08-18).
+#
+# The level's own objective line on entering this room is "RECOVERY ARCHIVE — DO NOT
+# DISTURB THE INVENTORY", the sign on its east wall says "ITEMS RECOVERED FROM AN OBJECT
+# ARE: [REDACTED]", and gate 3's whole test is walking past a recovered item. All of that
+# was staged in an empty 9 x 9 m room containing one black box on the floor. Photographed
+# in `screenshot_kontur.gd`'s 09_gate3_offering before this pass.
+#
+# So: two aisle racks and SIX NUMBERED LOTS, five of them holding something the player has
+# already walked past in an earlier level, and the sixth EMPTY with their own subject
+# number on the card. It is the level's thesis — *the answers are not inside it* — made
+# physical: KONTUR has been collecting from every floor the player has crossed.
+#
+# ⚠️ ZERO RULES. No `interact()` on any lot, so nothing shows a prompt and nothing can be
+# taken; no `ScaryObject`, so looking costs nothing; no panic, no fail state, no trigger
+# volume, no sound. The only interactable added here is the inventory ledger — an ordinary
+# `note.gd` page, which is also what finally gives `check_note_mounting.gd` a population in
+# this level (K-T5).
+#
+# ⚠️ FREE-STANDING, not against the walls. The obvious placement is wall racks, and the
+# Archive's two long walls already carry the poster and the redacted RECOVERY LOG sign at
+# their centres — a rack there would simply hide both. Aisle racks also read as an archive
+# rather than as shelving, and they leave the 1.8 m doorways at z=35 and z=44 (both on the
+# wall centre, x=0) on the central aisle.
+#
+# ⚠️ Everything is FLAT-TINTED and untextured (Issue 35, `kontur_mailbox.gd`'s precedent):
+# what makes a lot read is its silhouette, and each of the six is a different one.
+const ARCH_RACK_X := 2.30       # aisle racks, back to back either side of the walking line
+const ARCH_RACK_D := 0.55
+const ARCH_RACK_H := 2.00
+const ARCH_RACK_Z0 := 37.0
+const ARCH_RACK_Z1 := 42.0
+const ARCH_SHELF_Y := [0.42, 1.02, 1.62]
+
+func _spawn_recovery_archive() -> void:
+	# ⚠️ DARK, and barely metallic. The first build used 0.19/0.26 albedo at metallic 0.4
+	# and the racks came back as the BRIGHTEST surfaces in the room — a pale blue-grey
+	# cage in front of the two things this room is actually about (the lots and the
+	# pedestal). With no reflection probes anywhere in this project a metallic surface
+	# just takes the flat ambient, so metallic buys nothing here and costs contrast.
+	var steel := _mb_mat(Color(0.115, 0.120, 0.112), 0.10, 0.75)
+	var board := _mb_mat(Color(0.150, 0.140, 0.120), 0.05, 0.90)
+	for side in [-1.0, 1.0]:
+		_build_rack(side, steel, board)
+
+	# side, shelf index, z, builder, lot card
+	var lots := [
+		[-1.0, 1, 38.0, "sheet", "LOT 04-A   WARD 4 — BEDDING, ONE SET"],
+		[-1.0, 2, 40.4, "lever", "LOT 07-C   WING 1 — ISOLATOR, DEFEATED"],
+		[-1.0, 0, 41.4, "box", "LOT 11-B   DOMESTIC — MUSICAL, WOUND"],
+		[1.0, 2, 37.9, "plate", "LOT 14-D   HOTEL VESPER — ROOM PLATE"],
+		[1.0, 1, 39.9, "handset", "LOT 19-F   INTERNAL LINE — HANDSET, CUT"],
+		[1.0, 0, 41.6, "empty", "LOT 23-Z   SUBJECT 47 — PENDING"],
+	]
+	for l in lots:
+		_build_lot(float(l[0]), int(l[1]), float(l[2]), String(l[3]), String(l[4]))
+
+	# The ledger. ⚠️ On the WEST wall, 3.1 m south of the safety poster that shares it,
+	# and clear of both doorways (which are on the wall centres at z=35 and z=44). It is
+	# on the opposite wall from the gate-3 sign on purpose: those two are the only things
+	# in this room a player is meant to stop and read, and a wall carrying both is a wall
+	# nobody reads twice.
+	#
+	# It states no answer to any gate — this level's answers are in other levels, and a
+	# page in the Archive that gave one away would undo the whole design.
+	_make_note(_builder.wall_point("Archive", Vector2(-1, 0), 1.4, 0.16)
+		+ Vector3(0, 0, -3.1), PI / 2.0, ARCHIVE_LEDGER)
+
+
+const ARCHIVE_LEDGER := """RECOVERY LEDGER — WING 4, SHELF INVENTORY
+
+04-A  bedding, one set. Ward 4. The occupant was not with it.
+07-C  isolator handle. Someone had already thrown it.
+11-B  musical box, domestic. Still wound when it came in.
+14-D  room plate, 217. The room is not on any floor plan we hold.
+19-F  handset. Cord cut at the wall, from the inside.
+23-Z  reserved.
+
+Nothing on these shelves is to leave this room. Nothing on these
+shelves arrived here on its own."""
+
+
+func _build_rack(side: float, steel: Material, board: Material) -> void:
+	var rack := StaticBody3D.new()
+	rack.name = "RecoveryRack_%s" % ("E" if side > 0.0 else "W")
+	rack.position = Vector3(side * ARCH_RACK_X, 0.0, (ARCH_RACK_Z0 + ARCH_RACK_Z1) / 2.0)
+	add_child(rack)
+
+	var length: float = ARCH_RACK_Z1 - ARCH_RACK_Z0
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_mb_box(rack, "Upright", Vector3(0.06, ARCH_RACK_H, 0.06),
+				Vector3(sx * (ARCH_RACK_D / 2.0 - 0.03), ARCH_RACK_H / 2.0,
+					sz * (length / 2.0 - 0.03)), steel)
+	# Two mid uprights, so a 5 m rack does not read as one long slab.
+	for sz2 in [-1.0, 1.0]:
+		for sx2 in [-1.0, 1.0]:
+			_mb_box(rack, "Upright", Vector3(0.05, ARCH_RACK_H, 0.05),
+				Vector3(sx2 * (ARCH_RACK_D / 2.0 - 0.03), ARCH_RACK_H / 2.0,
+					sz2 * length / 6.0), steel)
+	for y in ARCH_SHELF_Y:
+		_mb_box(rack, "Shelf", Vector3(ARCH_RACK_D, 0.035, length),
+			Vector3(0, y, 0), board)
+		# A lip along the aisle edge — the part that says "shelf" rather than "plank".
+		_mb_box(rack, "ShelfLip", Vector3(0.02, 0.05, length),
+			Vector3(-side * (ARCH_RACK_D / 2.0 - 0.01), y + 0.042, 0), steel)
+	_mb_box(rack, "RackTop", Vector3(ARCH_RACK_D + 0.04, 0.04, length + 0.04),
+		Vector3(0, ARCH_RACK_H, 0), steel)
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(ARCH_RACK_D, ARCH_RACK_H, length)
+	col.shape = shape
+	col.position = Vector3(0, ARCH_RACK_H / 2.0, 0)
+	rack.add_child(col)
+
+
+# One lot: a small part-built object standing on a shelf, plus a stencilled card on the
+# shelf lip beneath it. `side` is which rack; the object is pushed toward the aisle so it
+# is visible from the walking line rather than filed at the back.
+func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -> void:
+	var y: float = ARCH_SHELF_Y[shelf] + 0.018
+	var x: float = side * (ARCH_RACK_X - 0.10)
+	var root := Node3D.new()
+	root.name = "Lot_%s" % kind
+	root.position = Vector3(x, y, z)
+	root.rotation.y = -PI / 2.0 if side > 0.0 else PI / 2.0
+	add_child(root)
+
+	var cloth := _mb_mat(Color(0.44, 0.43, 0.40), 0.0, 0.95)
+	var dark := _mb_mat(Color(0.13, 0.13, 0.14), 0.25, 0.55)
+	var wood := _mb_mat(Color(0.27, 0.19, 0.12), 0.0, 0.8)
+	var brass2 := _mb_mat(Color(0.36, 0.30, 0.16), 0.6, 0.5)
+	var tin := _mb_mat(Color(0.30, 0.31, 0.29), 0.55, 0.6)
+
+	match kind:
+		"sheet":
+			# Three offset folds — a folded sheet is a stack that does NOT line up.
+			_mb_box(root, "Fold0", Vector3(0.34, 0.05, 0.24), Vector3(0, 0.025, 0), cloth)
+			_mb_box(root, "Fold1", Vector3(0.31, 0.045, 0.21), Vector3(0.012, 0.072, -0.01), cloth)
+			_mb_box(root, "Fold2", Vector3(0.28, 0.04, 0.19), Vector3(-0.01, 0.114, 0.012), cloth)
+		"lever":
+			_mb_box(root, "Plate", Vector3(0.22, 0.30, 0.05), Vector3(0, 0.15, 0), tin)
+			_mb_box(root, "Handle", Vector3(0.04, 0.11, 0.035), Vector3(0.045, 0.19, 0.04), dark)
+			_mb_box(root, "Pilot", Vector3(0.03, 0.03, 0.02), Vector3(-0.06, 0.24, 0.032),
+				_mb_mat(Color(0.22, 0.04, 0.04), 0.1, 0.6))
+		"box":
+			_mb_box(root, "Case", Vector3(0.26, 0.13, 0.18), Vector3(0, 0.065, 0), wood)
+			# Lid ajar, hinged at the back — a closed box is a box (Issue 35).
+			var lid := Node3D.new()
+			lid.name = "LidHinge"
+			lid.position = Vector3(0, 0.132, -0.09)
+			lid.rotation.x = deg_to_rad(-38.0)
+			root.add_child(lid)
+			_mb_box(lid, "Lid", Vector3(0.26, 0.02, 0.18), Vector3(0, 0.01, 0.09), wood)
+			var crank := MeshInstance3D.new()
+			crank.name = "Crank"
+			var ccyl := CylinderMesh.new()
+			ccyl.top_radius = 0.008
+			ccyl.bottom_radius = 0.008
+			ccyl.height = 0.06
+			crank.mesh = ccyl
+			crank.material_override = brass2
+			crank.rotation.z = PI / 2.0
+			crank.position = Vector3(0.16, 0.075, 0)
+			root.add_child(crank)
+			_mb_box(root, "CrankArm", Vector3(0.012, 0.05, 0.012), Vector3(0.19, 0.052, 0), brass2)
+		"plate":
+			_mb_box(root, "Backing", Vector3(0.26, 0.14, 0.02), Vector3(0, 0.10, 0), brass2)
+			_mb_box(root, "Stand", Vector3(0.05, 0.03, 0.09), Vector3(0, 0.015, 0.03), tin)
+			for sx4 in [-1.0, 1.0]:
+				_mb_box(root, "PlateScrew", Vector3(0.016, 0.016, 0.008),
+					Vector3(sx4 * 0.105, 0.10, 0.014), tin)
+			var num := Label3D.new()
+			num.text = "217"
+			num.font_size = 64
+			num.pixel_size = 0.0011
+			num.modulate = Color(0.09, 0.08, 0.07)
+			num.position = Vector3(0, 0.10, 0.013)
+			root.add_child(num)
+		"handset":
+			_mb_box(root, "Body", Vector3(0.30, 0.05, 0.06), Vector3(0, 0.03, 0), dark)
+			for sx in [-1.0, 1.0]:
+				_mb_box(root, "Cup", Vector3(0.07, 0.06, 0.08),
+					Vector3(sx * 0.125, 0.055, 0), dark)
+			# The cut cord: three short segments falling off the shelf lip.
+			for i in range(3):
+				_mb_box(root, "Cord", Vector3(0.02, 0.02, 0.02),
+					Vector3(0.10 + i * 0.035, 0.012 - i * 0.004, 0.05 + i * 0.02), dark)
+		"empty":
+			# ⚠️ THE ONE THAT IS EMPTY. An open tray with the player's own number on the
+			# card and nothing in it. No sound, no light, no acknowledgement — SCARY P6's
+			# register applied to an absence. A player who does not read the cards loses
+			# nothing and never knows.
+			_mb_box(root, "TrayBase", Vector3(0.34, 0.015, 0.24), Vector3(0, 0.008, 0), tin)
+			for sx3 in [-1.0, 1.0]:
+				_mb_box(root, "TrayEndS", Vector3(0.015, 0.05, 0.24),
+					Vector3(sx3 * 0.1625, 0.033, 0), tin)
+			for sz3 in [-1.0, 1.0]:
+				_mb_box(root, "TrayEndL", Vector3(0.34, 0.05, 0.015),
+					Vector3(0, 0.033, sz3 * 0.1125), tin)
+
+	# The card. On the shelf LIP, under the lot, facing the aisle.
+	var lbl := Label3D.new()
+	# ⚠️ A UNIQUE NAME PER CARD (Issue 17, and this file has now hit it three times).
+	# Six siblings called "LotCard" and Godot renames five of them to @Label3D@NN, so
+	# anything that looks one up — including the guard that checks they face the aisle —
+	# finds exactly one.
+	lbl.name = "LotCard_%s" % kind
+	lbl.text = card
+	# ⚠️ The card is the LOT'S PAYLOAD — the object is the silhouette, the card is what
+	# it means. At pixel_size 0.00072 it photographed as a yellow smudge from the aisle.
+	lbl.font_size = 40
+	lbl.pixel_size = 0.00115
+	lbl.modulate = Color(0.80, 0.78, 0.71)
+	lbl.outline_size = 0
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# ⚠️ THE SAME ROTATION THE LOT USES, not its negation. The first build faced both
+	# card rows INTO their own rack: `Label3D` is double-sided by default, so they still
+	# rendered — mirrored, edge-lit and unreadable — which is exactly the failure mode a
+	# screenshot catches and a headless assertion cannot.
+	lbl.rotation.y = -PI / 2.0 if side > 0.0 else PI / 2.0
+	lbl.position = Vector3(side * (ARCH_RACK_X - ARCH_RACK_D / 2.0 - 0.02),
+		ARCH_SHELF_Y[shelf] + 0.042, z)
+	add_child(lbl)
+
+
 func _mb_mat(albedo: Color, metallic: float, rough: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = albedo
@@ -1568,16 +2325,29 @@ func _mb_slot(box: Node3D, n: int, at: Vector3, cw: float, ch: float,
 
 # A flat decal quad. No collider — these hang on walls that already have one, and a
 # second collider in front of a wall is how props end up blocking doorways.
-func _wall_panel(pos: Vector3, y_rot: float, size: Vector2, tex_path: String) -> void:
+#
+# ⚠️ `height` is the ONLY dimension the caller gives (2026-08-18, K-T3). The width comes
+# from the artwork's own aspect, because both callers here used to pass a shape chosen to
+# suit the WALL: the poster was 1.867x stretched and the chute 1.333x, and both textures
+# were a picture of the concrete they hang on (Issue 35 / X24). They now use the cropped
+# `kontur_poster_sheet.png` / `kontur_chute_hatch.png`.
+func _wall_panel(pos: Vector3, y_rot: float, height: float, tex_path: String) -> void:
 	if not ResourceLoader.exists(tex_path):
 		return
+	var tex: Texture2D = load(tex_path)
 	var m := MeshInstance3D.new()
 	var quad := QuadMesh.new()
-	quad.size = size
+	quad.size = Vector2(height * float(tex.get_width()) / float(tex.get_height()), height)
 	m.mesh = quad
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load(tex_path)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_texture = tex
+	# ⚠️ Only when there IS an alpha channel. TRANSPARENCY_ALPHA on an 8-bit RGB image
+	# does nothing except buy a transparent-pass sort — it was set unconditionally here,
+	# on two images that had no alpha at all, which is the same inert flag the old
+	# mailbox decal carried.
+	var img := tex.get_image()
+	if img and img.detect_alpha() != Image.ALPHA_NONE:
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.set_surface_override_material(0, mat)
 	m.position = pos

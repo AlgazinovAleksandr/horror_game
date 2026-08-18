@@ -25,6 +25,7 @@ others, with no one place recording what was actually *built*.
 | `SCARY.md` | **LIVE — authoritative** | The deep spec for fear craft: P1–P11, the audio overhaul, three new levels, eleven anti-patterns. This file *points into* it and never summarises it away. |
 | `DUNGEON_NIGHTMARES.md` | **LIVE — authoritative** | The deep spec for one new level (THE NIGHTMARE). Same relationship. |
 | `BACKLOG.md` | **LIVE** | Shipped work + the six live defects reproduced in §3. |
+| `backlogs/NN-<level>.md` | **LIVE — evidence** | The level-by-level improvement run, opened 2026-08-16. One file per level: what the user did with their hands on the controls, what it measured, and the costed items that came out of it. See §1a. |
 | `drafts/REPORT.md` | **ARCHIVED** | The old accepted-not-built menu. Absorbed into §2. Do not edit. |
 | `drafts/IDEA_HISTORY.md` | **ARCHIVED** | The old verdict ledger. Absorbed into §5. Do not edit. |
 
@@ -35,6 +36,44 @@ That distinction is not pedantry — it is how the shadow error in §2.0 was fou
 ⚠️ **`drafts/KONTUR.md` is the cautionary tale.** It is a stale doc that silently contradicts the
 shipped game. Four overlapping idea files was that failure mode in slow motion. If you add a fifth
 design document, say here what it supersedes.
+
+### §1a — `backlogs/`, and what it supersedes (nothing)
+
+Opened **2026-08-16**. It is **not** a fifth design document and it supersedes nothing. This file
+stays the single entry point for *what to build next*; `backlogs/` is the **evidence layer beneath
+it** — the record of a human playing each level and saying what was wrong, one file per level.
+
+The distinction that keeps them from drifting:
+
+- An idea that arrives from **design reasoning** belongs here (§4), and always has.
+- An item that arrives from **someone playing the game** belongs in `backlogs/NN-<level>.md`, with
+  the screenshot and the log line that produced it. Those never move here — only their *verdicts*
+  do.
+- **Deferred** items cross-post to §2 so they survive the level pass. **Rejected** items cross-post
+  to §5 with the user's own words, so no future session re-pitches them. That is the whole contract.
+
+| File | Level | Status |
+|---|---|---|
+| `backlogs/00-cross-level.md` | — | open (parking lot; **never acted on during the run**) — X1…X21 |
+| `backlogs/captures/` | — | downscaled J-capture screenshots + session logs for levels whose pass has not run yet, so the evidence outlives the session-scoped temp dir it was captured into |
+| `backlogs/00-intro.md` | Intro + twist ending | **verified** — 13 items, 2 rounds. Twist ending deliberately deferred |
+| `backlogs/01-lab.md` | 1 The Lab | **verified** — 3 revision rounds |
+| `backlogs/02-house.md` | 2 The House | **verified** — 18 items + the maze redesign |
+| `backlogs/00-test-hardening.md` | — | **H1+H2 built** 2026-08-17 (coverage by construction; a live positive control in every guard). H3 (build-time invariants) and H4 (completion bots) not started |
+| `backlogs/03-corridor.md` | 3 The Corridor | **verified** — 3 revision rounds. ⚠️ Built from banked evidence with **no playtest before the pass** (the user's call); the final replay produced zero captures at peak panic 49 %, down from 97 % |
+| `backlogs/04-backrooms.md` | 4 The Backrooms | **verified** — 4 revision rounds. Eight sealed alcoves opened, the Flood made a six-fragment puzzle, the Sprawl's real wall gated behind a crate in the dark. Final replay: zero captures, cleared all three zones |
+| `backlogs/05-kontur.md` | 5 KONTUR | **in progress** — never playtested this run; carries 6 machine findings from the hardening sweep, incl. a real defect (`_restore_progress()` never restores `_dark_x`, so a back-door return re-rolls the Blackout answer while the ledger says the gate was passed) |
+| `backlogs/06-breach.md` | 6 The Breach | not started — 4 machine findings filed. Every hiding place is stretched, and hiding is that level's entire counter-play |
+| `backlogs/07-nightmare.md` | 7 THE NIGHTMARE | not started — 5 machine findings filed. Both cots stretched 3.194× |
+| `backlogs/08-void.md` | 8 The Void | not started — 7 machine findings filed. ⚠️ **The Void has no shell (142 escaping rays from 48 standable points)**, two interactables sit in a pocket no route reaches, and until 2026-08-17 nothing had ever walked that level |
+
+The run is **strictly serial** — a level is played, backlogged, approved, built, tested and
+re-played before the next one opens. `.claude/agents/level-improver.md` is the agent that does it
+and carries the authority boundaries.
+
+⚠️ **This run is deliberately the counterweight to this file's own headline number** (*37 accepted
+ideas, two built*). The bottleneck was never ideas. Every item in `backlogs/` has a person and a
+screenshot behind it, which is the one thing the 37 do not.
 
 ---
 
@@ -135,6 +174,67 @@ row**. Cost scale is `SCARY.md` §3's: **XS** = one script < ~80 lines, no asset
 
 **Totals: 2 built · 6 partial · 25 not built.**
 
+⚠️ **Two rows above are stale and are corrected here rather than silently edited, because the
+totals line is quoted elsewhere.** *The unseen thing in the Flood* (SCARY P10) reads NOT BUILT; it
+**is** built — `unseen_wader.gd`, instantiated by `backrooms_zone3.gd:_build_wader()`, asserted by
+`check_backrooms_occupants.gd` (no mesh, no collider, no gaze panic, ≥12 m, two-strides-and-stop).
+*`HoldBreath`*, *`Watcher`* and *`MovedProp`* likewise exist as scripts. Re-audit before quoting
+"2 built".
+
+---
+
+### 2026-08-17 — THE FLOOD gets content, and it adds no panic (backlog `04-backrooms.md` §14)
+
+⭐ **A worked example of §0.2 — *stop adding panic terms, start adding channels*, with the numbers.**
+
+J-capture #5: *"the flood sublevel even though looks very cool feels very empty."* What shipped is
+**six searchable half-submerged objects and three events**, and the whole of it costs **zero panic,
+zero fail states, zero new rules**. The channel it adds is **the audio to-do list**: each unsearched
+object knocks every 5–11 s at `unit_size 6`, searching one silences it forever, and the wing gets
+audibly emptier as it is worked. That is the only progress readout in the level and it is diegetic,
+which §5.2(2) requires of any readout at all.
+
+Three things worth carrying to other levels:
+
+1. **Found by EAR, in the one zone whose puzzle is about light.** A glinting object would have
+   argued with the Flood's own tell (the exit seam is visible only with the torch OFF) and a
+   self-illuminated one is §5.2(8). Sound was the only channel left, and it turned out to be the
+   better one: it works whether or not the seam mechanic ever engages — which matters, because
+   across three logged sessions **it never has** (the player entered with the torch already off).
+2. **THE SURFACING is `SCARY.md` P10's stated anchor, finally paid off.** At the third search,
+   something else in the wing hauls something out of the water, once, 5–13 m away — **the same
+   sound the player has just made three times**. P10 asks for *"what you hear in the distance to be
+   audibly the same ACT you are performing"*, and this is the only place in the game where the
+   player performs an act distinctive enough to be echoed. No entity, no mesh, no repeat.
+3. **The measured cost, for the difficulty ledger.** Driving the real player (`ai_*`) from the
+   entry cap: a **beeline** is 16.5 s and +2.9 of `PANIC_MAX` 50; a **full six-object search** is
+   36.7 s and **−9.3** (the route crosses the Basin `CalmZone` four times). Worst case, a route that
+   never touched the anchor, **+11.0 of the 37.5 points of headroom**. Reading is free — `NoteUI`
+   pauses the tree, so the zone's drip does not tick behind a page. **Nothing was tuned.**
+
+---
+
+### Reachability — the guard the corpus was missing (2026-08-17)
+
+`tests/check_reachable.gd` — **all nine levels, 26 s, in the suite.** Every other geometry guard in
+this project inspects a relationship between two objects; none of them asks whether a player can
+*get* to one. That is how the Backrooms Sprawl kept eight sealed alcoves and ten unreachable objects
+through two playtests and four scene-parameterised checks (ISSUES_SOLUTIONS Issue 90). It flood-fills
+the standable space from the spawn with each level's own capsule and then drives the shipping
+interact ray, aiming at the mesh.
+
+Result of the first full sweep: **one further real finding** — two of The Void's ten interactables
+(`NoteVoid2`, `TrapVoid1`) are in a pocket no route reaches, nearest reachable cell 4.79 m and
+3.25 m; the level stays winnable and the finding is filed as cross-level **X44** for Level 8's own
+pass. Everything else in Intro / Lab / House / Corridor / KONTUR / Breach / Nightmare is reachable.
+
+⚠️ The interesting half is the **false positives it had to be taught to stop reporting**, because
+each of them made a healthy level look broken: a 1.01 m lane against an 0.80 m capsule (grid
+resolution), the Intro seeding its fill on the gurney the player wakes up on, and a **6 mm**
+capsule-vs-ramp clip that hid the entire House cellar. A guard that cries wolf gets ignored, and the
+taxonomy — reachable / inert / contained / dormant, plus gates that get opened — is what buys the
+right to trust the red.
+
 ---
 
 ## §3 — Live defects
@@ -146,7 +246,7 @@ These are the cheapest items in the corpus and one of them gates a whole retrofi
 |---|---|---|---|
 | a | Ships a debug value: `FAMILIARIZATION_TIME := 10.0`, comment says *"⚠️ TEMPORARY — lowered from 50.0 … Revert before ship."* | `level_6_breach.gd:25`, consumed `:290` | The Mr.X familiarization window — the entire point of Level 6's pacing — is effectively off. |
 | b | The escort breathing is in the wrong place. `BREATH_OFFSET` is world-space `(0, 1.2, 1.6)`, applied with no basis term, so it sits at world +Z rather than behind the player's facing. | `escort_gate.gd:26`, applied `:97`; live at `kontur.gd:1202-1203` | KONTUR Gate 4's best audio beat has never worked as designed. Blocks SCARY P2's best placement. |
-| c | `Vignette.spawn()` is `pass` — the shader and body are commented out — and is still called by **five** levels. | `vignette.gd:20-21`, `:7-17`, `:22-39`; callers `level_1.gd:122`, `level_2.gd:83`, `level_3.gd:29`, `corridor.gd:113`, `backrooms.gd:115` | `BACKLOG.md` lists one caller. It is five. Either restore it or delete all five calls. |
+| c | ~~`Vignette.spawn()` is `pass`~~ — **CLOSED, and this row was stale for three weeks.** `vignette.gd` was restored 2026-07-28; all five callers render it, and the framing darkening is visible in every Corridor screenshot taken during the 2026-08-16 pass. | `vignette.gd`; callers `level_1.gd:122`, `level_2.gd:83`, `level_3.gd:29`, `corridor.gd:113`, `backrooms.gd:115` | Recorded as cross-level **X27**. ⚠️ Two of this table's six "live" defects — (c) and (e) — are now historical; re-verify the other four before quoting the number. |
 | d | Panic red tint capped at 10 %. Scene overrides the script default of 0.5. | `hud_canvas.tscn:10` vs `panic_hud.gd:4`; applied `:97` | ⚠️ **Gates SCARY P8** — the panic-spike lie needs the tint to actually register. Fix first. |
 | e | Documented beartrap double-jeopardy protection does not exist. `apparition_director.gd:107-108` claims `is_input_frozen()` covers the beartrap QTE; `beartrap.gd` never calls `freeze_input()` — only `apply_slow()`. | `beartrap.gd:244-245`, QTE loop `:263-282`; real `freeze_input()` callers are `intro_room.gd:81`, `lab_locker.gd:196`, `player.gd:549` | A HOLD apparition can spawn onto a player clamped at 45 % speed mashing E. Issue-18 shape. |
 | f | Dead code. | `creature_static.gd` (zero references, no `class_name`); `player.gd:368 relieve_panic()` (zero callers) | Delete both. |
@@ -317,10 +417,27 @@ and supplying new evidence.** The reasoning column is the entire value of this t
 | 2026-07-27 | **Save-point dread** (RE ink ribbons) | Ink ribbons work because saving exists. This game has no saves and `restart_current_level()` deliberately erases the level snapshot. A save currency in a game with no saves is a contradiction; the nearest legal analogue (scarce light) is already the flashlight battery. `SCARY.md` §2. |
 | 2026-07-27 | **More `RandomAmbient` sound variety** | The problem was never variety, it was **rate** — the 5–10 s → 18–35 s retune was the fix. Adding sounds without adding gap re-creates the bug at higher fidelity. Add the panic gate (P9) instead. `SCARY.md` §8.7. |
 
+**2026-08-16 — THE HOUSE (backlog `02-house.md`)**
+
+| Date | Idea | Reason |
+|---|---|---|
+| 2026-08-16 | **Move the House cellar beartrap off the forced-blind entry line** | ⚠️ **REJECTED BY THE USER, and this is a standing example worth reading.** The analysis was correct in every measured detail — the trap sits 1.6 m past the cellar blackout trigger on the only heading into the room, inside an 8.5 s window in which `_begin_cellar_blackout()` kills every lamp *and* calls `force_flashlight_off()`, with no counter-play; it fired in **both** logged sessions, at `(6.30, -1.50, -4.90)` and `(6.20, -1.50, -4.30)`, each a clean `ESCAPE_INITIAL_PANIC` 15. It reads exactly like §5.2(11), *punishing the player for a scare they could not have seen coming*. The user was shown all of it and chose to leave the trap where it is. A `⚠️ DELIBERATE (2026-08-16)` comment now sits at its placement. **Correct measurement, rejected recommendation, legitimate outcome.** The knock-on is recorded in the same commit: it makes `_cellar_child_appear()`'s postponement guard load-bearing rather than belt-and-braces. |
+| 2026-08-16 | **Retime the House fridge's `REVEAL_DELAY`** ("the head appears not immediately") | The ordering — scream, then door, then head, no `flash_scare` — is a `⚠️ DELIBERATE` decision taken **twice** on this user's own feedback. The complaint was a symptom of Issue 69: the door was swinging *into* its own carcass, so 0.62 s had nothing to clear and read as a pause in front of an already-open box. Fix the hinge, re-ask on the replay, do not touch the constant. |
+
+**2026-08-17 — THE BACKROOMS (backlog `04-backrooms.md`)**
+
+| Date | Idea | Reason |
+|---|---|---|
+| 2026-08-17 | **Make the zone-1 glitch wall GLOW a minute into the level** (the user's own proposal, capture B1: *"maybe we can make the wall shine let's say 1 minute after the player started playing… like a small hint"*) | ⚠️ **DECLINED BY THE USER AFTER BEING SHOWN THE MEASUREMENTS — do not re-pitch it.** The glitch wall is **already the brightest surface in its room by 2.3×** — 132.7 lum against side walls at 56.9/58.9, ceiling 55.8, floor 51.9 — and still a 10 % step from the decision point 15 m back. Brightness was never the missing channel; a *statement of the verb* was. Decisively: the capture was taken **6.2 m down the CORRECT arm at a loop-back cap**, 5 m short of the dead end they needed to walk into — a place no glow on the glitch wall would ever have reached. Two of the three times this level demands "walk into a wall" are at those caps. The user chose the two-layer positional audio tell (BS1) instead, precisely because it serves the caps too. |
+| 2026-08-17 | **Give the Congregation a chorus** — one shared, quiet, synchronised vocal bed whose density scales with how many figures are behind the player (*Control*'s Hiss-corrupted personnel, non-hostile and chanting) | **Offered and declined this pass.** It remains a good idea and it is still legal — zero panic, zero rules, on the `"Backrooms"` bus so the `SilenceZone` mutes it along with everything else, which would have strengthened zone 2's sound puzzle rather than competing with it. It was declined on **budget**: the pass's two big-swing slots went to BS1 and to fixing the Congregation's contract violation (Issue 85), and the honest sequence is to land those, replay, and re-ask. ⚠️ If it is ever built, `check_backrooms_audio.gd` must assert the chorus sits **under** the `water`/`whisper` tell measured from the files — the Sprawl's mix already carries a score at −4 dB, a hum at −16 and the tell on Master. |
+| 2026-08-17 | **Make the Congregation's heads turn to follow the player** | **Offered and declined this pass**, and the risk note is the reason to keep it declined. It is the single cheapest way to make a field of silhouettes feel alive, and it is also the shortest path to making them read as a *creature with a rule*. `SCARY.md` §8.3 bans a second observation-dependent creature; these are legal only because looking at one does **literally nothing**, and a head that tracks you is an acknowledgement — the player will immediately start testing what happens if they approach, which is a rule they will have to be taught the absence of. If it is ever revisited it should be a one-shot per figure, off-screen, so it is discovered rather than demonstrated. |
+| 2026-08-17 | **Floor DRAG MARKS running into each seam surface** (four dark scuffs on the carpet at every loop-back cap and at the exit glitch wall — "something was dragged through here", shipped as the third channel of BS1) | ⚠️ **CUT BY THE PLAYER, TWICE IN ONE PLAYTHROUGH — do not re-add them.** Capture 001, standing in the utility room: *"These stripes look weird - remove them"*. Capture 003, at an E-arm loop-back cap: *"Yeah, remove the stripes. The hints on the walls are sufficient"*. They were removed on 2026-08-17 (backlog 04 R3). ⚠️ Note precisely WHAT was kept, because the verdict was about this channel and not about the feature: the `NO DOOR. / WALK INTO IT.` scrawl on the side wall stays, and so does the two-layer positional seam audio, which is the tell the user themselves chose over making the glitch wall glow. The player named the wall hints as sufficient. `check_backrooms_seam.gd` now asserts the ABSENCE of any `DragMark*` node anywhere in the scene, so a re-add fails the suite and lands here.
+
 ### 5.2 Anti-patterns — do not build (from `SCARY.md` §8, reproduced so this file is self-sufficient)
 
 1. **Fake crashes, BSODs, save-corruption, OS dialogs, volume drops.** A macOS `.app` under active development with a `DebugLog` playtest protocol: a fake "SAVE DATA CORRUPTED" produces a real bug report and poisons real data. Use P8's diegetic suite.
 2. **Any HUD readout indicating progress toward or proximity to a solution.** Issue 34: `set_breaker_proximity()` solved the wing outright, lied from inside dead ends, *and* masked the fact that the real tell had never been built.
+   - ⚠️ **ONE STANDING EXCEPTION (2026-08-16), on the user's explicit call**, made after being shown this line and Issue 34: the Lab dark wing has a signal meter again (`lab_wing_meter.gd`). Their reason was accessibility — *"finding your way through sounds only in the complete dark is hard for the unexperienced user"*. The engineering condition attached to it is that **it may not lie**: it measures Dijkstra path distance through the wing's doorway graph, never a beeline, so a dead end reads cold (Plant: 30.0 m of walking against 6.6 m of straight line — 0.04, where the old bar read 0.79). See the AMENDMENT under Issue 34 for the measurements. This does **not** re-open the anti-pattern for other levels: a second one needs its own decision, and any that ships must be path-based.
 3. **A second observation-dependent creature.** §8.3.
 4. **A second chase level.** §8.4.
 5. **A breath-holding mechanic.** §8.5.
@@ -418,7 +535,39 @@ project had not previously written down.
 
 | Idea | Condition to revisit |
 |---|---|
+| **A second key behind a locked door inside the House maze minigame — "or maybe to find a shotgun to shoot the glass"** (playtest 2026-08-16, capture A2; the user's own words end *"we can discuss"*, and their call on 2026-08-16 was **defer**) | ⚠️ **The interesting version is NOT a second key — it is a SECOND VERB.** As pitched it is a key-behind-a-gate nested inside a minigame whose containing level is already a key-behind-a-gate (Bathroom map → key → cellar gate), so it adds a step to a chain rather than a decision. What the House actually lacks is a **destructive** verb: nothing in this level, or in the eight before it, lets the player break anything. KONTUR's Gate 6 hammer is the only destructive act in the game and it arrives at level 5. Revisit as "the House gets one thing you can smash", not as "the maze gets a second key" — and note it would be a new fail-adjacent mechanic inside a paused 2D overlay, so it needs its own decision either way. |
+| **A test harness's stuck detector counted FRAMES, not seconds** (`tests/autoplay/autoplayer.gd`, found 2026-08-17) | `STUCK_SAMPLES 45` frames in which the body moved less than `STUCK_DIST 0.05 m`. A headless run reaches ~145 fps, where a body walking at the Backrooms Flood's waded 1.8 m/s covers **0.012 m per frame** — so `stuck` reads **true for the whole of a perfectly healthy walk**. Measured directly on a straight-line crossing. Not fixed: it is shared infrastructure and changing it changes what every `walk_*`/`autoplay_*` caller measures. Revisit with whoever owns the autoplay harness; the third recurrence of "a frame count is not a clock" (Issues 95, X42). |
 | **Volumetric / depth fog** | Try it on THE NIGHTMARE only — the one level with no legacy emission tuning to break — measure, then discuss retrofitting. The no-fog config is load-bearing for every material's emission across every existing level. ⚠️ Do not fake it with a shader. |
+
+**2026-08-16 — THE CORRIDOR (backlog `03-corridor.md`, deferred at build time).** All eight approved
+items were built; these are what the pass deliberately did not do. `backlogs/03-corridor.md` §5 is
+authoritative and carries the measurements.
+
+| Idea | Condition to revisit |
+|---|---|
+| **D1 — the 1.20×–1.67× stretch family**: `mirror.png` ×2, `torch.png` ×3 and the wall-hung `carpet.png`, all hung as full-height wall panels whose dimensions were chosen to match the WALL rather than the picture, and all baking their own wallpaper into the art (Issue 35). | An **art pass**, not a level pass — each needs its source re-cropped. Pulled forward this run only for the two props that are *hints the player must read*. ⚠️ They are listed by name with their reasons in `check_corridor_art.gd`'s `_deferred` map, which asserts its own size, so this deferral is visible in a test rather than only in a document. |
+| **D2 — nobody read the framing note (0 of 2 traversals), and the game's most important cross-level hint 1 of 2.** The d=250 plate sits 36 m past the last lit torch, inside the DreadZone, under an objective that says "keep walking". | **Needs a playtest.** One sample of 0-of-2 on a note nobody was asked to find is not evidence, and *lighting a hint* is exactly the kind of legibility change that must be argued from a real session. The plate is now a legible, self-lit object, which may be the whole fix. |
+| **D3 — 0 of 5 beartraps fired in two traversals.** Each covers ~65 % of the 2.2 m walkable band; the four in the dark stretch can be threaded by weaving. | **Needs a playtest**, and the offsets and radius are **difficulty constants** — measure and report only. |
+| **D4 — zero apparitions in 324 s across two runs.** The legal window in the longer session was ~30 s wide; the shorter one never reached it. | **Needs a playtest** plus `count_apparitions.gd` pointed at this scene. Probably correct behaviour rather than a defect. |
+| **D5 — the dread stretch (260–320 m) is structurally unobservable in the log**, because `DREAD_PANIC_RATE` and `DREAD_DECAY_RATE` cancel exactly. | **Needs a playtest**; both are difficulty constants. |
+| **D6 — `AjarDoor`s open onto solid wallpaper.** There is no aperture behind any of them; the wall is one continuous 45 m `CSGBox3D` per segment. | Needs a recessed niche (a CSG subtraction on a 45 m wall box) and a collision rebuild. The architrave built this run makes the door read correctly **closed**, which is the state the player almost always sees. |
+| **The turn mirrors' gaze intensity (30 panic/s at the 90 m corner)** | ⚠️ Not deferred — **decided**. The user's call on 2026-08-16 was to leave it and re-judge in play now that the glass reflects, and the reasoning is recorded as a `⚠️ DELIBERATE` comment at `corridor.gd:_spawn_panels()`. Do not re-file it as a defect. |
+
+**2026-08-17 — THE BACKROOMS (backlog `04-backrooms.md`, deferred at build time).**
+`backlogs/04-backrooms.md` §5 is authoritative and carries the measurements.
+
+| Idea | Condition to revisit |
+|---|---|
+| ✅ **F1 — THE SPRAWL'S EIGHT ALCOVES WERE SEALED. CUT OPEN 2026-08-17.** They were behind an unbroken perimeter — a ray from 3 m inside the hall was blocked at exactly the 3.00 m mouth plane on all eight — and behind them sat the zone's ONLY note (the page that states its own tell), its phone, its one-way mirror, two mirage doors and five props: every authored object in 1600 m² bar the pillars, the lights and the four glitch walls. | ✅ **BUILT, on the user's call**, framed as *connecting content that was designed and then never reachable* rather than as new content. `_side_runs()` now subtracts the openings from each side's extent (4 wall segments per side, not 2); a mouth is the recess width plus a wall thickness at each end so the boxes ABUT rather than leaving two end caps coplanar. Measured: **+3 241 standing cells (+50.6 m²)**, interactables reachable **8/12 → 12/12**, route to the four glitch walls unchanged, `check_wall_overlap` still 0 findings. ⚠️ Three panic sources went live and **none was tuned** — 2 × `MirageDoor` at 10, and `SprawlMirror` at 14 panic/s of gaze — and `SprawlDread` was widened to keep the recesses inside the no-decay zone rather than silently adding eight recovery pockets. See `backlogs/04-backrooms.md` §9 and ISSUES_SOLUTIONS Issue 90. |
+| **D1/D2 — the Flood's flagship inversion can be bypassed by never switching the torch on**, and `is_flashlight_on()` is also false for a *dead* battery, so both the player who never used the light and the player who wasted it get the finale's puzzle free, while the one who managed it makes their own exit invisible. Logged: flashlight OFF at t=542, the Flood entered at t=765, never touched again, cleared in **54.6 s**. | ⚠️ **WAIT — the user's explicit call, 2026-08-17.** One 54-second traversal is not evidence, and every available remedy is a **difficulty constant**, a **new rule**, or a change to the game-wide 240 s battery. Needs a real playtest of the Flood, with a mistake in it. |
+| **D3 — zone 1 may be ~20 seconds of content once the arrows are readable.** The returning-player traversal cleared it in 20.5 s. | Cannot be told from "was never readable" until the rebuilt arrow (Issue 88) has been played. Re-measure on the verification replay. |
+| **D4 — zone 2's four-wall audio tell has never been tested against a wrong guess.** Both sessions solved it first try. | Needs a playtest with a mistake in it. Either the two-layer `water`+`whisper` cue works exactly as designed or the user guessed right twice, and nothing in the logs separates those. |
+| **D5 — `glitch_wall.gdshader` samples the zone-1 wallpaper in all three zones**, so the Flood's decoys and real seam render as mono-yellow Backrooms wallpaper in a wet-grey concrete wing — the most saturated object in the zone is a decoy. | A design call with no evidence either way: arguably correct (the seam is a hole *into* the Backrooms) and arguably a leftover. |
+| **D7 — the mirage doors are the most saturated objects in zone 1 and are no-ops.** | Measured only by eye. Needs a proper frame; `screenshot_backrooms.gd` can now produce one (Issue 89). |
+| **D8 — `check_backrooms_occupants.gd` still uses `bool(node.get("_standstill_suspended"))`**, the construction `CLAUDE.md` bans in tests. | Works today because the property exists; it is a trap for the next edit, and the fix belongs with whoever sweeps the suite for it rather than with one level's pass. |
+| **D9 — `_enter_zone`'s panic cap is guarded on `has_method("set_panic_ratio")`.** | `player.gd:543` defines it, so the cap works — but a rename would silently disable the mechanism that keeps three no-decay zones survivable, with no test. |
+| **D10 — `sprawl_wall_hum.wav` is generated by `tools/make_sfx_backrooms.py:97` and referenced by no `.gd` file.** | A documented orphan. Deleting it is a `tools/` change; leaving it risks a future session "restoring the hum" against the comment that says not to. |
+| **The loop-back trigger's 0.30 m demand.** `LoopBack{E,W}` sits 0.30 m from the cap's inner face, so a correct turn only counts once you are a foot from a blank wall. | ⚠️ Not touched this pass. BS1 answers it by TEACHING the verb rather than by relaxing the demand; whether the demand itself is too tight is a **difficulty** question and needs the replay. |
 
 ---
 

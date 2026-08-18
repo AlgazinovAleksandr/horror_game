@@ -295,7 +295,14 @@ def main():
     write_wav("level_1_lab", "breaker_hum.wav", make_breaker_hum())
     write_wav("level_1_lab", "breaker_buzz.wav", make_breaker_buzz())
     write_wav("level_2_house", "tv_static.wav", make_tv_static())
-    write_wav("level_2_house", "music_box.wav", make_music_box())
+    # ⚠️ music_box is NO LONGER GENERATED (2026-08-16). The user supplied a real
+    # recording, shipped as level_2_house/music_box.ogg; the synthesized .wav was
+    # retired to assets_src/audio/level_2_house/. Do NOT re-enable this line:
+    # `GameState.load_audio()` tries the ".wav" extension across every subdir
+    # BEFORE ".ogg", so re-emitting the .wav would silently win over the real
+    # recording and nothing would look broken. `make_music_box()` is kept below
+    # only as the record of how the old cue was built.
+    # write_wav("level_2_house", "music_box.wav", make_music_box())
     write_wav("level_2_house", "water_drip.wav", make_water_drip())
 
 

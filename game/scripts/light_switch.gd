@@ -17,7 +17,14 @@ signal flipped
 signal stuck(press_index: int)
 
 const TEX := "res://assets/textures/intro/"
-const PLATE_SIZE := Vector2(0.32, 0.48)
+# ⚠️ SIZED FROM `intro_switch.png` (1122x1402 = 0.8003), not chosen. It was 0.32 x 0.48
+# (0.667), stretching the plate art 1.2x vertically. This prop is intro-only, so the
+# change is contained; the collider is derived from the same constant.
+const PLATE_SIZE := Vector2(0.32, 0.40)
+# How far the art quad stands proud of the plate's own centre. ⚠️ Not a free number: the
+# plate is mounted so its back face bites into the wall, and check_wall_overlap.gd requires
+# every QuadMesh to clear every CSG box by 20 mm. See SWITCH_POS in intro_room.gd.
+const FACE_OFFSET := 0.026
 
 # How many presses it actually takes. Defaults to 1 so the prop behaves exactly as before
 # unless a level asks for more — the Intro sets 2, because the switch sticking once is
@@ -58,7 +65,7 @@ func _build() -> void:
 	qm.size = PLATE_SIZE
 	face.mesh = qm
 	face.rotation_degrees.x = 90.0  # right-side-up — see intro_room.gd's rotation fix
-	face.position = Vector3(0, 0, 0.022)
+	face.position = Vector3(0, 0, FACE_OFFSET)
 	_face_mat = StandardMaterial3D.new()
 	var tex_path := TEX + "intro_switch.png"
 	if ResourceLoader.exists(tex_path):

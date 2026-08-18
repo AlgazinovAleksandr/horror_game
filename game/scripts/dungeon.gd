@@ -32,6 +32,15 @@ const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 const TEX := "res://assets/textures/level_9_dungeon/"
 const BREACH_TEX := "res://assets/textures/level_6_breach/"
 const SHARED_TEX := "res://assets/textures/shared/"
+
+# The crane up into the Antechamber, played on WAKING only — the reward for seven sconces.
+# ⚠️ There is deliberately no clip for the other direction: `dungeon_sleep` was never generated,
+# so going under keeps its 1.6 s fade. See _after_blackout() for why that asymmetry is fine.
+# ⚠️ The .ogv opens AND closes on BLACK, and both fades are added in transcode rather than
+# generated — the raw clip opens lit and ends lit. The in-fade is what lets it cut cleanly from the
+# fade-to-black that precedes it; the out-fade is what stops it snapping into the near-black live
+# Antechamber (measured 0.171 vs 0.008 — see _on_wake_cutscene_finished).
+const WAKE_VIDEO := "res://assets/video/dungeon_wake.ogv"
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _SCONCE_SCRIPT := preload("res://scripts/wall_sconce.gd")
@@ -1287,12 +1296,59 @@ func _sleep_transition(into_dungeon: bool) -> void:
 	add_child(layer)
 	var tw := create_tween()
 	tw.tween_property(fade, "color:a", 1.0, 1.6)
-	tw.tween_callback(_finish_transition.bind(into_dungeon))
+	tw.tween_callback(_after_blackout.bind(into_dungeon, fade, layer))
+
+
+# ⚠️ The two directions are NOT symmetric any more. Going under is still a fade — `dungeon_sleep`
+# was never generated. Waking has a clip, and it is the reward for seven sconces, so it gets the
+# screen. The teleport happens here either way, under full black, before anything is shown.
+func _after_blackout(into_dungeon: bool, fade: ColorRect, layer: CanvasLayer) -> void:
+	if into_dungeon:
+		_finish_transition(true, true)
+		_lift_black(fade, layer)
+		return
+
+	# ⚠️ unfreeze = false. `_finish_transition` hands control back on its last line, and doing
+	# that here would leave the player walking around behind ten seconds of video.
+	_finish_transition(false, false)
+	var cutscene := CutscenePlayer.play(self, WAKE_VIDEO)
+	if cutscene == null:
+		# Headless, or no file: the original 1.2 s fade-up, to the frame.
+		_lift_black(fade, layer)
+		var pf := _player()
+		if pf != null:
+			pf.unfreeze_input()
+		return
+	cutscene.finished.connect(_on_wake_cutscene_finished.bind(fade, layer))
+
+
+# ⚠️ THE CLIP FADES OUT TO BLACK, AND THE LEVEL FADES BACK UP — do not "simplify" this into a hard
+# cut. A hard cut was tried first, on the reasoning that the clip's last frame IS the Antechamber
+# so there was nothing to hide. That reasoning was wrong and the measurement is why:
+# `screenshot_wake_cutscene.gd` photographed both sides of the join and the clip's last frame reads
+# **0.171 mean luminance against the live room's 0.008** — a 21x snap. Veo lights a stone room like
+# a film set; this level runs at ambient 0.045 with no flashlight and an unlit candle, and the
+# Antechamber at that moment is a black room with a red door in it.
+#
+# So `dungeon_wake.ogv` carries `fade=t=out` (see assets_src/README.md) and hands over ON BLACK,
+# where the layer-60 ColorRect underneath is already black — nothing changes on screen when
+# `CutscenePlayer` frees itself — and the ordinary fade-up then reveals the room.
+func _on_wake_cutscene_finished(fade: ColorRect, layer: CanvasLayer) -> void:
+	if not is_instance_valid(layer) or not is_instance_valid(fade):
+		return
+	_lift_black(fade, layer)
+	var p := _player()
+	if p != null:
+		p.unfreeze_input()
+
+
+func _lift_black(fade: ColorRect, layer: CanvasLayer) -> void:
+	var tw := create_tween()
 	tw.tween_property(fade, "color:a", 0.0, 1.2)
 	tw.tween_callback(layer.queue_free)
 
 
-func _finish_transition(into_dungeon: bool) -> void:
+func _finish_transition(into_dungeon: bool, unfreeze: bool = true) -> void:
 	var p := _player()
 	if p == null:
 		return
@@ -1307,7 +1363,8 @@ func _finish_transition(into_dungeon: bool) -> void:
 		p.global_position = ANTE_ORIGIN + Vector3(0, 0.1, 0)
 		GameState.set_objective("THE TRIAL IS LOGGED. LEAVE.")
 		_refresh_exit()
-	p.unfreeze_input()
+	if unfreeze:
+		p.unfreeze_input()
 
 
 # ── Per-frame orchestration ─────────────────────────────────────────────────────

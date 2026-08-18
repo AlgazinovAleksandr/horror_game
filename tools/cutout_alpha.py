@@ -69,7 +69,8 @@ def sample_background(path: str) -> "tuple[int, int, int]":
 def cutout(path: str, lo: float, hi: float, margin: int,
            chroma: "tuple[int, int, int] | None" = None,
            tol_lo: float = 60.0, tol_hi: float = 130.0,
-           despill: bool = True) -> str:
+           despill: bool = True,
+           green: "tuple[float, float] | None" = None) -> str:
     im = Image.open(path).convert("RGB")
     w, h = im.size
     px = im.load()
@@ -77,7 +78,33 @@ def cutout(path: str, lo: float, hi: float, margin: int,
     alpha = Image.new("L", (w, h))
     ap = alpha.load()
 
-    if chroma is not None:
+    if green is not None:
+        # GREENNESS KEY — for a green screen the generator did not paint flat.
+        #
+        # ⚠️ ADDED 2026-08-16, for the Corridor's mirror figure. `--chroma auto` samples ONE
+        # background colour and keys on distance from it, which assumes the background is
+        # uniform. Measured on that generation: the corners were (5, 128, 55) and the
+        # mid-left was (60, 230, 139) — the two backgrounds are 142 apart in RGB, i.e.
+        # further from each other than tol_hi, so no single centre could key both without
+        # eating the figure.
+        #
+        # Hue is what is actually constant on a lit green screen, so key on how much greener
+        # a pixel is than its own red and blue. Measured on the same image: background
+        # scores 73-91, pale skin 2, dark gown 17, lit face -3, bare foot -23 — a gap so
+        # wide the thresholds barely matter.
+        g_lo, g_hi = green
+        span = max(1e-6, g_hi - g_lo)
+        for y in range(h):
+            for x in range(w):
+                r, g, b = px[x, y]
+                score = g - max(r, b)
+                if score <= g_lo:
+                    ap[x, y] = 255
+                elif score >= g_hi:
+                    ap[x, y] = 0
+                else:
+                    ap[x, y] = int(255 * (1.0 - (score - g_lo) / span))
+    elif chroma is not None:
         # CHROMA KEY — for subjects that are NOT reliably darker than their background.
         #
         # The luminance key below assumes a dark figure on a pale ground, which is how the
@@ -111,7 +138,7 @@ def cutout(path: str, lo: float, hi: float, margin: int,
                 else:
                     ap[x, y] = int(255 * (1.0 - (lum - lo) / span))
 
-    if chroma is not None and despill:
+    if (chroma is not None or green is not None) and despill:
         # GREEN SUPPRESSION. Alpha 0 hides the background, but the RGB underneath is still
         # green, and every partially-transparent edge pixel blends some of it back in. With
         # TRANSPARENCY_ALPHA (what `watcher.gd` uses) that shows as a green rim around the
@@ -160,9 +187,16 @@ def main() -> None:
     ap.add_argument("--tol-hi", type=float, default=130.0)
     ap.add_argument("--no-despill", action="store_true",
                     help="skip green suppression (only if the subject is genuinely green)")
+    ap.add_argument("--green", action="store_true",
+                    help="key on GREENNESS (g - max(r, b)) rather than on a single colour. "
+                         "Use when the green screen is lit unevenly, which is the normal "
+                         "case with a generated background.")
+    ap.add_argument("--green-lo", type=float, default=25.0)
+    ap.add_argument("--green-hi", type=float, default=55.0)
     args = ap.parse_args()
     for f in args.files:
         chroma = None
+        green = (args.green_lo, args.green_hi) if args.green else None
         if args.chroma == "auto":
             chroma = sample_background(f)
             print(f"     {f.split('/')[-1]}: background sampled as {chroma}")
@@ -172,7 +206,7 @@ def main() -> None:
                 sys.exit("error: --chroma wants three values (e.g. 0,255,0) or 'auto'")
             chroma = (parts[0], parts[1], parts[2])
         print(cutout(f, args.lo, args.hi, args.margin, chroma, args.tol_lo, args.tol_hi,
-                     not args.no_despill))
+                     not args.no_despill, green))
 
 
 if __name__ == "__main__":

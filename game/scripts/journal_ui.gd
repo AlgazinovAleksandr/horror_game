@@ -103,6 +103,16 @@ func _build() -> void:
 	_list.custom_minimum_size = Vector2(LIST_WIDTH, 0)
 	_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_list.add_theme_font_size_override("font_size", 14)
+	# ⚠️ THE ARROWS DID NOTHING UNTIL YOU CLICKED (fixed 2026-08-16; reported in two
+	# consecutive playtests — captures A5 and B3: *"When I press the tab I cannot navigate
+	# between notes using arrows on my keyboard. I need to click first"*).
+	#
+	# `ItemList.select()` changes the selection but does NOT emit `item_selected` and does NOT
+	# take focus, and nothing here ever called `grab_focus()` or set `focus_mode` — which
+	# defaults to FOCUS_NONE on ItemList. With no focused Control the viewport has nowhere to
+	# route `ui_up`/`ui_down`, so the keys were swallowed until a mouse click handed the list
+	# focus. See open_journal() for the second half of the fix.
+	_list.focus_mode = Control.FOCUS_ALL
 	_list.item_selected.connect(_on_selected)
 	split.add_child(_list)
 
@@ -154,16 +164,21 @@ func open_journal() -> void:
 		_list.add_item("%s — %s" % [LEVEL_NAMES.get(lvl, "?"), e.get("title", "note")])
 	_empty_hint.visible = _entries.is_empty()
 	_text.text = ""
-	if not _entries.is_empty():
-		_list.select(0)
-		_on_selected(0)
 
+	# ⚠️ VISIBLE FIRST, THEN FOCUS. A Control cannot take focus while it is not visible in the
+	# tree, so a grab_focus() before this line is silently a no-op — which is the whole defect
+	# being fixed here, in a different disguise.
 	_root.visible = true
 	is_open = true
 	_block_close = true       # the same frame's TAB must not close it again (Issue 3)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().paused = true
 	set_deferred("_block_close", false)
+
+	if not _entries.is_empty():
+		_list.select(0)
+		_on_selected(0)
+		_list.grab_focus()
 
 
 func _on_selected(index: int) -> void:
@@ -177,15 +192,32 @@ func _process(_delta: float) -> void:
 	# open but the tree is NOT paused, a screamer fired and owns the scene now — drop
 	# the overlay silently rather than survive the reload (Issue 9).
 	if is_open and not get_tree().paused:
+		if _list and _list.has_focus():
+			_list.release_focus()
 		_root.visible = false
 		is_open = false
 
 
-func _unhandled_input(event: InputEvent) -> void:
+# ⚠️ `_input`, NOT `_unhandled_input` — and it has to be, now that the list takes focus.
+#
+# Godot's input order is: Node._input → GUI (Control focus + `ui_focus_next`) → shortcuts →
+# Node._unhandled_input. TAB is `ui_focus_next`'s default binding, so the moment ANY Control
+# has focus the GUI layer consumes TAB before `_unhandled_input` is ever reached: fixing the
+# arrow keys with `grab_focus()` alone would have broken TAB-to-close in the same commit.
+# Handling it in `_input` and calling `set_input_as_handled()` gets in front of the focus
+# machinery, which is exactly what this overlay wants — TAB is its own toggle here, not a
+# focus-cycling key.
+#
+# ESC (`ui_cancel`) goes the same way for symmetry; ItemList does not use it, but a future
+# child Control might.
+func _input(event: InputEvent) -> void:
 	if is_open:
 		if not _block_close and (event.is_action_pressed("journal")
 				or event.is_action_pressed("ui_cancel")):
 			_close()
+		# Swallow it either way — a TAB that reaches the GUI layer while this panel owns the
+		# screen would move focus around behind it.
+		if event.is_action_pressed("journal") or event.is_action_pressed("ui_cancel"):
 			get_viewport().set_input_as_handled()
 		return
 	if event.is_action_pressed("journal"):
@@ -194,6 +226,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _close() -> void:
+	if _list and _list.has_focus():
+		_list.release_focus()
 	_root.visible = false
 	is_open = false
 	get_tree().paused = false

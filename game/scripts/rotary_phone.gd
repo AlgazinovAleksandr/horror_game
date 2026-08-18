@@ -108,6 +108,21 @@ func _ready() -> void:
 
 
 func _build_mesh() -> void:
+	build_visual(self)
+
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.32, 0.3, 0.36)
+	col.shape = shape
+	col.position.y = 0.15
+	add_child(col)
+
+
+# ⚠️ STATIC, and WITHOUT the collider (2026-08-18). KONTUR's Perëkozhnik can wear a phone
+# as a disguise (`mimic_shell.gd`), and a mimic has to be built from the SAME geometry as
+# the thing it imitates — two builders drift, and "which of these two is not ringing" only
+# works if the two are otherwise identical. Additive: nothing else calls it.
+static func build_visual(parent: Node3D) -> void:
 	var black := StandardMaterial3D.new()
 	black.albedo_color = Color(0.05, 0.05, 0.06)
 	black.roughness = 0.4
@@ -119,7 +134,7 @@ func _build_mesh() -> void:
 	base.mesh = base_mesh
 	base.set_surface_override_material(0, black)
 	base.position.y = 0.06
-	add_child(base)
+	parent.add_child(base)
 
 	# dial face
 	var dial := MeshInstance3D.new()
@@ -130,7 +145,7 @@ func _build_mesh() -> void:
 	dial.mesh = dial_mesh
 	dial.set_surface_override_material(0, black)
 	dial.position = Vector3(0, 0.13, 0.06)
-	add_child(dial)
+	parent.add_child(dial)
 
 	# handset resting on top
 	var handset := MeshInstance3D.new()
@@ -139,14 +154,7 @@ func _build_mesh() -> void:
 	handset.mesh = hs_mesh
 	handset.set_surface_override_material(0, black)
 	handset.position = Vector3(0, 0.15, -0.12)
-	add_child(handset)
-
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.32, 0.3, 0.36)
-	col.shape = shape
-	col.position.y = 0.15
-	add_child(col)
+	parent.add_child(handset)
 
 
 func _process(delta: float) -> void:
@@ -201,3 +209,18 @@ func _smash() -> void:
 	var tw := create_tween()
 	tw.tween_property(self, "rotation:z", deg_to_rad(28.0), 0.15)
 	tw.parallel().tween_property(self, "position:y", position.y - 0.06, 0.15)
+
+
+# The RESTORE path: this phone was smashed on an earlier visit and the level has just
+# rebuilt it from scratch (kontur.gd's _reopen_passed_gates). Silent — no sound, no
+# `smashed` signal, no tween — because nothing is happening; the world is catching up
+# with a ledger that already says so. Additive and default-preserving: the Backrooms'
+# two phones never call it.
+func mark_smashed() -> void:
+	if _smashed:
+		return
+	_smashed = true
+	if _ring_player:
+		_ring_player.stop()
+	rotation.z = deg_to_rad(28.0)
+	position.y -= 0.06

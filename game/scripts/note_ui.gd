@@ -73,8 +73,25 @@ func _ready() -> void:
 	_text_label.add_theme_font_size_override("normal_font_size", 18)
 	vbox.add_child(_text_label)
 
+	# ⚠️ IMMUTABLE, and on its own label. Nothing may ever write to this line — that is
+	# combination_lock.gd's lesson (`check_lock_input.gd` locks it down): its feedback label
+	# doubled as the instruction line, so the first INCORRECT destroyed the "Esc cancel"
+	# text exactly when the player most needed it. Here the trap-note bleed recolours
+	# `_text_label` only, and this stays put.
+	#
+	# The second half is the whole reason this line changed. `JournalUI` has shipped for
+	# several sessions as a bound autoload on TAB, archiving every safe note, with a test —
+	# and NOTHING IN THE GAME EVER MENTIONED IT. Grepping every script for "TAB" found only
+	# comments and the string inside the journal's own panel, which you can only read after
+	# you have already opened it. The 2026-08-16 playtester asked for the notes journal as a
+	# NEW FEATURE while standing in front of an open note, with the feature running. This is
+	# a one-string fix to a shipped invisible feature, and it is the cheapest line in the
+	# level pass that produced it.
+	#
+	# "anywhere" is doing real work: TAB is refused while a note is open (JournalUI.can_open()
+	# will not fight NoteUI for the pause), so an instruction to press it HERE would be a lie.
 	var hint := Label.new()
-	hint.text = "[ Press E to close ]"
+	hint.text = "[ Press E to close  ·  TAB anywhere — recovered documents ]"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.add_theme_color_override("font_color", Color(0.45, 0.42, 0.38))
 	hint.add_theme_font_size_override("font_size", 14)

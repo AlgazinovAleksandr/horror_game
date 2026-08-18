@@ -66,4 +66,50 @@ claude-image-generation-main
 
 # Image-generation skill trial outputs — evaluation artifacts, not game assets
 assets_src/image_gen_trial/
+
+# ⚠️ DELIBERATE — the level-by-level improvement run's evidence layer is LOCAL-ONLY.
+# `backlogs/NN-<level>.md` holds playtest captures, diagnosis and costed items; it is
+# development material, not something for viewers of the public repo. `CLAUDE.md` and
+# `GAME_MECHANICS_IDEAS.md` §1a still describe and index it on purpose — a session needs to
+# know it exists. Do not "fix" this by un-ignoring it; the rule is the user's call (2026-08-19).
+# (The `BACKLOG.md` line above is a different, older file and is unrelated.)
 backlogs
+
+# ── assets_src — unprocessed originals ────────────────────────────────────────────────
+# NOTHING here is loaded by the game: every `assets_src` mention inside `game/` is a comment
+# pointing at assets_src/README.md, never a `load()` or a path constant. What IS committed is
+# the subset that an automated step reads as INPUT, so a fresh clone can still re-run every
+# pipeline:
+#   textures/level_3_corridor/vesper_note_paper_raw.jpg    tools/make_vesper_note.py:48
+#   textures/level_3_corridor/screamer_false_door_raw.jpg  tools/make_false_door_screamer.py:65
+#   textures/level_backrooms/backrooms_note_paper_raw.jpg  tools/make_backrooms_note.py:61
+#   textures/level_1_lab/lab_breaker_panel_raw.png         tools/flatten_alpha_checker.py; also
+#                                                          needed to re-prove check_nook_dark.gd's
+#                                                          checkerboard limits (manual, line 218)
+#   textures/intro/door_from_intro_to_lab.png              cutout_alpha.py -> restencil_door.py
+#   textures/level_3_corridor/door_from_corridor_to_...    manual crop (assets_src/README.md)
+#   audio/level_2_house/chase.wav                          tools/make_loop.py
+# Everything else is local-only. It is still irreplaceable — the pipelines are destructive and
+# generations are stochastic — but no automated step needs it, so it does not belong in a repo
+# other people clone.
+# ⚠️ A pattern here does NOT apply to a file git already tracks — `git check-ignore` will even
+# stay silent about one (pass --no-index to test the pattern alone). Untracking therefore takes
+# an explicit `git rm --cached`, which is how ALL FIVE video originals became local-only:
+# fall_scene.mp4 and intro_scene.mp4 were committed for a while and were removed on 2026-08-19
+# at the user's call. ⚠️ That was a decision about repo CONTENTS, not size — `git rm --cached`
+# reclaims nothing, because the blobs stay in history permanently (which is why .git is 854 MB).
+# Only a history rewrite changes that number.
+# Still tracked despite matching nothing a tool reads: textures/superseded/* — see the section
+# of assets_src/README.md that explains why a retired asset is kept.
+assets_src/reference/
+assets_src/video/seeds/
+assets_src/video/*.mp4
+assets_src/audio/**/*.flac
+assets_src/**/*_pre2026-*
+assets_src/textures/**/*_raw.*
+!assets_src/textures/level_3_corridor/vesper_note_paper_raw.jpg
+!assets_src/textures/level_3_corridor/screamer_false_door_raw.jpg
+!assets_src/textures/level_backrooms/backrooms_note_paper_raw.jpg
+!assets_src/textures/level_1_lab/lab_breaker_panel_raw.png
+
+VIDEO_PROMPTS.md

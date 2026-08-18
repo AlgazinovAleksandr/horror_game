@@ -202,10 +202,14 @@ func _do_settle() -> void:
 	if _elapsed - _settle_started < 1.6:
 		return
 	var travelled: float = _locker.global_position.distance_to(_start_pos)
-	# Three lurches of SHOVE_DIST each. Anything much under that means the staging
-	# short-circuited and one bar cleared the whole thing.
-	_ok("three shoves slid the locker fully aside", travelled >= 1.2,
-		"travelled %.2f m" % travelled)
+	# ⚠️ The travel is FRONT-LOADED onto the last bar since 2026-08-16 (two 0.14 m lurches
+	# that keep the panel covered, then one 0.82 m slide that reveals it), so the old
+	# "3 x SHOVE_DIST" arithmetic no longer describes it. What still has to be true is the
+	# TOTAL — anything much under LabLocker.TOTAL_TRAVEL means the staging short-circuited
+	# and one bar cleared the whole thing. Where the panel is visible at each intermediate
+	# stage is measured with rays in check_lab_breaker_gate.gd, not here.
+	_ok("three shoves slid the locker fully aside", travelled >= 1.05,
+		"travelled %.2f m (LabLocker.TOTAL_TRAVEL = 1.10)" % travelled)
 	_ok("breaker is reachable once the locker has moved",
 		_ray_target() != null and _ray_target().has_signal("flipped"),
 		"ray hit %s" % [_ray_target()])
